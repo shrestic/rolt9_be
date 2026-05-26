@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/nguyenphong/Developer/rolt9/rolt9_be/docs/superpowers/specs && ls /Users/nguyenphong/Developer/rolt9/rolt9_be/docs/superpowers/specs)",
+      "Bash(python -m pytest tests/ -x --tb=short)",
+      "Bash(python3.12 -m pytest tests/ -x --tb=short)",
+      "Bash(find /Users/nguyenphong/Developer/rolt9 -name \"pytest\" -path \"*bin*\" 2>/dev/null | head -5)",
+      "Read(//Users/nguyenphong/Developer/rolt9/**)",
+      "Read(//Users/nguyenphong/**)",
+      "Bash(pip3 list *)",
+      "Bash(python3.12 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -m pytest tests/ --tb=short)",
+      "Bash(.venv/bin/python -m ruff check app/ tests/)",
+      "Bash(.venv/bin/python -m ruff check app/ tests/ --fix)",
+      "Bash(git mv *)",
+      "Bash(perl -pi -e 's/\\\\bdiscord_client\\\\b/discord_io/g' app/bot/cogs/custom_commands.py app/bot/cogs/moderation.py app/bot/client.py)",
+      "Bash(perl -pi -e 's/app\\\\/discord\\\\//app\\\\/discord_io\\\\//g; s/`app\\\\.discord`/`app.discord_io`/g; s/`self\\\\.discord\\\\b/`self.discord_io/g; s/`self\\\\.discord_client`/`self.discord_io`/g; s/`bot\\\\.discord_client`/`bot.discord_io`/g; s/app\\\\.discord\\\\./app.discord_io./g; s/from app\\\\.discord /from app.discord_io /g; s/`get_discord_client`/`get_discord_io`/g; s/get_discord_client/get_discord_io/g; s/app\\\\/discord_io\\\\/client\\\\.py:DiscordClient/app\\\\/discord_io\\\\/client.py:DiscordClient/g' docs/discord-architecture.md)",
+      "Bash(.venv/bin/python -m ruff check app/)",
+      "Bash(.venv/bin/python -m pytest tests/unit/test_custom_commands_handler.py -x --tb=short)",
+      "Bash(pnpm type-check *)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm lint:fix)",
+      "Bash(.venv/bin/python -m pytest tests/)"
+    ],
+    "additionalDirectories": [
+      "/Users/nguyenphong/Developer/rolt9/rolt9_be/docs/superpowers",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/data/models",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/settings",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/data/datasource/remote",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/data/repositories",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/modules/commands/hooks",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/modules/commands/components",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/data/mock",
+      "/Users/nguyenphong/Developer/rolt9/rolt9_fe/src/components"
+    ]
+  }
+}

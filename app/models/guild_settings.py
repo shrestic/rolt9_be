@@ -21,6 +21,7 @@ class GuildSettings(Base):
     automod: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     logging: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     leveling: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    commands: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

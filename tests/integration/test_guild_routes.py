@@ -36,8 +36,11 @@ def make_authed_user_client(db_session):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_overview_returns_data_when_user_manages(make_authed_user_client):
+async def test_overview_returns_data_when_user_manages(make_authed_user_client, fake_discord):
+    from app.discord_io.types import ChannelInfo, GuildInfo, RoleInfo
+
     client = await make_authed_user_client()
+    # OAuth side (user bearer token) still goes through httpx → respx.
     respx.get(GUILDS_URL).mock(
         return_value=Response(
             200,
@@ -46,33 +49,11 @@ async def test_overview_returns_data_when_user_manages(make_authed_user_client):
             ],
         )
     )
-    respx.get("https://discord.com/api/guilds/55").mock(
-        return_value=Response(
-            200,
-            json={
-                "id": "55",
-                "name": "Owned",
-                "icon": None,
-                "approximate_member_count": 42,
-            },
-        )
-    )
-    respx.get("https://discord.com/api/guilds/55/channels").mock(
-        return_value=Response(
-            200,
-            json=[
-                {"id": "100", "name": "general", "type": 0},
-            ],
-        )
-    )
-    respx.get("https://discord.com/api/guilds/55/roles").mock(
-        return_value=Response(
-            200,
-            json=[
-                {"id": "1", "name": "@everyone"},
-            ],
-        )
-    )
+    # Bot side now goes through BotDiscordClient → seed the fake instead.
+    fake_discord.guilds[55] = GuildInfo(discord_id=55, name="Owned", icon_url=None, member_count=42)
+    fake_discord.channels[55] = [ChannelInfo(discord_id=100, name="general", type=0)]
+    fake_discord.roles[55] = [RoleInfo(discord_id=1, name="@everyone")]
+
     r = client.get(f"{settings.API_V1_STR}/guilds/55/overview")
     assert r.status_code == 200, r.text
     body = r.json()

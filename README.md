@@ -219,6 +219,31 @@ Key environment variables for configuration:
 - `POSTGRES_PASSWORD`: PostgreSQL password
 - `POSTGRES_DB`: PostgreSQL database name
 
+## Phase 2 — Moderation + Commands
+
+### Bot setup requirements
+
+- **Message Content Intent must be ON** in the Discord Developer Portal (required for the `!prefix` command listener to read message content).
+- The bot syncs slash commands (ban, kick, mute, unmute, warn, unban) with Discord automatically on startup via `bot_main.py`.
+- Run database migrations before starting: `alembic upgrade head`.
+
+### New endpoints (Phase 2)
+
+All endpoints require authentication and `manage_guild` permission on the target guild.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/guilds/{id}/moderation` | Get moderation settings |
+| `PUT` | `/api/v1/guilds/{id}/moderation` | Update moderation settings (mod-log channel, DM-on-action, warn escalation rules) |
+| `GET` | `/api/v1/guilds/{id}/cases` | List moderation cases (paginated) |
+| `DELETE` | `/api/v1/guilds/{id}/cases/{n}` | Remove a warning case |
+| `GET` | `/api/v1/guilds/{id}/commands` | List custom commands |
+| `POST` | `/api/v1/guilds/{id}/commands` | Create a custom command |
+| `PUT` | `/api/v1/guilds/{id}/commands/{cid}` | Update a custom command |
+| `DELETE` | `/api/v1/guilds/{id}/commands/{cid}` | Delete a custom command |
+| `GET` | `/api/v1/guilds/{id}/command-settings` | Get command settings (prefix, enabled) |
+| `PUT` | `/api/v1/guilds/{id}/command-settings` | Update command settings |
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

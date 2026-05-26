@@ -95,9 +95,48 @@ async def override_db(db_session):
 
 
 @pytest.fixture(autouse=True)
-def clear_permission_cache():
-    from app.dependencies.services import _perm_svc
+def clear_di_caches():
+    # Resets every in-memory cache held by module-level DI singletons (currently
+    # just the permission cache). Public API so we don't reach into underscore
+    # attributes from tests.
+    from app.dependencies.services import reset_caches
 
-    _perm_svc._cache.clear()
+    reset_caches()
     yield
-    _perm_svc._cache.clear()
+    reset_caches()
+
+
+# After merging the bot into the FastAPI process, get_discord_io reads from
+# app.state.bot — which only exists if lifespan ran with a real DISCORD_BOT_TOKEN.
+# Tests bypass lifespan, so we override the dependency to return a FakeDiscordClient.
+# Tests can grab this fake via the `fake_discord` fixture to seed state or assert calls.
+@pytest.fixture
+def fake_discord():
+    from app.dependencies.services import get_discord_io
+    from app.main import app
+    from tests.fakes.discord import FakeDiscordClient
+
+    fake = FakeDiscordClient()
+    app.dependency_overrides[get_discord_io] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(get_discord_io, None)
+
+
+# Autouse default: every test gets a baseline FakeDiscordClient override even if
+# it doesn't ask for one. Tests that need to inspect state should depend on
+# `fake_discord` directly to get the same instance.
+@pytest.fixture(autouse=True)
+def _default_fake_discord_override(request):
+    from app.dependencies.services import get_discord_io
+    from app.main import app
+    from tests.fakes.discord import FakeDiscordClient
+
+    # If the test already depends on `fake_discord`, that fixture installs its own
+    # override and we don't want to clobber it.
+    if "fake_discord" in request.fixturenames:
+        yield
+        return
+    fake = FakeDiscordClient()
+    app.dependency_overrides[get_discord_io] = lambda: fake
+    yield
+    app.dependency_overrides.pop(get_discord_io, None)

@@ -21,24 +21,6 @@ services:
       - RUN_MIGRATIONS=1
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-  bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./app:/app/app
-      - ./bot_main.py:/app/bot_main.py
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    env_file: .env
-    environment:
-      - POSTGRES_SERVER=db
-      - REDIS_URL=redis://redis:6379/0
-    command: python bot_main.py
-
   db:
     image: postgres:13
     volumes:

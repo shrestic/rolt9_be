@@ -6,6 +6,7 @@ from starlette.exceptions import (
 )
 
 from app.exceptions.http_exceptions import BaseCustomError
+from app.services.oauth_session import SessionExpiredError
 from app.utils.response import create_response
 
 
@@ -71,6 +72,18 @@ def add_exception_handlers(app: FastAPI) -> None:
                 response.headers[key] = value
 
         return response
+
+    # The user's refresh token was rejected by Discord — only the user can
+    # recover, by logging in again. Return 401 so the FE can redirect them.
+    @app.exception_handler(SessionExpiredError)
+    async def session_expired_handler(request: Request, exc: SessionExpiredError):
+        return create_response(
+            success=False,
+            message="Discord session expired — please log in again.",
+            errors=[str(exc)],
+            error_code="SESSION_EXPIRED",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
