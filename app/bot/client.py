@@ -44,10 +44,19 @@ class Rolt9Bot(commands.Bot):
     def __init__(self):
         # Intents = privilege bits the bot requests from Discord. Fewer = faster.
         # We currently need:
-        #   - guilds: to receive on_guild_join/remove/ready
-        #   - message_content: to read text messages and match custom-command prefixes
+        #   - guilds: to receive on_guild_join / on_guild_remove / on_ready
+        #   - guild_messages: to receive on_message events in server channels.
+        #     WITHOUT this, Discord doesn't dispatch MESSAGE_CREATE at all, so
+        #     the custom-command cog never sees "!hi" messages — even with the
+        #     message_content intent enabled. (message_content only controls
+        #     whether `message.content` is non-empty; the event itself is gated
+        #     by guild_messages.)
+        #   - message_content: privileged intent that fills in `message.content`
+        #     so the cog can match the command trigger. Must ALSO be enabled
+        #     in the Discord Developer Portal under "Privileged Gateway Intents".
         intents = discord.Intents.none()
         intents.guilds = True
+        intents.guild_messages = True
         intents.message_content = True
 
         super().__init__(command_prefix="!", intents=intents, help_command=None)

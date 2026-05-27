@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.dependencies.auth import get_current_user
 from app.dependencies.guild import require_managed_guild
@@ -34,6 +34,17 @@ from app.services.custom_command_service import (
 )
 
 router = APIRouter()
+
+
+# After any mutation to a guild's command config the bot's GuildConfigCache
+# (45s TTL) still holds the old version, so admin edits don't take effect for
+# up to 45 seconds. Since the bot lives in the same process, the endpoint can
+# bust the cache directly. Safe no-op if the bot isn't running (e.g. tests).
+def _invalidate_guild_config_cache(request: Request, guild_discord_id: int) -> None:
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None:
+        return
+    bot.config_cache.invalidate(guild_discord_id)
 
 
 def _to_out(c: CustomCommand) -> CustomCommandOut:
@@ -77,11 +88,13 @@ async def list_commands(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_command(
+    request: Request,
     payload: CustomCommandIn,
     guild: Guild = Depends(require_managed_guild),
     repo: CustomCommandRepository = Depends(get_custom_command_repository),
 ):
     cmd = await repo.create(guild_id=guild.id, data=_to_data(payload))
+    _invalidate_guild_config_cache(request, guild.discord_id)
     return _to_out(cmd)
 
 
@@ -99,6 +112,7 @@ async def get_command(
 
 @router.put("/{guild_id}/commands/{command_id}", response_model=CustomCommandOut)
 async def update_command(
+    request: Request,
     command_id: uuid.UUID,
     payload: CustomCommandIn,
     guild: Guild = Depends(require_managed_guild),
@@ -107,17 +121,20 @@ async def update_command(
     cmd = await repo.update(guild_id=guild.id, command_id=command_id, data=_to_data(payload))
     if cmd is None:
         raise NotFoundError(detail="Command not found")
+    _invalidate_guild_config_cache(request, guild.discord_id)
     return _to_out(cmd)
 
 
 @router.delete("/{guild_id}/commands/{command_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_command(
+    request: Request,
     command_id: uuid.UUID,
     guild: Guild = Depends(require_managed_guild),
     repo: CustomCommandRepository = Depends(get_custom_command_repository),
 ):
     if not await repo.delete(guild_id=guild.id, command_id=command_id):
         raise NotFoundError(detail="Command not found")
+    _invalidate_guild_config_cache(request, guild.discord_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -132,11 +149,13 @@ async def get_command_settings(
 
 @router.put("/{guild_id}/command-settings", response_model=CommandSettings)
 async def update_command_settings(
+    request: Request,
     payload: CommandSettings,
     guild: Guild = Depends(require_managed_guild),
     settings_repo: GuildSettingsRepository = Depends(get_guild_settings_repository),
 ):
     gs = await settings_repo.update_section(guild.id, "commands", payload.model_dump())
+    _invalidate_guild_config_cache(request, guild.discord_id)
     return CommandSettings(**gs.commands)
 
 
