@@ -100,3 +100,6 @@ celerybeat.pid
 redis.conf
 
 http_requests/
+
+# Superpowers brainstorm artifacts (visual companion mockups)
+.superpowers/

@@ -244,6 +244,34 @@ All endpoints require authentication and `manage_guild` permission on the target
 | `GET` | `/api/v1/guilds/{id}/command-settings` | Get command settings (prefix, enabled) |
 | `PUT` | `/api/v1/guilds/{id}/command-settings` | Update command settings |
 
+## Phase 3.1 — Leveling Foundation
+
+Per-guild XP / levels / leaderboard / themeable rank cards. Off by default; admins enable it from the dashboard.
+
+### Bot requirements
+
+- The bot already has the `message_content` intent enabled for Phase 2 — no new intents needed.
+- Slash commands added: `/rank`, `/leaderboard`, `/level-rewards`. They sync on startup via `Rolt9Bot.setup_hook`.
+- Run database migrations: `alembic upgrade head`.
+
+### New endpoints
+
+All require authentication and `manage_guild` permission on the target guild.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/guilds/{id}/leveling/settings` | Read XP / cooldown / notification / level-role settings |
+| `PUT` | `/api/v1/guilds/{id}/leveling/settings` | Update settings (invalidates the bot's leveling cache) |
+| `GET` | `/api/v1/guilds/{id}/leveling/leaderboard?page=1&page_size=20` | Top-N members |
+| `GET` | `/api/v1/guilds/{id}/leveling/members/{user_id}` | One member's rank/level/XP |
+| `PATCH` | `/api/v1/guilds/{id}/leveling/members/{user_id}` | Admin XP override |
+| `DELETE` | `/api/v1/guilds/{id}/leveling/members/{user_id}` | Reset member's XP to 0 |
+| `GET` | `/api/v1/guilds/{id}/leveling/rewards` | List level → role mappings |
+| `POST` | `/api/v1/guilds/{id}/leveling/rewards` | Add or replace a mapping |
+| `DELETE` | `/api/v1/guilds/{id}/leveling/rewards/{level}` | Remove a mapping |
+| `GET` | `/api/v1/guilds/{id}/leveling/rank-card-theme` | Read guild default theme |
+| `PUT` | `/api/v1/guilds/{id}/leveling/rank-card-theme` | Update guild default theme |
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

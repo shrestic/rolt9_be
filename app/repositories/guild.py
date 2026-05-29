@@ -27,13 +27,13 @@ class GuildRepository:
         if existing is None:
             g = Guild(discord_id=discord_id, name=name, icon_url=icon_url, is_active=True)
             self.session.add(g)
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(g)
             return g
         existing.name = name
         existing.icon_url = icon_url
         existing.is_active = True
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(existing)
         return existing
 
@@ -41,4 +41,4 @@ class GuildRepository:
         await self.session.execute(
             update(Guild).where(Guild.discord_id == discord_id).values(is_active=False)
         )
-        await self.session.commit()
+        await self.session.flush()

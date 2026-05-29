@@ -34,11 +34,16 @@ class FakeDiscordClient:
     unmutes: list[tuple[int, int, str | None]] = field(default_factory=list)
     posted_messages: list[tuple[int, Embed | None, str | None]] = field(default_factory=list)
     dms_sent: list[dict[str, Any]] = field(default_factory=list)
+    member_roles: dict[tuple[int, int], set[int]] = field(default_factory=dict)
+    role_grants: list[tuple[int, int, int]] = field(default_factory=list)
+    role_revokes: list[tuple[int, int, int]] = field(default_factory=list)
 
     # Inject exception classes to test failure paths (e.g. bot can't send a DM).
     raise_on_revoke: type[DiscordError] | None = None
     raise_on_post: type[DiscordError] | None = None
     raise_on_dm: type[DiscordError] | None = None
+    raise_on_add_role: type[DiscordError] | None = None
+    raise_on_remove_role: type[DiscordError] | None = None
 
     # Lookup tables for read methods.
     users: dict[int, UserInfo] = field(default_factory=dict)
@@ -115,6 +120,21 @@ class FakeDiscordClient:
                 "reason": reason,
             }
         )
+
+    async def add_role(self, guild_id: int, user_id: int, role_id: int) -> None:
+        if self.raise_on_add_role is not None:
+            raise self.raise_on_add_role("simulated")
+        self.role_grants.append((guild_id, user_id, role_id))
+        self.member_roles.setdefault((guild_id, user_id), set()).add(role_id)
+
+    async def remove_role(self, guild_id: int, user_id: int, role_id: int) -> None:
+        if self.raise_on_remove_role is not None:
+            raise self.raise_on_remove_role("simulated")
+        self.role_revokes.append((guild_id, user_id, role_id))
+        self.member_roles.get((guild_id, user_id), set()).discard(role_id)
+
+    async def get_member_role_ids(self, guild_id: int, user_id: int) -> set[int]:
+        return set(self.member_roles.get((guild_id, user_id), set()))
 
 
 @dataclass

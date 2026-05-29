@@ -60,7 +60,7 @@ class CustomCommandRepository:
             created_by=data.get("created_by"),
         )
         self.session.add(cmd)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(cmd)
         return cmd
 
@@ -90,7 +90,7 @@ class CustomCommandRepository:
         ):
             if field in data:
                 setattr(cmd, field, data[field])
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(cmd)
         return cmd
 
@@ -99,5 +99,5 @@ class CustomCommandRepository:
         if cmd is None:
             return False
         await self.session.delete(cmd)
-        await self.session.commit()
+        await self.session.flush()
         return True

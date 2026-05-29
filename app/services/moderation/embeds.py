@@ -2,18 +2,9 @@
 # the adapter converts Embed → discord.Embed (BotDiscordClient) or JSON dict
 # (RestDiscordClient) when actually posting.
 
+from app.core.colors import ModerationColors
 from app.discord_io.types import Embed, EmbedField
 from app.models.mod_case import ModCase
-
-# Per-action color so case embeds are visually distinguishable in mod-log.
-_COLORS = {
-    "ban": 0xED4245,  # red
-    "kick": 0xE67E22,  # orange
-    "mute": 0xFAA61A,  # yellow-orange
-    "unmute": 0x57F287,  # green (revert)
-    "unban": 0x57F287,  # green (revert)
-    "warn": 0xFEE75C,  # light yellow
-}
 
 
 def build_case_embed(case: ModCase) -> Embed:
@@ -40,6 +31,6 @@ def build_case_embed(case: ModCase) -> Embed:
 
     return Embed(
         title=f"Case #{case.case_number} · {case.action.upper()}",
-        color=_COLORS.get(case.action, 0x5865F2),
+        color=ModerationColors.for_action(case.action),
         fields=fields,
     )

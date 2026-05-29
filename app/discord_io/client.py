@@ -60,6 +60,10 @@ class DiscordModeration(Protocol):
     # was never banned.
     async def is_banned(self, guild_id: int, user_id: int) -> bool: ...
 
+    async def add_role(self, guild_id: int, user_id: int, role_id: int) -> None: ...
+
+    async def remove_role(self, guild_id: int, user_id: int, role_id: int) -> None: ...
+
 
 # Read-only queries against guilds / channels / roles / users.
 class DiscordReader(Protocol):
@@ -71,6 +75,8 @@ class DiscordReader(Protocol):
 
     # Used by /unban where only the user_id is known.
     async def get_user(self, user_id: int) -> UserInfo: ...
+
+    async def get_member_role_ids(self, guild_id: int, user_id: int) -> set[int]: ...
 
 
 # Sending messages: channel posts and direct messages to users.

@@ -194,6 +194,35 @@ class BotDiscordClient(DiscordClient):
         except discord.HTTPException as exc:
             raise DiscordError(str(exc)) from exc
 
+    async def add_role(self, guild_id: int, user_id: int, role_id: int) -> None:
+        guild = await self._guild(guild_id)
+        member = await self._member(guild, user_id)
+        role = guild.get_role(role_id)
+        if role is None:
+            raise DiscordNotFound(f"role {role_id} not in guild {guild_id}")
+        try:
+            await member.add_roles(role, reason="rolt9 leveling reward")
+        except discord.Forbidden as exc:
+            raise DiscordForbidden(f"forbidden to add role {role_id} to {user_id}") from exc
+        except discord.HTTPException as exc:
+            raise DiscordError(str(exc)) from exc
+
+    async def remove_role(self, guild_id: int, user_id: int, role_id: int) -> None:
+        guild = await self._guild(guild_id)
+        try:
+            member = await self._member(guild, user_id)
+        except DiscordNotFound:
+            return  # member left → nothing to remove
+        role = guild.get_role(role_id)
+        if role is None:
+            return  # role deleted → nothing to remove
+        try:
+            await member.remove_roles(role, reason="rolt9 leveling reward removed")
+        except discord.Forbidden as exc:
+            raise DiscordForbidden(f"forbidden to remove role {role_id} from {user_id}") from exc
+        except discord.HTTPException as exc:
+            raise DiscordError(str(exc)) from exc
+
     # ─────────────────────────────────────────────────────────────────────
     # Reads — pure cache/fetch, no direct REST calls
     # ─────────────────────────────────────────────────────────────────────
@@ -237,6 +266,14 @@ class BotDiscordClient(DiscordClient):
             username=str(user),
             avatar_url=_avatar_url(user),
         )
+
+    async def get_member_role_ids(self, guild_id: int, user_id: int) -> set[int]:
+        guild = await self._guild(guild_id)
+        try:
+            member = await self._member(guild, user_id)
+        except DiscordNotFound:
+            return set()
+        return {int(r.id) for r in member.roles}
 
     # ─────────────────────────────────────────────────────────────────────
     # Messaging

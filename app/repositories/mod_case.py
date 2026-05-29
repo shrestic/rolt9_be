@@ -48,7 +48,7 @@ class ModCaseRepository:
             active=True,
         )
         self.session.add(case)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(case)
         return case
 
@@ -102,6 +102,6 @@ class ModCaseRepository:
 
     async def deactivate(self, case: ModCase) -> ModCase:
         case.active = False
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(case)
         return case

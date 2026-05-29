@@ -20,9 +20,14 @@ from app.discord_io.client import DiscordClient, DiscordOAuthClient
 from app.discord_io.clients.rest import RestDiscordOAuthClient
 from app.repositories.custom_command import CustomCommandRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
 from app.repositories.guild_settings import GuildSettingsRepository
+from app.repositories.level_role_reward import LevelRoleRewardRepository
+from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.mod_case import ModCaseRepository
 from app.repositories.user import UserRepository
+from app.repositories.user_xp import UserXpRepository
+from app.services.leveling import LevelingService
 from app.services.moderation.service import ModerationService
 from app.services.oauth_session import OAuthSessionService
 from app.services.permission_service import PermissionService
@@ -118,4 +123,41 @@ def get_moderation_service(
         guilds=GuildRepository(db),
         settings=GuildSettingsRepository(db),
         cases=ModCaseRepository(db),
+    )
+
+
+def get_leveling_config_repository(
+    db: AsyncSession = Depends(get_db),
+) -> GuildLevelingConfigRepository:
+    return GuildLevelingConfigRepository(db)
+
+
+def get_user_xp_repository(db: AsyncSession = Depends(get_db)) -> UserXpRepository:
+    return UserXpRepository(db)
+
+
+def get_level_role_reward_repository(
+    db: AsyncSession = Depends(get_db),
+) -> LevelRoleRewardRepository:
+    return LevelRoleRewardRepository(db)
+
+
+def get_guild_rank_card_theme_repository(
+    db: AsyncSession = Depends(get_db),
+) -> GuildRankCardThemeRepository:
+    return GuildRankCardThemeRepository(db)
+
+
+def get_leveling_service(
+    db: AsyncSession = Depends(get_db),
+    discord_io: DiscordClient = Depends(get_discord_io),
+) -> LevelingService:
+    return LevelingService(
+        session=db,
+        discord_io=discord_io,
+        guild_repo=GuildRepository(db),
+        config_repo=GuildLevelingConfigRepository(db),
+        xp_repo=UserXpRepository(db),
+        reward_repo=LevelRoleRewardRepository(db),
+        theme_repo=GuildRankCardThemeRepository(db),
     )

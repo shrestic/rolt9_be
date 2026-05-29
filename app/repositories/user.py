@@ -40,7 +40,7 @@ class UserRepository:
                 token_expires_at=token_expires_at,
             )
             self.session.add(user)
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(user)
             return user
         existing.username = username
@@ -48,6 +48,6 @@ class UserRepository:
         existing.access_token_enc = access_token_enc
         existing.refresh_token_enc = refresh_token_enc
         existing.token_expires_at = token_expires_at
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(existing)
         return existing

@@ -1,6 +1,11 @@
 from app.db.base_class import Base  # noqa: F401
 from app.models.custom_command import CustomCommand  # noqa: F401
 from app.models.guild import Guild  # noqa: F401
+from app.models.guild_leveling_config import GuildLevelingConfig  # noqa: F401
+from app.models.guild_rank_card_theme import GuildRankCardTheme  # noqa: F401
 from app.models.guild_settings import GuildSettings  # noqa: F401
+from app.models.level_role_reward import LevelRoleReward  # noqa: F401
 from app.models.mod_case import ModCase  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.user_rank_card_theme import UserRankCardTheme  # noqa: F401
+from app.models.user_xp import UserXp  # noqa: F401

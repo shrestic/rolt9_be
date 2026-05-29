@@ -6,6 +6,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.core.colors import DiscordBrand
+
 
 # One field in an embed (a single key-value row, may sit inline with siblings).
 @dataclass(frozen=True)
@@ -21,7 +23,7 @@ class EmbedField:
 class Embed:
     title: str | None = None
     description: str | None = None
-    color: int = 0x5865F2  # Discord blurple — default color
+    color: int = DiscordBrand.BLURPLE  # Discord blurple — default color
     fields: list[EmbedField] = field(default_factory=list)
     footer: str | None = None
     image_url: str | None = None

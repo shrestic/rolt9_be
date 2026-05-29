@@ -17,10 +17,18 @@ import discord
 from discord.ext import commands
 
 from app.bot.cache.guild_config_cache import GuildConfigCache
+from app.bot.cache.leveling_config_cache import LevelingConfigCache
 from app.bot.cogs.custom_commands import CustomCommandsCog
+from app.bot.cogs.leveling import LevelingCog
 from app.bot.cogs.moderation import ModerationCog
-from app.bot.events import handle_guild_join, handle_guild_remove, handle_ready
-from app.db.session import AsyncSessionLocal
+from app.bot.events import (
+    handle_guild_join,
+    handle_guild_remove,
+    handle_guild_update,
+    handle_ready,
+)
+from app.bot.listeners.xp_listener import XpListenerCog
+from app.db.session import session_scope
 from app.discord_io.client import DiscordClient
 from app.discord_io.clients.bot import BotDiscordClient
 from app.discord_io.types import GuildInfo
@@ -64,6 +72,7 @@ class Rolt9Bot(commands.Bot):
         # In-memory cache for GuildConfig (custom commands + settings).
         # CustomCommandsCog uses this instead of querying the DB for every message.
         self.config_cache = GuildConfigCache()
+        self.leveling_config_cache = LevelingConfigCache()
 
         # One DiscordClient instance shared across all cogs. Constructed here
         # (after super().__init__) because BotDiscordClient needs `self` (the
@@ -74,6 +83,8 @@ class Rolt9Bot(commands.Bot):
     async def setup_hook(self) -> None:
         await self.add_cog(ModerationCog(self, self.discord_io))
         await self.add_cog(CustomCommandsCog(self, self.discord_io, self.config_cache))
+        await self.add_cog(LevelingCog(self, self.discord_io))
+        await self.add_cog(XpListenerCog(self, self.leveling_config_cache, self.discord_io))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.
         await self.tree.sync()
@@ -89,19 +100,27 @@ def build_bot() -> commands.Bot:
     @bot.event
     async def on_ready():
         log.info("Bot ready. Connected to %d guild(s).", len(bot.guilds))
-        async with AsyncSessionLocal() as session:  # type: ignore
+        async with session_scope() as session:
             await handle_ready([_guild_info_from(g) for g in bot.guilds], session)
 
     # Fires when an admin adds the bot to a new server.
     @bot.event
     async def on_guild_join(guild: discord.Guild):
-        async with AsyncSessionLocal() as session:  # type: ignore
+        async with session_scope() as session:
             await handle_guild_join(_guild_info_from(guild), session)
 
     # Fires when the bot is kicked or the server is deleted.
     @bot.event
     async def on_guild_remove(guild: discord.Guild):
-        async with AsyncSessionLocal() as session:  # type: ignore
+        async with session_scope() as session:
             await handle_guild_remove(_guild_info_from(guild), session)
+
+    # Fires when guild metadata changes (name, icon, owner, etc.). Keeps the
+    # `guilds` row in sync so dashboard views and embeds that read from the DB
+    # don't show a stale server name after a rename.
+    @bot.event
+    async def on_guild_update(_before: discord.Guild, after: discord.Guild):
+        async with session_scope() as session:
+            await handle_guild_update(_guild_info_from(after), session)
 
     return bot

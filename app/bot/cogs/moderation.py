@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, session_scope
 from app.discord_io.client import DiscordClient
 from app.discord_io.clients.bot import _to_discord_embed
 from app.discord_io.errors import DiscordError
@@ -70,7 +70,7 @@ async def _run_action(
 ) -> None:
     await interaction.response.defer(ephemeral=True)
     try:
-        async with AsyncSessionLocal() as session:
+        async with session_scope() as session:
             service = _build_service(session, discord_io)
             message = await action(service)
     except ValueError as exc:

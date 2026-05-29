@@ -10,6 +10,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from app.core.colors import DiscordBrand
 from app.discord_io.types import Embed, EmbedField
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,18 +67,14 @@ def render_template(text: str, context: dict[str, str]) -> str:
     return result
 
 
-# Discord blurple — used as fallback when the admin enters an invalid hex.
-_DEFAULT_COLOR = 0x5865F2
-
-
 def parse_color(color_hex: str | None) -> int:
     """Convert "#5865F2" → 0x5865F2. Garbage in → blurple default."""
     if not color_hex:
-        return _DEFAULT_COLOR
+        return DiscordBrand.BLURPLE
     try:
         return int(color_hex.lstrip("#"), 16)
     except ValueError:
-        return _DEFAULT_COLOR
+        return DiscordBrand.BLURPLE
 
 
 def render_embed_spec(spec: dict, context: dict[str, str]) -> Embed:

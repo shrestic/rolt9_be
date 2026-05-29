@@ -30,7 +30,7 @@ class GuildSettingsRepository:
             commands={},
         )
         self.session.add(s)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(s)
         return s
 
@@ -39,6 +39,6 @@ class GuildSettingsRepository:
         if gs is None:
             gs = await self.create_defaults(guild_id)
         setattr(gs, section, data)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(gs)
         return gs
