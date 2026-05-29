@@ -205,3 +205,83 @@ async def test_get_settings_forbidden_for_non_manager(seed):
     )
     r = client.get(_url())
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_settings_includes_decay_defaults(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.get(_url())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["xp_decay_enabled"] is False
+    assert body["xp_decay_percent"] == 10
+    assert body["xp_decay_inactivity_days"] == 7
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_settings_persists_decay_fields(seed, db_session):
+    client, g = await seed()
+    _mock_owned()
+    payload = {
+        "enabled": False,
+        "xp_min": 15,
+        "xp_max": 25,
+        "cooldown_seconds": 60,
+        "min_message_length": 4,
+        "ignore_emoji_only": True,
+        "ignore_link_only": True,
+        "ignored_channel_ids": [],
+        "ignored_role_ids": [],
+        "notification_mode": "channel",
+        "notification_channel_id": None,
+        "level_role_mode": "replacing",
+        "xp_decay_enabled": True,
+        "xp_decay_percent": 25,
+        "xp_decay_inactivity_days": 14,
+    }
+    r = client.put(_url(), json=payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["xp_decay_enabled"] is True
+    assert body["xp_decay_percent"] == 25
+    assert body["xp_decay_inactivity_days"] == 14
+
+    from app.repositories.leveling_config import GuildLevelingConfigRepository
+
+    cfg = await GuildLevelingConfigRepository(db_session).get(g.id)
+    assert cfg.xp_decay_enabled is True
+    assert cfg.xp_decay_percent == 25
+    assert cfg.xp_decay_inactivity_days == 14
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_settings_rejects_bad_decay_values(seed):
+    client, _ = await seed()
+    _mock_owned()
+    base = {
+        "enabled": False,
+        "xp_min": 15,
+        "xp_max": 25,
+        "cooldown_seconds": 60,
+        "min_message_length": 4,
+        "ignore_emoji_only": True,
+        "ignore_link_only": True,
+        "ignored_channel_ids": [],
+        "ignored_role_ids": [],
+        "notification_mode": "channel",
+        "notification_channel_id": None,
+        "level_role_mode": "replacing",
+        "xp_decay_enabled": True,
+        "xp_decay_percent": 10,
+        "xp_decay_inactivity_days": 7,
+    }
+    r = client.put(_url(), json={**base, "xp_decay_percent": 0})
+    assert r.status_code == 422, r.text
+    r = client.put(_url(), json={**base, "xp_decay_percent": 101})
+    assert r.status_code == 422, r.text
+    r = client.put(_url(), json={**base, "xp_decay_inactivity_days": 0})
+    assert r.status_code == 422, r.text

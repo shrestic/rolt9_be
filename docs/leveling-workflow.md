@@ -15,6 +15,7 @@ A MEE6-style XP system, **per guild, off by default**. Admins turn it on from th
   - post a level-up notification (to a channel, via DM, or off), and
   - add or replace the member's **level role rewards** (a role you get for hitting a level).
 - Members run `/rank` to see a PNG rank card, or `/leaderboard` for the top earners. Admins can do the same things — plus edit settings — over REST from the dashboard.
+- **(Opt-in) XP decay:** when enabled, a member who stops chatting for longer than a configurable threshold loses a configurable percentage of XP each period — eroding *only* the progress within their current level, so a level and its reward roles never get taken away. See [Flow E](#flow-e--inactivity-xp-decay-background-sweep).
 
 Everything is scoped to one guild: two servers running this bot keep their XP, settings, rewards and themes completely separate.
 
@@ -97,8 +98,8 @@ Five tables, all foreign-keyed to `guilds(id)` with `ON DELETE CASCADE`. See [`a
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `guild_leveling_config` | Per-guild on/off + tuning (cooldown, XP range, filters, ignored channels/roles, notification mode, level-role mode) | `guild_id` (PK) |
-| `user_xp` | Cumulative XP per (guild, user) + last award time | `(guild_id, user_id)` unique; `(guild_id, total_xp)` index for the leaderboard |
+| `guild_leveling_config` | Per-guild on/off + tuning (cooldown, XP range, filters, ignored channels/roles, notification mode, level-role mode, **XP-decay toggle + percent + inactivity days**) | `guild_id` (PK) |
+| `user_xp` | Cumulative XP per (guild, user) + last award time + **last decay time** | `(guild_id, user_id)` unique; `(guild_id, total_xp)` index for the leaderboard |
 | `level_role_reward` | Level → Discord role mapping | `(guild_id, level)` unique |
 | `guild_rank_card_theme` | Guild-default rank card palette | `guild_id` (PK) |
 | `user_rank_card_theme` | Per-user theme override (Phase 3.1.5 placeholder) | `(guild_id, user_id)` unique |
@@ -110,6 +111,15 @@ Five tables, all foreign-keyed to `guilds(id)` with `ON DELETE CASCADE`. See [`a
 | `LevelRoleMode` | `stacking`, `replacing` | `guild_leveling_config.level_role_mode` |
 | `NotificationMode` | `channel`, `dm`, `off` | `guild_leveling_config.notification_mode` |
 | `BgType` | `solid`, `gradient` | `guild_rank_card_theme.bg_type`, `user_rank_card_theme.bg_type` |
+
+**XP-decay columns** (added by [`alembic/versions/20260529_120000_add_xp_decay.py`](../alembic/versions/20260529_120000_add_xp_decay.py)):
+
+| Column | Table | Meaning |
+|---|---|---|
+| `xp_decay_enabled` | `guild_leveling_config` | Decay on/off, independent of the master `enabled` toggle. |
+| `xp_decay_percent` | `guild_leveling_config` | Percent removed per period (DB-checked 1–100). |
+| `xp_decay_inactivity_days` | `guild_leveling_config` | Days of silence that make up one decay period (DB-checked ≥ 1). |
+| `last_decay_at` | `user_xp` | When decay was last *settled* for this member. The sweep advances it so the next run doesn't re-charge already-decayed periods. |
 
 ---
 
@@ -246,6 +256,41 @@ The `apply(new_level=0)` call is what strips the reward roles even when the memb
 
 `PATCH …/members/{user_id}` works the same way but calls `set_member_xp` instead: it writes the new total, then runs role sync against the newly computed level.
 
+### Flow E — Inactivity XP decay (background sweep)
+
+Unlike A–D, this flow has **no caller** — it's a timer. `XpDecayCog` runs a `discord.py` `tasks.loop` once every 24 h. It's the only background loop in the bot, and unlike the chat/REST paths it touches the database **only**: no Discord calls, no notifications, no role changes (by design — decay can't change a level, so there's nothing to sync).
+
+```
+XpDecayCog.decay_sweep  (tasks.loop, every 24 h)        app/bot/cogs/xp_decay.py
+      │  before_loop: await bot.wait_until_ready()
+      │  now = datetime.now(UTC)        ← captured once, used for the whole sweep
+      ▼
+sweep_inactive_xp(now)                                  app/services/leveling/xp_decay.py
+      │  loops batches until drained; EACH batch is its own session_scope (1 commit/batch)
+      ▼
+   per batch ──▶ XpDecaySweeper.decay_page(now, after_id, limit)
+      │  fetch a page of candidates (id-cursor)          UserXpRepository.fetch_decay_page
+      │    WHERE leveling enabled AND xp_decay_enabled AND total_xp > 0, ORDER BY id
+      │
+      │  for each (row, percent, days):
+      │    anchor   = max(last_xp_at, last_decay_at)  (fallback created_at)
+      │    periods  = full inactivity periods between anchor and now
+      │    if periods < 1: skip (not idle long enough yet)
+      │    floor    = total_xp_for_level(level_for_xp(total_xp))   ← current level's floor
+      │    new_xp   = apply_decay(total_xp, floor, percent, periods)   ← compounded, clamped
+      │    row.last_decay_at = anchor + periods·days     ← advance so we don't re-charge
+      │    row.total_xp = new_xp (flush)
+      ▼
+   batch commits; loop advances the id-cursor until a short page ends the sweep
+```
+
+Why it's shaped this way:
+
+- **Id-cursor pagination, not time-window paging.** Decay *mutates* the rows it visits, so a "fetch everything due" filter would keep re-finding them. Ordering by `id` and carrying `after_id` forward guarantees one clean pass that terminates.
+- **One transaction per batch.** A single transaction over a huge `user_xp` table would lock/bloat; batching keeps each unit small and lets a mid-sweep failure leave already-processed batches committed.
+- **Floor = current level threshold.** `apply_decay` clamps the result to `total_xp_for_level(level_for_xp(total_xp))`, so XP can dip within the level but never below it. Level is therefore invariant — which is exactly why this flow never calls `LevelRoleSync` or `LevelUpNotifier`.
+- **`last_decay_at` is the bookkeeping anchor.** Advancing it by `periods·days` (not to `now`) preserves the sub-period remainder, so decay stays on a steady cadence across daily sweeps. A member who chats resets the clock naturally, because `last_xp_at` then becomes the later anchor.
+
 ---
 
 ## 6. The sub-services
@@ -267,6 +312,8 @@ Two facts that explain a lot of the design:
 
 1. **Sub-services don't know about each other.** `XpAwarder` doesn't call `LevelRoleSync`; the facade does. That's why each level-up triggers exactly one role sync, even though both run inside `process_message`.
 2. **The renderer is decoupled from the data shape.** `LevelingService.build_rank_card_data` is the *only* place that maps DB rows → `RankCardData`. The renderer takes plain dataclasses and returns bytes, so it's trivially swappable and testable.
+
+**One deliberate exception — `xp_decay.py`.** The decay sweep ([Flow E](#flow-e--inactivity-xp-decay-background-sweep)) lives under `app/services/leveling/` too, but it is **not** a `LevelingService` sub-service: the facade is per-guild (its methods take a `guild_discord_id`), while the sweep is global — it scans every guild's rows in one pass. So `XpDecaySweeper` / `sweep_inactive_xp` are standalone and reached straight from `XpDecayCog`, not through the facade. The pure decay math still lives in `xp_calculator.py` (`apply_decay`), keeping the "all XP math in one pure module" rule intact.
 
 ---
 
@@ -308,6 +355,14 @@ The bias is toward **false positives over false negatives** — better to miss a
 - `total_xp_for_level(L)` is `_thresholds[L]` — O(1).
 - `level_for_xp(total)` binary-searches the threshold table — O(log MAX_LEVEL).
 
+### XP decay ([`xp_decay.py`](../app/services/leveling/xp_decay.py) + [`bot/cogs/xp_decay.py`](../app/bot/cogs/xp_decay.py))
+
+- **Pure math:** `apply_decay(total_xp, *, level_floor, percent, periods)` in `xp_calculator.py` returns `max(level_floor, round(total_xp · (1 − percent/100)^periods))`. Compounding on the remainder; clamped at the current level's floor. `periods ≤ 0` is a no-op. Pure → unit-tested with plain numbers.
+- **Anchor & periods:** the sweeper measures inactivity from `max(last_xp_at, last_decay_at)` (falling back to `created_at`), and computes whole elapsed periods as `floor(elapsed_seconds / (days · 86400))`. Naive timestamps from SQLite are tagged UTC before subtraction.
+- **Termination:** id-cursor pagination (`WHERE id > after_id ORDER BY id`) makes the mutate-while-scanning sweep a single finite pass; it stops when a page comes back shorter than the batch size.
+- **Invariants:** level never decreases (floor clamp) ⇒ no role/notification side effects ⇒ no Discord calls. Decay is DB-only and runs off the chat hot path entirely.
+- **Scheduling:** the only background loop in the bot — `XpDecayCog`'s `tasks.loop(hours=24)`, started in `setup_hook`, gated by `wait_until_ready()`.
+
 ### Role sync algorithm ([`level_role_sync.py`](../app/services/leveling/level_role_sync.py))
 
 1. Load every reward row for the guild, ordered by level ascending.
@@ -332,12 +387,13 @@ Step 4 is the key invariant: **the bot never strips a role it didn't grant.** Fi
 
 ## 8. Operational notes
 
-- **Cold start:** `Rolt9Bot.setup_hook` registers `LevelingCog` + `XpListenerCog`. The config cache starts empty; the first message per guild costs one DB round trip. No bootstrap step needed.
+- **Cold start:** `Rolt9Bot.setup_hook` registers `LevelingCog`, `XpListenerCog`, and `XpDecayCog`. The config cache starts empty; the first message per guild costs one DB round trip. The decay loop waits for `wait_until_ready()` and then runs immediately, then every 24 h. No bootstrap step needed.
 - **Failure modes:**
   - *DB down* → `process_message` raises, `session_scope` rolls back, no XP awarded. The cache TTL keeps a brief outage from poisoning config.
   - *Discord 403 on `add_role`* → swallowed with a warning. XP was still awarded; the member just won't get the role until permissions are fixed.
   - *Bundled font missing* → falls back to the PIL default. `/rank` still returns a PNG (just uglier).
-- **Migrations:** `alembic upgrade head` creates 3 native enum types + 5 tables. Downgrade drops them in reverse order, enums last.
+  - *Decay sweep errors mid-run* → the failing batch's transaction rolls back; batches already committed stand. The next daily run resumes from `last_decay_at`, so nothing is double-charged.
+- **Migrations:** `alembic upgrade head` creates 3 native enum types + 5 tables, then (a later revision) adds the 3 decay config columns + `user_xp.last_decay_at`. Downgrade drops them in reverse order, enums last.
 - **Tests:** 88+ tests cover the slice — unit (`tests/unit/test_leveling_*.py`) for sub-services, integration (`tests/integration/test_leveling_*_routes.py`) for endpoints. `tests/conftest.py` swaps `get_db` for an in-memory SQLite engine with `expire_on_commit=False`.
 
 ---
@@ -350,8 +406,8 @@ All under `/api/v1/guilds/{guild_id}/leveling/…`; require dashboard auth + `ma
 
 | Method | Path | Handler |
 |---|---|---|
-| `GET` | `/settings` | `get_settings` |
-| `PUT` | `/settings` | `update_settings` (invalidates cache) |
+| `GET` | `/settings` | `get_settings` (includes the `xp_decay_*` fields) |
+| `PUT` | `/settings` | `update_settings` (invalidates cache; validates `xp_decay_percent` 1–100, `xp_decay_inactivity_days` ≥ 1) |
 | `GET` | `/leaderboard?page=&page_size=` | `get_leaderboard` |
 | `GET` | `/members/{user_id}` | `get_member` |
 | `PATCH` | `/members/{user_id}` | `update_member` (admin override + role sync) |
@@ -377,4 +433,5 @@ All under `/api/v1/guilds/{guild_id}/leveling/…`; require dashboard auth + `ma
 - **Trace an XP award:** `xp_listener.py` → `handle_message` → `LevelingService.process_message` → `XpAwarder.award`.
 - **Trace a slash command:** `cogs/leveling.py::LevelingCog.rank` → `_run_action` → `LevelingService.build_rank_card_data` → `RankCardRenderer.render_async`.
 - **Trace a REST call:** `api/v1/endpoints/leveling.py` → `LevelingService` → repos.
+- **Trace XP decay:** `bot/cogs/xp_decay.py::XpDecayCog.decay_sweep` → `services/leveling/xp_decay.py::sweep_inactive_xp` → `XpDecaySweeper.decay_page` → `apply_decay` (`xp_calculator.py`).
 - **Add a new sub-service:** copy any file under `services/leveling/`, then wire it into `LevelingService.__init__`. Sub-services never import each other, so adding one doesn't ripple.

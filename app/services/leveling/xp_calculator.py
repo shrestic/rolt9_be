@@ -162,3 +162,33 @@ def level_for_xp(total_xp: int) -> int:
             # `mid` overshoots; cap the ceiling just below it.
             hi = mid - 1
     return lo
+
+
+def apply_decay(total_xp: int, *, level_floor: int, percent: int, periods: int) -> int:
+    """Return XP after `periods` rounds of `percent`% decay, floored at a level.
+
+    Decay compounds on the remainder: each period removes `percent`% of what
+    is left. The result is clamped so it never drops below `level_floor` — the
+    cumulative XP threshold of the member's current level — which is what keeps
+    a member's level (and therefore their reward roles) from ever decreasing.
+
+    Args:
+        total_xp: Current cumulative XP.
+        level_floor: `total_xp_for_level(level_for_xp(total_xp))` — the floor of
+            the member's current level. Decay never goes below this.
+        percent: Percent removed per period, 1-100 (per-guild config).
+        periods: How many full inactivity periods have elapsed. <= 0 is a no-op.
+
+    Returns:
+        The new cumulative XP, an int >= level_floor.
+
+    Example:
+        >>> apply_decay(1000, level_floor=770, percent=10, periods=2)
+        810
+        >>> apply_decay(1000, level_floor=770, percent=10, periods=4)
+        770
+    """
+    if periods <= 0:
+        return total_xp
+    decayed = round(total_xp * (1 - percent / 100) ** periods)
+    return max(level_floor, decayed)

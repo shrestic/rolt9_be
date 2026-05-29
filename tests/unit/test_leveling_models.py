@@ -43,3 +43,18 @@ async def test_can_persist_all_leveling_models(db_session):
     theme = await db_session.get(GuildRankCardTheme, gid)
     assert theme.bg_type == "gradient"
     assert theme.bg_color_1 == "#0f172a"
+
+
+def test_guild_leveling_config_has_decay_columns():
+    from app.models.guild_leveling_config import GuildLevelingConfig
+
+    cols = GuildLevelingConfig.__table__.columns
+    assert "xp_decay_enabled" in cols
+    assert "xp_decay_percent" in cols
+    assert "xp_decay_inactivity_days" in cols
+
+
+def test_user_xp_has_last_decay_at_column():
+    from app.models.user_xp import UserXp
+
+    assert "last_decay_at" in UserXp.__table__.columns

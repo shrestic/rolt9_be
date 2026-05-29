@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.guild_leveling_config import GuildLevelingConfig
 from app.models.user_xp import UserXp
 
 
@@ -64,6 +65,47 @@ class UserXpRepository:
             .limit(limit)
         )
         return list(r.scalars().all()), total
+
+    async def fetch_decay_page(
+        self, *, after_id: uuid.UUID | None, limit: int
+    ) -> list[tuple[UserXp, int, int]]:
+        """Return one id-ordered page of XP rows eligible for decay.
+
+        Coarse SQL filter only — guild leveling enabled, decay toggle on, and
+        the member has XP to lose. The precise "is this row past its inactivity
+        period?" check is done in Python by the sweeper (it needs per-row
+        timestamp math that isn't portable across SQLite/Postgres). Pagination
+        is an id-cursor (`id > after_id`) so a single pass terminates even as
+        rows are mutated.
+
+        Args:
+            after_id: Exclusive lower bound on `UserXp.id`. None starts at the
+                beginning.
+            limit: Max rows to return.
+
+        Returns:
+            List of `(user_xp_row, xp_decay_percent, xp_decay_inactivity_days)`
+            tuples, ordered by `UserXp.id` ascending.
+        """
+        stmt = (
+            select(
+                UserXp,
+                GuildLevelingConfig.xp_decay_percent,
+                GuildLevelingConfig.xp_decay_inactivity_days,
+            )
+            .join(GuildLevelingConfig, GuildLevelingConfig.guild_id == UserXp.guild_id)
+            .where(
+                GuildLevelingConfig.enabled.is_(True),
+                GuildLevelingConfig.xp_decay_enabled.is_(True),
+                UserXp.total_xp > 0,
+            )
+            .order_by(UserXp.id)
+            .limit(limit)
+        )
+        if after_id is not None:
+            stmt = stmt.where(UserXp.id > after_id)
+        r = await self.session.execute(stmt)
+        return [(row, percent, days) for row, percent, days in r.all()]  # noqa: C416
 
     async def rank_of(self, guild_id: uuid.UUID, user_id: int) -> int | None:
         # 1-indexed rank by total_xp DESC. Returns None if the user has no row.

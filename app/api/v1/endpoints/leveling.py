@@ -139,6 +139,9 @@ def _settings_out(cfg) -> LevelingSettings:
             str(cfg.notification_channel_id) if cfg.notification_channel_id is not None else None
         ),
         level_role_mode=cfg.level_role_mode,
+        xp_decay_enabled=cfg.xp_decay_enabled,
+        xp_decay_percent=cfg.xp_decay_percent,
+        xp_decay_inactivity_days=cfg.xp_decay_inactivity_days,
     )
 
 

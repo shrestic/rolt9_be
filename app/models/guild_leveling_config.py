@@ -34,6 +34,14 @@ class GuildLevelingConfig(Base):
             "min_message_length >= 0",
             name="ck_guild_leveling_config_min_msg_len_nonneg",
         ),
+        CheckConstraint(
+            "xp_decay_percent >= 1 AND xp_decay_percent <= 100",
+            name="ck_guild_leveling_config_decay_percent_range",
+        ),
+        CheckConstraint(
+            "xp_decay_inactivity_days >= 1",
+            name="ck_guild_leveling_config_decay_days_positive",
+        ),
     )
 
     guild_id: Mapped[uuid.UUID] = mapped_column(
@@ -65,6 +73,9 @@ class GuildLevelingConfig(Base):
         nullable=False,
         default=LevelRoleMode.REPLACING,
     )
+    xp_decay_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    xp_decay_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    xp_decay_inactivity_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

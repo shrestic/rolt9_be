@@ -17,6 +17,9 @@ class LevelingSettings(BaseModel):
     notification_mode: NotificationMode = NotificationMode.CHANNEL
     notification_channel_id: str | None = None
     level_role_mode: LevelRoleMode = LevelRoleMode.REPLACING
+    xp_decay_enabled: bool = False
+    xp_decay_percent: int = Field(default=10, ge=1, le=100)
+    xp_decay_inactivity_days: int = Field(default=7, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> "LevelingSettings":

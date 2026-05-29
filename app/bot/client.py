@@ -21,6 +21,7 @@ from app.bot.cache.leveling_config_cache import LevelingConfigCache
 from app.bot.cogs.custom_commands import CustomCommandsCog
 from app.bot.cogs.leveling import LevelingCog
 from app.bot.cogs.moderation import ModerationCog
+from app.bot.cogs.xp_decay import XpDecayCog
 from app.bot.events import (
     handle_guild_join,
     handle_guild_remove,
@@ -85,6 +86,7 @@ class Rolt9Bot(commands.Bot):
         await self.add_cog(CustomCommandsCog(self, self.discord_io, self.config_cache))
         await self.add_cog(LevelingCog(self, self.discord_io))
         await self.add_cog(XpListenerCog(self, self.leveling_config_cache, self.discord_io))
+        await self.add_cog(XpDecayCog(self))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.
         await self.tree.sync()

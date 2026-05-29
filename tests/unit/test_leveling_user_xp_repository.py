@@ -102,3 +102,65 @@ async def test_rank_of_user(db_session):
     assert await repo.rank_of(gid, user_id=4) == 1
     assert await repo.rank_of(gid, user_id=1) == 4
     assert await repo.rank_of(gid, user_id=999) is None
+
+
+async def _seed_config(session, gid, *, enabled, decay_enabled, percent=10, days=7):
+    from app.models.guild_leveling_config import GuildLevelingConfig
+
+    session.add(
+        GuildLevelingConfig(
+            guild_id=gid,
+            enabled=enabled,
+            xp_decay_enabled=decay_enabled,
+            xp_decay_percent=percent,
+            xp_decay_inactivity_days=days,
+        )
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_fetch_decay_page_only_returns_eligible_rows(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    await _seed_config(db_session, gid, enabled=True, decay_enabled=True, percent=10, days=7)
+    repo = UserXpRepository(db_session)
+    await repo.set_xp(gid, user_id=1, total_xp=500)
+    await repo.get_or_create(gid, user_id=2)
+
+    rows = await repo.fetch_decay_page(after_id=None, limit=100)
+    assert len(rows) == 1
+    row, percent, days = rows[0]
+    assert row.user_id == 1
+    assert percent == 10
+    assert days == 7
+
+
+@pytest.mark.asyncio
+async def test_fetch_decay_page_skips_disabled_guilds(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    await _seed_config(db_session, gid, enabled=True, decay_enabled=False)
+    repo = UserXpRepository(db_session)
+    await repo.set_xp(gid, user_id=1, total_xp=500)
+
+    rows = await repo.fetch_decay_page(after_id=None, limit=100)
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_decay_page_id_cursor_paginates(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    await _seed_config(db_session, gid, enabled=True, decay_enabled=True)
+    repo = UserXpRepository(db_session)
+    for uid in (1, 2, 3):
+        await repo.set_xp(gid, user_id=uid, total_xp=500)
+
+    first = await repo.fetch_decay_page(after_id=None, limit=2)
+    assert len(first) == 2
+    last_id = first[-1][0].id
+    second = await repo.fetch_decay_page(after_id=last_id, limit=2)
+    assert len(second) == 1
+    seen = {r[0].id for r in first}
+    assert second[0][0].id not in seen
