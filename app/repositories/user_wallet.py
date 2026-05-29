@@ -126,6 +126,11 @@ class WalletRepository:
                 current_streak=new_streak,
                 longest_streak=new_longest,
             )
+            # Use "fetch" so SQLAlchemy re-selects from the DB when updating the
+            # identity-map instead of evaluating the WHERE clause in Python.
+            # The default "evaluate" strategy fails on SQLite (tests) when the
+            # stored last_daily_at is naive but our cutoff is tz-aware.
+            .execution_options(synchronize_session="fetch")
         )
         r = await self.session.execute(stmt)
         await self.session.flush()

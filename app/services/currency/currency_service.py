@@ -23,6 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.user_wallet import WalletRepository
+from app.services.currency.streak import (
+    days_to_next_milestone,
+    milestone_reward,
+    next_streak,
+    streak_bonus,
+)
 
 # Per-action cap (spec §5/§8): blocks 32/64-bit overflow, fat-finger typos, and
 # runaway inflation. Transfers/admin adjustments above this are rejected.
@@ -35,9 +41,24 @@ class DailyResult:
     """Outcome of a `/daily` attempt, shaped for the cog to render directly."""
 
     claimed: bool
-    amount: int
+    amount: int  # total granted = base + streak_bonus + milestone_bonus
+    base: int  # the flat daily_amount portion
+    streak_bonus: int  # escalating per-day portion
+    milestone_bonus: int  # lump sum if a milestone was hit this claim (else 0)
     balance: int
+    streak: int  # chain length after this claim
+    days_to_milestone: int | None
     retry_after_seconds: int
+
+
+@dataclass(frozen=True)
+class StreakInfo:
+    """Read-only streak snapshot for `/streak`."""
+
+    current: int
+    longest: int
+    days_to_milestone: int | None
+    enabled: bool
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -99,22 +120,79 @@ class CurrencyService:
             raise ValueError("Currency isn't enabled on this server.")
         now = _as_utc(now or datetime.now(UTC))
         cutoff = now - DAILY_COOLDOWN
-        # Atomic claim: the cooldown check lives in the UPDATE's WHERE, so a
-        # double-fire can't grant twice.
+
+        # Read the pre-claim state so we can compute the new streak. The atomic
+        # UPDATE below only persists if the cooldown guard still matches, so a
+        # concurrent double-fire can't write a stale/duplicate streak.
+        wallet = await self.wallet_repo.get_or_create(gid, user_id)
+        if cfg.streak_enabled:
+            last = _as_utc(wallet.last_daily_at) if wallet.last_daily_at else None
+            new_streak = next_streak(last, now, wallet.current_streak)
+            s_bonus = streak_bonus(
+                new_streak, per_day=cfg.streak_bonus_per_day, cap=cfg.streak_bonus_cap
+            )
+            m_bonus = milestone_reward(new_streak)
+        else:
+            # Streak frozen: only the base amount, chain left untouched.
+            new_streak = wallet.current_streak
+            s_bonus = m_bonus = 0
+        new_longest = max(wallet.longest_streak, new_streak)
+        total = cfg.daily_amount + s_bonus + m_bonus
+
         claimed = await self.wallet_repo.try_claim_daily(
-            gid, user_id, amount=cfg.daily_amount, now=now, cutoff=cutoff
+            gid,
+            user_id,
+            amount=total,
+            now=now,
+            cutoff=cutoff,
+            new_streak=new_streak,
+            new_longest=new_longest,
         )
         wallet = await self.wallet_repo.get(gid, user_id)
         balance = wallet.balance if wallet else 0
         if claimed:
             return DailyResult(
-                claimed=True, amount=cfg.daily_amount, balance=balance, retry_after_seconds=0
+                claimed=True,
+                amount=total,
+                base=cfg.daily_amount,
+                streak_bonus=s_bonus,
+                milestone_bonus=m_bonus,
+                balance=balance,
+                streak=new_streak,
+                days_to_milestone=days_to_next_milestone(new_streak),
+                retry_after_seconds=0,
             )
         # On cooldown: tell the caller how long until the next claim is allowed.
         last = _as_utc(wallet.last_daily_at) if wallet and wallet.last_daily_at else now
         remaining = int((last + DAILY_COOLDOWN - now).total_seconds())
         return DailyResult(
-            claimed=False, amount=0, balance=balance, retry_after_seconds=max(0, remaining)
+            claimed=False,
+            amount=0,
+            base=0,
+            streak_bonus=0,
+            milestone_bonus=0,
+            balance=balance,
+            streak=wallet.current_streak if wallet else 0,
+            days_to_milestone=None,
+            retry_after_seconds=max(0, remaining),
+        )
+
+    async def get_streak(self, *, guild_discord_id: int, user_id: int) -> StreakInfo:
+        """Read a member's streak for `/streak`. Never raises — unknown guild or
+        no wallet simply reports a zero, disabled streak."""
+        guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
+        if guild is None:
+            return StreakInfo(current=0, longest=0, days_to_milestone=None, enabled=False)
+        cfg = await self.config_repo.get(guild.id)
+        enabled = bool(cfg and cfg.enabled and cfg.streak_enabled)
+        wallet = await self.wallet_repo.get(guild.id, user_id)
+        current = wallet.current_streak if wallet else 0
+        longest = wallet.longest_streak if wallet else 0
+        return StreakInfo(
+            current=current,
+            longest=longest,
+            days_to_milestone=days_to_next_milestone(current),
+            enabled=enabled,
         )
 
     async def pay(
