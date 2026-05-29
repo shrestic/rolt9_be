@@ -103,3 +103,5 @@ http_requests/
 
 # Superpowers brainstorm artifacts (visual companion mockups)
 .superpowers/
+# Superpowers specs & plans (internal design docs, not part of the repo)
+docs/superpowers/

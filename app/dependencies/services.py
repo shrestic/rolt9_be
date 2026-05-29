@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.discord_io.client import DiscordClient, DiscordOAuthClient
 from app.discord_io.clients.rest import RestDiscordOAuthClient
+from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.custom_command import CustomCommandRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
@@ -26,6 +27,7 @@ from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.mod_case import ModCaseRepository
 from app.repositories.user import UserRepository
+from app.repositories.user_wallet import WalletRepository
 from app.repositories.user_xp import UserXpRepository
 from app.services.leveling import LevelingService
 from app.services.moderation.service import ModerationService
@@ -55,6 +57,16 @@ def get_mod_case_repository(db: AsyncSession = Depends(get_db)) -> ModCaseReposi
 
 def get_custom_command_repository(db: AsyncSession = Depends(get_db)) -> CustomCommandRepository:
     return CustomCommandRepository(db)
+
+
+def get_currency_config_repository(
+    db: AsyncSession = Depends(get_db),
+) -> CurrencyConfigRepository:
+    return CurrencyConfigRepository(db)
+
+
+def get_wallet_repository(db: AsyncSession = Depends(get_db)) -> WalletRepository:
+    return WalletRepository(db)
 
 
 # ─────────────────────────────────────────────────────────────────────────
