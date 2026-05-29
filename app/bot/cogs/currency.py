@@ -86,12 +86,59 @@ class CurrencyCog(commands.Cog):
             gid = interaction.guild_id
             res = await service.claim_daily(guild_discord_id=gid, user_id=interaction.user.id)
             emoji = await _label(service, gid)
-            if res.claimed:
-                return f"+{res.amount:,} {emoji}! Số dư: **{res.balance:,}** {emoji}"
-            hrs, mins = divmod(res.retry_after_seconds // 60, 60)
-            return f"⏳ Đợi thêm {hrs}h {mins}m nữa."
+            if not res.claimed:
+                hrs, mins = divmod(res.retry_after_seconds // 60, 60)
+                return f"⏳ Đợi thêm {hrs}h {mins}m nữa."
+            # First line: total amount + new balance.
+            lines = [f"+{res.amount:,} {emoji}! Số dư: **{res.balance:,}** {emoji}"]
+            # Streak line: show breakdown when there's a bonus, otherwise just
+            # the chain length so the player always sees their progress.
+            if res.streak_bonus:
+                lines.append(
+                    f"🔥 Chuỗi **{res.streak}** ngày "
+                    f"(base {res.base:,} + streak +{res.streak_bonus:,})."
+                )
+            elif res.streak:
+                lines.append(f"🔥 Chuỗi **{res.streak}** ngày.")
+            # Milestone line: congrats if one was just hit, otherwise a nudge
+            # showing how many days remain before the next reward.
+            if res.milestone_bonus:
+                lines.append(
+                    f"🎉 Mốc **{res.streak} ngày**! Thưởng **+{res.milestone_bonus:,}** {emoji}."
+                )
+            elif res.days_to_milestone is not None:
+                lines.append(f"⏭️ Còn **{res.days_to_milestone}** ngày tới mốc kế.")
+            return "\n".join(lines)
 
         await _run(interaction, do, ephemeral=True)
+
+    @app_commands.command(name="streak", description="Check a daily-claim streak.")
+    @app_commands.guild_only()
+    async def streak(
+        self, interaction: discord.Interaction, member: discord.Member | None = None
+    ) -> None:
+        # Allow peeking at another member's streak; default to the invoker.
+        target = member or interaction.user
+
+        async def do(service: CurrencyService) -> str:
+            gid = interaction.guild_id
+            info = await service.get_streak(guild_discord_id=gid, user_id=target.id)
+            if not info.enabled:
+                # Streak feature is toggled off for this server.
+                return "Streak đang tắt trên server này."
+            if info.current == 0:
+                return f"{target.mention} chưa có chuỗi nào. Gõ `/daily` để bắt đầu!"
+            lines = [
+                f"🔥 {target.mention} đang giữ chuỗi **{info.current}** ngày.",
+                f"🏆 Kỷ lục: **{info.longest}** ngày.",
+            ]
+            if info.days_to_milestone is not None:
+                lines.append(f"⏭️ Còn **{info.days_to_milestone}** ngày tới mốc kế.")
+            else:
+                lines.append("👑 Đã đạt mốc cao nhất!")
+            return "\n".join(lines)
+
+        await _run(interaction, do)
 
     @app_commands.command(name="pay", description="Send currency to another member.")
     @app_commands.guild_only()
