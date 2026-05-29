@@ -119,7 +119,7 @@ session_scope exits → COMMIT
 
 The crucial line is `if outcome is not None`: currency is granted **only** when XP was actually awarded, so the message already passed min-length / emoji-only / link-only / cooldown. No duplicate gating.
 
-### Flow B — `/daily`
+### Flow B — `/daily` (with streak)
 
 ```
 /daily  →  CurrencyCog.daily                       app/bot/cogs/currency.py
@@ -127,16 +127,27 @@ The crucial line is `if outcome is not None`: currency is granted **only** when 
       ▼
 CurrencyService.claim_daily(now=now)               app/services/currency/currency_service.py
       ├─ currency enabled? (else ValueError)
-      ├─ cutoff = now - 24h
-      └─ WalletRepository.try_claim_daily(amount, now, cutoff)   ← atomic
-              UPDATE … SET balance = balance + amount, last_daily_at = now
+      ├─ read wallet (last_daily_at, current_streak, longest_streak)
+      ├─ streak math (app/services/currency/streak.py):
+      │     new_streak = next_streak(last_daily_at, now, current)   ← ≤48h ago → +1, else 1
+      │     s_bonus    = min(new_streak * per_day, cap)
+      │     m_bonus    = MILESTONES.get(new_streak, 0)              ← {7,30,100,365}
+      │     (streak disabled → new_streak=0, no bonuses; chain dropped)
+      ├─ total = daily_amount + s_bonus + m_bonus
+      └─ WalletRepository.try_claim_daily(total, now, cutoff, new_streak, new_longest)  ← atomic
+              UPDATE … SET balance += total, last_daily_at = now,
+                          current_streak = new_streak, longest_streak = new_longest
                WHERE … AND (last_daily_at IS NULL OR last_daily_at <= cutoff)
       ▼
-   claimed?  → "+100 🪙! Balance: …"
+   claimed?  → "+130 🪙 … 🔥 Chuỗi 3 ngày … 🎉 Mốc 7 ngày! +200"
    on cooldown (0 rows) → "wait Xh Ym"  (retry_after computed from last_daily_at)
 ```
 
-The cooldown test lives **inside the UPDATE's WHERE**, so two `/daily` fired at the same instant can't both pass — only one matches. This closes the double-claim race a read-then-write would leave open.
+The cooldown test lives **inside the UPDATE's WHERE**, so two `/daily` fired at the same instant can't both pass — only one matches. The streak counters are computed in Python from the pre-claim read, but that's still race-safe: only the single UPDATE whose WHERE still matches actually writes, so a losing concurrent claim never persists a stale/duplicate streak. The `/daily` reward window also keeps the chain alive — claim again within **48h** of the previous claim to continue (24h cooldown means the live window is effectively `[24h, 48h]`); miss a full day and the chain restarts at 1.
+
+**`/streak [member]`** → `CurrencyService.get_streak` → reads `current_streak` / `longest_streak` off the wallet (never raises; unknown guild or no wallet reports a zero, disabled streak). Shows current chain, all-time record, and days to the next milestone.
+
+> **Streak disabled** (`streak_enabled=false`): `/daily` grants base only and the chain is dropped to 0 (record `longest_streak` is preserved). Re-enabling later therefore restarts the chain from 1 — it does not resume the old count.
 
 ### Flow C — `/pay` (transfer)
 
@@ -254,7 +265,8 @@ Repos never commit. Bot flows commit at `session_scope` exit; REST at `get_db`. 
 | Command | Behaviour |
 |---|---|
 | `/balance [member]` | Show a wallet balance (defaults to caller). |
-| `/daily` | Claim the daily reward (24h cooldown). |
+| `/daily` | Claim the daily reward (24h cooldown) + advance the streak. |
+| `/streak [member]` | Show a daily-claim streak (current, record, next milestone). |
 | `/pay <member> <amount>` | Transfer currency (if `allow_pay`). |
 | `/baltop` | Top 10 richest members. |
 | `/eco give <member> <amount>` | Admin: add currency (`Manage Server`). |
@@ -282,6 +294,11 @@ Repos never commit. Bot flows commit at `session_scope` exit; REST at `get_db`. 
 | `earn_min` / `earn_max` | `1` / `3` | 0–10,000; `earn_min ≤ earn_max` |
 | `daily_amount` | `100` | 0–1,000,000 |
 | `allow_pay` | `true` | — |
+| `streak_enabled` | `true` | — |
+| `streak_bonus_per_day` | `10` | 0–10,000 (bonus = `min(streak × per_day, cap)`) |
+| `streak_bonus_cap` | `500` | 0–1,000,000 |
+
+Streak milestones are hardcoded (v1, not FE-configurable): `{7: 200, 30: 1000, 100: 5000, 365: 20000}` coins — see `app/services/currency/streak.py`.
 
 ---
 
