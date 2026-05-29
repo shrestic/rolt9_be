@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "a1b2c3d4e5f6"
@@ -18,9 +19,17 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-notification_mode_enum = sa.Enum("channel", "dm", "off", name="notification_mode")
-level_role_mode_enum = sa.Enum("stacking", "replacing", name="level_role_mode")
-bg_type_enum = sa.Enum("solid", "gradient", name="bg_type")
+# create_type=False so op.create_table does NOT re-emit CREATE TYPE for these
+# enums; they are created/dropped explicitly in upgrade()/downgrade() below.
+notification_mode_enum = postgresql.ENUM(
+    "channel", "dm", "off", name="notification_mode", create_type=False
+)
+level_role_mode_enum = postgresql.ENUM(
+    "stacking", "replacing", name="level_role_mode", create_type=False
+)
+bg_type_enum = postgresql.ENUM(
+    "solid", "gradient", name="bg_type", create_type=False
+)
 
 
 def upgrade() -> None:
@@ -43,14 +52,14 @@ def upgrade() -> None:
         sa.Column("ignored_role_ids", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column(
             "notification_mode",
-            sa.Enum(name="notification_mode", create_type=False),
+            notification_mode_enum,
             nullable=False,
             server_default="channel",
         ),
         sa.Column("notification_channel_id", sa.BigInteger(), nullable=True),
         sa.Column(
             "level_role_mode",
-            sa.Enum(name="level_role_mode", create_type=False),
+            level_role_mode_enum,
             nullable=False,
             server_default="replacing",
         ),
@@ -104,7 +113,7 @@ def upgrade() -> None:
     op.create_table(
         "guild_rank_card_theme",
         sa.Column("guild_id", sa.UUID(), nullable=False),
-        sa.Column("bg_type", sa.Enum(name="bg_type", create_type=False), nullable=False, server_default="gradient"),
+        sa.Column("bg_type", bg_type_enum, nullable=False, server_default="gradient"),
         sa.Column("bg_color_1", sa.String(length=7), nullable=False, server_default="#0f172a"),
         sa.Column("bg_color_2", sa.String(length=7), nullable=False, server_default="#581c87"),
         sa.Column("accent_color", sa.String(length=7), nullable=False, server_default="#fbbf24"),
@@ -120,7 +129,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("guild_id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.BigInteger(), nullable=False),
-        sa.Column("bg_type", sa.Enum(name="bg_type", create_type=False), nullable=False, server_default="gradient"),
+        sa.Column("bg_type", bg_type_enum, nullable=False, server_default="gradient"),
         sa.Column("bg_color_1", sa.String(length=7), nullable=False, server_default="#0f172a"),
         sa.Column("bg_color_2", sa.String(length=7), nullable=False, server_default="#581c87"),
         sa.Column("accent_color", sa.String(length=7), nullable=False, server_default="#fbbf24"),
