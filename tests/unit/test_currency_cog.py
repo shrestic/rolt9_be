@@ -29,7 +29,9 @@ def _patch_service(monkeypatch, stub):
     """Make the cog use `stub` as its service and a no-op session scope.
 
     Also patches `_label` to return a fixed coin emoji so tests don't need a
-    real guild/config in the DB.
+    real guild/config in the DB.  A default no-op badge service is installed so
+    tests that don't care about badges don't see spurious DB calls — individual
+    tests can override `_build_badge_service` afterwards.
     """
 
     @contextlib.asynccontextmanager
@@ -40,6 +42,11 @@ def _patch_service(monkeypatch, stub):
     monkeypatch.setattr(currency_mod, "_build_service", lambda session: stub)
     # _label reads the emoji off the service; stub it to a fixed coin.
     monkeypatch.setattr(currency_mod, "_label", AsyncMock(return_value="🪙"))
+    # Default badge service returns no new badges — tests that care about
+    # badge announcements should override this with their own stub.
+    _noop_badge = MagicMock()
+    _noop_badge.award_new = AsyncMock(return_value=[])
+    monkeypatch.setattr(currency_mod, "_build_badge_service", lambda session: _noop_badge)
 
 
 def _fake_interaction(user_id=1):
@@ -143,3 +150,38 @@ async def test_streak_command_disabled(monkeypatch):
     await cog.streak.callback(cog, inter, None)
     msg = inter.followup.send.call_args.args[0]
     assert "tắt" in msg
+
+
+# ---------------------------------------------------------------------------
+# /daily — badge announcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daily_appends_new_badge(monkeypatch):
+    """When /daily unlocks a new badge, the reply must contain the badge name."""
+    from app.services.badges.catalog import by_key
+
+    stub = MagicMock()
+    stub.claim_daily = AsyncMock(
+        return_value=DailyResult(
+            claimed=True,
+            amount=110,
+            base=100,
+            streak_bonus=10,
+            milestone_bonus=0,
+            balance=110,
+            streak=1,
+            days_to_milestone=6,
+            retry_after_seconds=0,
+        )
+    )
+    badge_stub = MagicMock()
+    badge_stub.award_new = AsyncMock(return_value=[by_key("wealth_1k")])
+    _patch_service(monkeypatch, stub)
+    monkeypatch.setattr(currency_mod, "_build_badge_service", lambda session: badge_stub)
+    cog = CurrencyCog(MagicMock(), MagicMock())
+    inter = _fake_interaction()
+    await cog.daily.callback(cog, inter)
+    msg = inter.followup.send.call_args.args[0]
+    assert "Rủng rỉnh" in msg  # the new badge name

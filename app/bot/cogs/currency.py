@@ -15,9 +15,13 @@ from discord.ext import commands
 
 from app.db.session import session_scope
 from app.discord_io.client import DiscordClient
+from app.repositories.badge_config import BadgeConfigRepository
 from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
+from app.repositories.user_xp import UserXpRepository
+from app.services.badges import BadgeService
 from app.services.currency import CurrencyService
 
 log = logging.getLogger(__name__)
@@ -28,6 +32,22 @@ def _build_service(session) -> CurrencyService:
         session=session,
         guild_repo=GuildRepository(session),
         config_repo=CurrencyConfigRepository(session),
+        wallet_repo=WalletRepository(session),
+    )
+
+
+def _build_badge_service(session) -> BadgeService:
+    """Wire up a BadgeService on the same session as the currency transaction.
+
+    Sharing the session means badge inserts are part of the same DB transaction
+    as the daily claim — either both commit or both roll back, keeping data
+    consistent. All repos are lightweight; constructing them here is cheap.
+    """
+    return BadgeService(
+        guild_repo=GuildRepository(session),
+        badge_repo=BadgeRepository(session),
+        badge_config_repo=BadgeConfigRepository(session),
+        xp_repo=UserXpRepository(session),
         wallet_repo=WalletRepository(session),
     )
 
@@ -108,6 +128,16 @@ class CurrencyCog(commands.Cog):
                 )
             elif res.days_to_milestone is not None:
                 lines.append(f"⏭️ Còn **{res.days_to_milestone}** ngày tới mốc kế.")
+            # Piggyback badge evaluation on the same session/transaction.
+            # award_new is a silent no-op when badges are disabled or the guild
+            # is not found, so this is always safe to call on the happy path.
+            new_badges = await _build_badge_service(service.session).award_new(
+                guild_discord_id=gid, user_id=interaction.user.id
+            )
+            for badge in new_badges:
+                # One line per newly unlocked badge — emoji + name gives enough
+                # context without needing to explain the unlock condition.
+                lines.append(f"🏅 Mở khóa: {badge.emoji} **{badge.name}**!")
             return "\n".join(lines)
 
         await _run(interaction, do, ephemeral=True)
