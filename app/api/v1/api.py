@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     auth,
+    badges,
     commands,
     currency,
     guilds,
@@ -20,3 +21,4 @@ api_router.include_router(moderation.router, prefix="/guilds", tags=["moderation
 api_router.include_router(commands.router, prefix="/guilds", tags=["commands"])
 api_router.include_router(leveling.router, prefix="/guilds", tags=["leveling"])
 api_router.include_router(currency.router, prefix="/guilds", tags=["currency"])
+api_router.include_router(badges.router, prefix="/guilds", tags=["badges"])
