@@ -85,7 +85,9 @@ async def test_try_claim_daily_first_time(db_session):
     repo = WalletRepository(db_session)
     now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
     cutoff = now - timedelta(hours=24)
-    ok = await repo.try_claim_daily(gid, 42, amount=100, now=now, cutoff=cutoff)
+    ok = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=1, new_longest=1
+    )
     assert ok is True
     w = await repo.get(gid, 42)
     assert w.balance == 100
@@ -101,8 +103,12 @@ async def test_try_claim_daily_blocks_second_claim_same_now(db_session):
     repo = WalletRepository(db_session)
     now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
     cutoff = now - timedelta(hours=24)
-    first = await repo.try_claim_daily(gid, 42, amount=100, now=now, cutoff=cutoff)
-    second = await repo.try_claim_daily(gid, 42, amount=100, now=now, cutoff=cutoff)
+    first = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=1, new_longest=1
+    )
+    second = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=2, new_longest=2
+    )
     assert first is True
     assert second is False
     assert (await repo.get(gid, 42)).balance == 100  # not doubled
@@ -114,10 +120,90 @@ async def test_try_claim_daily_allows_after_24h(db_session):
     await _seed_guild(db_session, gid)
     repo = WalletRepository(db_session)
     day1 = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
-    await repo.try_claim_daily(gid, 42, amount=100, now=day1, cutoff=day1 - timedelta(hours=24))
+    await repo.try_claim_daily(
+        gid,
+        42,
+        amount=100,
+        now=day1,
+        cutoff=day1 - timedelta(hours=24),
+        new_streak=1,
+        new_longest=1,
+    )
     day2 = day1 + timedelta(hours=25)
     ok = await repo.try_claim_daily(
-        gid, 42, amount=100, now=day2, cutoff=day2 - timedelta(hours=24)
+        gid,
+        42,
+        amount=100,
+        now=day2,
+        cutoff=day2 - timedelta(hours=24),
+        new_streak=2,
+        new_longest=2,
     )
     assert ok is True
     assert (await repo.get(gid, 42)).balance == 200
+
+
+@pytest.mark.asyncio
+async def test_claim_daily_sets_streak_counters(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    repo = WalletRepository(db_session)
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
+    cutoff = now - timedelta(hours=24)
+    ok = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=1, new_longest=1
+    )
+    assert ok is True
+    w = await repo.get(gid, 42)
+    assert w.current_streak == 1
+    assert w.longest_streak == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_daily_double_fire_does_not_double_streak(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    repo = WalletRepository(db_session)
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
+    cutoff = now - timedelta(hours=24)
+    first = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=1, new_longest=1
+    )
+    second = await repo.try_claim_daily(
+        gid, 42, amount=100, now=now, cutoff=cutoff, new_streak=2, new_longest=2
+    )
+    assert first is True
+    assert second is False
+    w = await repo.get(gid, 42)
+    assert w.current_streak == 1  # the rejected second claim left it alone
+    assert w.balance == 100
+
+
+@pytest.mark.asyncio
+async def test_claim_daily_longest_preserved_on_reset(db_session):
+    gid = uuid.uuid4()
+    await _seed_guild(db_session, gid)
+    repo = WalletRepository(db_session)
+    day1 = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
+    await repo.try_claim_daily(
+        gid,
+        42,
+        amount=100,
+        now=day1,
+        cutoff=day1 - timedelta(hours=24),
+        new_streak=5,
+        new_longest=5,
+    )
+    day2 = day1 + timedelta(hours=49)  # window broken → caller resets streak to 1
+    await repo.try_claim_daily(
+        gid,
+        42,
+        amount=100,
+        now=day2,
+        cutoff=day2 - timedelta(hours=24),
+        new_streak=1,
+        new_longest=5,
+    )
+    w = await repo.get(gid, 42)
+    assert w.current_streak == 1
+    assert w.longest_streak == 5  # record kept

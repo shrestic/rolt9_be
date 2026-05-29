@@ -85,6 +85,8 @@ class WalletRepository:
         amount: int,
         now: datetime,
         cutoff: datetime,
+        new_streak: int,
+        new_longest: int,
     ) -> bool:
         """Atomically claim the daily reward; True if claimed, False if on cooldown.
 
@@ -94,12 +96,20 @@ class WalletRepository:
         UPDATE matches, the other reports cooldown. This closes the
         double-claim race that a read-then-write would leave open.
 
+        Streak counters are computed by the caller (from the pre-claim wallet
+        state) and passed in as plain values. That's safe despite the
+        read-then-compute gap: only the single UPDATE whose WHERE still matches
+        actually writes, so a losing concurrent claim never persists its
+        (would-be stale) streak.
+
         Args:
-            amount: How much to grant (the guild's `daily_amount`).
+            amount: How much to grant (base + streak bonus + milestone).
             now: Timestamp to stamp into `last_daily_at` on success.
             cutoff: `now - 24h`, computed by the caller. Passing it in (rather
                 than using SQL `now() - interval`) keeps the statement identical
                 on Postgres and on SQLite used in tests.
+            new_streak: The chain count to store on success.
+            new_longest: `max(old_longest, new_streak)`, computed by the caller.
         """
         await self.get_or_create(guild_id, user_id)
         stmt = (
@@ -110,7 +120,12 @@ class WalletRepository:
                 # Eligible iff never claimed, or the last claim is older than 24h.
                 or_(UserWallet.last_daily_at.is_(None), UserWallet.last_daily_at <= cutoff),
             )
-            .values(balance=UserWallet.balance + amount, last_daily_at=now)
+            .values(
+                balance=UserWallet.balance + amount,
+                last_daily_at=now,
+                current_streak=new_streak,
+                longest_streak=new_longest,
+            )
         )
         r = await self.session.execute(stmt)
         await self.session.flush()
