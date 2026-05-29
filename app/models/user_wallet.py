@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     UniqueConstraint,
     func,
 )
@@ -36,6 +37,9 @@ class UserWallet(Base):
         # atomic UPDATE, but this makes a negative balance impossible even for
         # a direct/buggy SQL write.
         CheckConstraint("balance >= 0", name="ck_user_wallet_balance_nonneg"),
+        # Streak counters can never be negative.
+        CheckConstraint("current_streak >= 0", name="ck_user_wallet_streak_nonneg"),
+        CheckConstraint("longest_streak >= 0", name="ck_user_wallet_longest_nonneg"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,6 +57,10 @@ class UserWallet(Base):
     # When the member last successfully claimed `/daily`. NULL = never claimed.
     # The daily-claim UPDATE compares against this to enforce the 24h cooldown.
     last_daily_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Consecutive-day claim chain. Bumped/reset by `/daily` (see streak.py).
+    current_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # All-time best streak — for the `/streak` flex and future badges.
+    longest_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

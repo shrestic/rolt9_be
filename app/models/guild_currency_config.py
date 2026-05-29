@@ -27,6 +27,8 @@ class GuildCurrencyConfig(Base):
         CheckConstraint("earn_max >= 0", name="ck_currency_earn_max_nonneg"),
         CheckConstraint("earn_min <= earn_max", name="ck_currency_earn_range"),
         CheckConstraint("daily_amount >= 0", name="ck_currency_daily_nonneg"),
+        CheckConstraint("streak_bonus_per_day >= 0", name="ck_currency_streak_per_day_nonneg"),
+        CheckConstraint("streak_bonus_cap >= 0", name="ck_currency_streak_cap_nonneg"),
     )
 
     guild_id: Mapped[uuid.UUID] = mapped_column(
@@ -47,6 +49,13 @@ class GuildCurrencyConfig(Base):
     daily_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     # Whether members can transfer to each other via `/pay`.
     allow_pay: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # --- Streak (daily-claim chain) ---
+    # When False, `/daily` grants only the base amount and the chain is frozen.
+    streak_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Coins added per streak day: bonus = min(streak * per_day, cap).
+    streak_bonus_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # Ceiling on the per-day bonus so long chains can't runaway-inflate.
+    streak_bonus_cap: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
