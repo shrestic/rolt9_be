@@ -223,3 +223,57 @@ async def test_get_streak_reports_current_and_longest(db_session):
     assert info.longest == 2
     assert info.days_to_milestone == 5  # 7 - 2
     assert info.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_reenable_streak_restarts_from_one(db_session):
+    """Regression: disabling streak while active should drop the chain to 0 so
+    that re-enabling starts fresh at 1 (spec decision #6: "bật lại → đếm từ đầu")
+    rather than resuming the frozen count.
+
+    Steps:
+    1. Build a streak-enabled guild and claim twice → current_streak == 2.
+    2. Disable streak, claim again → base only, current_streak persisted as 0.
+    3. Re-enable, claim again → streak restarts at 1 (not 3/4), longest preserved.
+    """
+    # --- Step 1: claim twice, build a chain of 2 ---
+    svc = await _setup(db_session, streak_bonus_per_day=10, streak_bonus_cap=500)
+    d1 = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    d2 = d1 + timedelta(hours=25)
+    d3 = d2 + timedelta(hours=25)
+    d4 = d3 + timedelta(hours=25)
+
+    await svc.claim_daily(guild_discord_id=777, user_id=1, now=d1)
+    res_d2 = await svc.claim_daily(guild_discord_id=777, user_id=1, now=d2)
+    assert res_d2.streak == 2, "setup: should have streak=2 after two consecutive claims"
+
+    # --- Step 2: disable streak, claim at d3 → base only, chain dropped to 0 ---
+    # Fetch the guild's internal UUID so we can call the config repo directly.
+    guild = await GuildRepository(db_session).get_by_discord_id(777)
+    cfg_repo = CurrencyConfigRepository(db_session)
+    await cfg_repo.upsert(guild.id, {"streak_enabled": False})
+    await db_session.commit()
+
+    res_d3 = await svc.claim_daily(guild_discord_id=777, user_id=1, now=d3)
+    assert res_d3.claimed is True
+    assert res_d3.amount == 100, "disabled streak: should only grant base amount"
+    assert res_d3.streak_bonus == 0
+    # The service should have written new_streak=0 to the wallet.
+    # We verify via get_streak, which reads the stored wallet value.
+    info_after_disable = await svc.get_streak(guild_discord_id=777, user_id=1)
+    assert (
+        info_after_disable.current == 0
+    ), "after disabling, chain should be 0 (not frozen at old value)"
+
+    # --- Step 3: re-enable, claim at d4 → restarts at 1, longest still 2 ---
+    await cfg_repo.upsert(guild.id, {"streak_enabled": True})
+    await db_session.commit()
+
+    res_d4 = await svc.claim_daily(guild_discord_id=777, user_id=1, now=d4)
+    assert res_d4.claimed is True
+    assert (
+        res_d4.streak == 1
+    ), "re-enabled streak must restart at 1, not resume from the old frozen count"
+    # longest_streak is preserved by the max() even though new_streak=1
+    info_final = await svc.get_streak(guild_discord_id=777, user_id=1)
+    assert info_final.longest == 2, "all-time record (2) must survive the reset"

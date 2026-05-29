@@ -133,8 +133,13 @@ class CurrencyService:
             )
             m_bonus = milestone_reward(new_streak)
         else:
-            # Streak frozen: only the base amount, chain left untouched.
-            new_streak = wallet.current_streak
+            # Streak disabled: grant base only and drop the chain to 0. We still
+            # stamp last_daily_at (the UPDATE always does) so the 24h cooldown
+            # keeps working; resetting to 0 means re-enabling later restarts the
+            # chain from scratch (spec decision #6: "bật lại → đếm từ đầu"),
+            # rather than resuming the frozen count. longest_streak is preserved
+            # by the max() below, so the all-time record survives.
+            new_streak = 0
             s_bonus = m_bonus = 0
         new_longest = max(wallet.longest_streak, new_streak)
         total = cfg.daily_amount + s_bonus + m_bonus
