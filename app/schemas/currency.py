@@ -38,6 +38,13 @@ class CurrencySettings(BaseModel):
     # Whether members can transfer coins to each other via /pay.
     allow_pay: bool = True
 
+    # --- Streak ---
+    streak_enabled: bool = True
+    # Coins added per streak day (bonus = min(streak * per_day, cap)).
+    streak_bonus_per_day: int = Field(default=10, ge=0, le=10_000)
+    # Ceiling on the per-day streak bonus.
+    streak_bonus_cap: int = Field(default=500, ge=0, le=1_000_000)
+
     @model_validator(mode="after")
     def _check(self) -> "CurrencySettings":
         if self.earn_min > self.earn_max:

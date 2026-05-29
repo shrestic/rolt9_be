@@ -67,6 +67,10 @@ async def test_get_settings_defaults(seed):
     assert body["earn_max"] == 3
     assert body["daily_amount"] == 100
     assert body["allow_pay"] is True
+    # Streak settings should be present with defaults
+    assert body["streak_enabled"] is True
+    assert body["streak_bonus_per_day"] == 10
+    assert body["streak_bonus_cap"] == 500
 
 
 @pytest.mark.asyncio
@@ -82,14 +86,23 @@ async def test_put_settings_persists(seed, db_session):
         "earn_max": 5,
         "daily_amount": 150,
         "allow_pay": False,
+        "streak_enabled": True,
+        "streak_bonus_per_day": 25,
+        "streak_bonus_cap": 750,
     }
     r = client.put(_url(), json=payload)
     assert r.status_code == 200, r.text
-    assert r.json()["currency_name"] == "xu"
+    body = r.json()
+    assert body["currency_name"] == "xu"
+    # Streak round-trip: PUT value comes back in the response
+    assert body["streak_bonus_per_day"] == 25
+    assert body["streak_bonus_cap"] == 750
+    assert body["streak_enabled"] is True
     cfg = await CurrencyConfigRepository(db_session).get(g.id)
     assert cfg.enabled is True
     assert cfg.earn_max == 5
     assert cfg.allow_pay is False
+    assert cfg.streak_bonus_per_day == 25
 
 
 @pytest.mark.asyncio

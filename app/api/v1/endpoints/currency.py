@@ -50,6 +50,9 @@ def _settings_out(cfg) -> CurrencySettings:
         earn_max=cfg.earn_max,
         daily_amount=cfg.daily_amount,
         allow_pay=cfg.allow_pay,
+        streak_enabled=cfg.streak_enabled,
+        streak_bonus_per_day=cfg.streak_bonus_per_day,
+        streak_bonus_cap=cfg.streak_bonus_cap,
     )
 
 

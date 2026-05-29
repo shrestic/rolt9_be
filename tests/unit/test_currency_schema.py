@@ -25,3 +25,17 @@ def test_rejects_out_of_range():
         CurrencySettings(daily_amount=-1)
     with pytest.raises(ValidationError):
         CurrencySettings(currency_name="")
+
+
+def test_currency_settings_accepts_streak_fields():
+    s = CurrencySettings(streak_enabled=False, streak_bonus_per_day=25, streak_bonus_cap=1000)
+    assert s.streak_enabled is False
+    assert s.streak_bonus_per_day == 25
+    assert s.streak_bonus_cap == 1000
+
+
+def test_currency_settings_streak_defaults():
+    s = CurrencySettings()
+    assert s.streak_enabled is True
+    assert s.streak_bonus_per_day == 10
+    assert s.streak_bonus_cap == 500
