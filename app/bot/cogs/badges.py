@@ -52,7 +52,12 @@ class BadgesCog(commands.Cog):
         await interaction.response.defer()
 
         async with session_scope() as session:
-            earned, locked, enabled = await _build_service(session).list_for(
+            service = _build_service(session)
+            # On-view catch-all: grant any badges the target has newly crossed
+            # (e.g. wealth/streak thresholds reached since their last /daily)
+            # before rendering, so /badges never shows an earned badge as locked.
+            await service.award_new(guild_discord_id=interaction.guild_id, user_id=target.id)
+            earned, locked, enabled = await service.list_for(
                 guild_discord_id=interaction.guild_id, user_id=target.id
             )
 

@@ -46,6 +46,7 @@ def _interaction(user_id=1):
 @pytest.mark.asyncio
 async def test_badges_lists_earned_and_locked(monkeypatch):
     stub = MagicMock()
+    stub.award_new = AsyncMock(return_value=[])  # needed: /badges now calls award_new first
     stub.list_for = AsyncMock(
         return_value=(
             [(by_key("level_5"), datetime(2026, 5, 1, tzinfo=UTC))],
@@ -65,6 +66,7 @@ async def test_badges_lists_earned_and_locked(monkeypatch):
 @pytest.mark.asyncio
 async def test_badges_disabled(monkeypatch):
     stub = MagicMock()
+    stub.award_new = AsyncMock(return_value=[])  # needed: /badges now calls award_new first
     stub.list_for = AsyncMock(return_value=([], [], False))
     _patch(monkeypatch, stub)
     cog = BadgesCog(MagicMock(), MagicMock())
@@ -72,3 +74,28 @@ async def test_badges_disabled(monkeypatch):
     await cog.badges.callback(cog, inter, None)
     msg = inter.followup.send.call_args.args[0]
     assert "tắt" in msg
+
+
+@pytest.mark.asyncio
+async def test_badges_awards_on_view(monkeypatch):
+    """Spec decision #2: /badges is a catch-all safety net — it must call award_new
+    before list_for so badges crossed since the last /daily are surfaced immediately.
+    """
+    stub = MagicMock()
+    stub.award_new = AsyncMock(return_value=[])
+    stub.list_for = AsyncMock(
+        return_value=(
+            [],
+            list(__import__("app.services.badges.catalog", fromlist=["BADGES"]).BADGES),
+            True,
+        )
+    )
+    _patch(monkeypatch, stub)
+    cog = BadgesCog(MagicMock(), MagicMock())
+    inter = _interaction()
+    await cog.badges.callback(cog, inter, None)
+    # award_new must have been awaited exactly once
+    stub.award_new.assert_awaited_once()
+    # and it must have targeted the viewing user's id (id=1 from _interaction)
+    _, kwargs = stub.award_new.call_args
+    assert kwargs["user_id"] == 1
