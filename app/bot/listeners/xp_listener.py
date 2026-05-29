@@ -15,13 +15,16 @@ from discord.ext import commands
 from app.bot.cache.leveling_config_cache import CachedLevelingConfig, LevelingConfigCache
 from app.db.session import session_scope
 from app.discord_io.client import DiscordClient
+from app.repositories.badge_config import BadgeConfigRepository
 from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
+from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
 from app.repositories.user_xp import UserXpRepository
+from app.services.badges import BadgeService
 from app.services.currency import CurrencyService
 from app.services.leveling import LevelingService
 
@@ -34,6 +37,8 @@ async def handle_message(
     cache: LevelingConfigCache,
     service_factory: Callable[[], LevelingService],
     currency_factory: Callable[[], CurrencyService] | None = None,
+    badge_factory: "Callable[[], BadgeService] | None" = None,
+    discord_io: DiscordClient | None = None,
 ) -> None:
     # Skip bots and DMs up front — the absolute cheapest gate.
     if getattr(message.author, "bot", False):
@@ -62,6 +67,27 @@ async def handle_message(
             guild_discord_id=int(message.guild.id),
             user_id=int(message.author.id),
         )
+
+    # Piggyback: on level-up, evaluate badges (catches level milestones instantly)
+    # and announce any newly-earned ones as a short follow-up in the same channel.
+    # Done here (the listener seam) rather than inside LevelingService to keep
+    # leveling decoupled from badges. Guard with getattr so tests that return a
+    # plain object() outcome (no level fields) don't blow up here.
+    if (
+        outcome is not None
+        and getattr(outcome, "new_level", 0) > getattr(outcome, "old_level", 0)
+        and badge_factory is not None
+    ):
+        new_badges = await badge_factory().award_new(
+            guild_discord_id=int(message.guild.id),
+            user_id=int(message.author.id),
+        )
+        if new_badges and discord_io is not None:
+            names = ", ".join(f"{b.emoji} {b.name}" for b in new_badges)
+            await discord_io.post_to_channel(
+                int(message.channel.id),
+                content=f"🏅 {message.author.mention} vừa mở khóa: {names}!",
+            )
 
 
 # Cog wrapper — picks up on_message and dispatches to handle_message.
@@ -93,14 +119,28 @@ class XpListenerCog(commands.Cog):
             wallet_repo=WalletRepository(session),
         )
 
+    def _build_badge(self, session) -> BadgeService:
+        # Reads stats (level, streak, balance) directly from repos so badges
+        # stay decoupled from LevelingService and CurrencyService.
+        return BadgeService(
+            guild_repo=GuildRepository(session),
+            badge_repo=BadgeRepository(session),
+            badge_config_repo=BadgeConfigRepository(session),
+            xp_repo=UserXpRepository(session),
+            wallet_repo=WalletRepository(session),
+        )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         async with session_scope() as session:
             service = self._build_service(session)
             currency = self._build_currency(session)
+            badge = self._build_badge(session)
             await handle_message(
                 message,
                 cache=self.cache,
                 service_factory=lambda: service,
                 currency_factory=lambda: currency,
+                badge_factory=lambda: badge,
+                discord_io=self.discord_io,
             )
