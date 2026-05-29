@@ -11,7 +11,7 @@
 A per-guild virtual economy, **off by default**, opt-in per server (exactly like leveling — two servers keep entirely separate economies). When an admin turns it on:
 
 - **Passive earn:** every "real" chat message that earns XP also grants a small random amount of currency (it *piggybacks* on the XP award, so it reuses all the anti-spam/cooldown gating for free).
-- **`/daily`:** a fixed reward claimable once per 24 hours.
+- **`/daily`:** a reward claimable once per UTC calendar day (base + streak bonus).
 - **`/pay`:** transfer currency to another member (if the admin allows it).
 - **`/balance` / `/baltop`:** check a wallet / see the richest members.
 - **`/eco give|take|reset`:** admin balance controls (needs *Manage Server*).
@@ -84,7 +84,7 @@ Two tables, both FK to `guilds(id)` with `ON DELETE CASCADE`. Added by [`alembic
 | Table | Purpose | Key columns / notes |
 |---|---|---|
 | `guild_currency_config` | Per-guild on/off + tuning | `guild_id` (PK). `enabled`, `currency_name` (≤32), `currency_emoji` (≤32), `earn_min`/`earn_max`, `daily_amount`, `allow_pay`. Check constraints: amounts ≥ 0, `earn_min ≤ earn_max`. |
-| `user_wallet` | One balance per (guild, member) | `(guild_id, user_id)` unique; index `(guild_id, balance)` for `/baltop`. `balance` is **BigInteger**, check `balance >= 0`. `last_daily_at` (nullable) drives the 24h cooldown. |
+| `user_wallet` | One balance per (guild, member) | `(guild_id, user_id)` unique; index `(guild_id, balance)` for `/baltop`. `balance` is **BigInteger**, check `balance >= 0`. `last_daily_at` (nullable) drives the daily reset + streak. `current_streak` / `longest_streak` track the chain. |
 
 Wallets are created **lazily** (`WalletRepository.get_or_create`) the first time a member earns/receives — "no row" just means balance 0.
 
@@ -127,9 +127,10 @@ The crucial line is `if outcome is not None`: currency is granted **only** when 
       ▼
 CurrencyService.claim_daily(now=now)               app/services/currency/currency_service.py
       ├─ currency enabled? (else ValueError)
+      ├─ cutoff = 00:00 UTC today  (daily resets on the UTC calendar day)
       ├─ read wallet (last_daily_at, current_streak, longest_streak)
       ├─ streak math (app/services/currency/streak.py):
-      │     new_streak = next_streak(last_daily_at, now, current)   ← ≤48h ago → +1, else 1
+      │     new_streak = next_streak(last_daily_at, now, current)   ← claimed yesterday → +1, else 1
       │     s_bonus    = min(new_streak * per_day, cap)
       │     m_bonus    = MILESTONES.get(new_streak, 0)              ← {7,30,100,365}
       │     (streak disabled → new_streak=0, no bonuses; chain dropped)
@@ -137,13 +138,15 @@ CurrencyService.claim_daily(now=now)               app/services/currency/currenc
       └─ WalletRepository.try_claim_daily(total, now, cutoff, new_streak, new_longest)  ← atomic
               UPDATE … SET balance += total, last_daily_at = now,
                           current_streak = new_streak, longest_streak = new_longest
-               WHERE … AND (last_daily_at IS NULL OR last_daily_at <= cutoff)
+               WHERE … AND (last_daily_at IS NULL OR last_daily_at < cutoff)
       ▼
    claimed?  → "+130 🪙 … 🔥 Chuỗi 3 ngày … 🎉 Mốc 7 ngày! +200"
-   on cooldown (0 rows) → "wait Xh Ym"  (retry_after computed from last_daily_at)
+   already claimed today (0 rows) → "wait Xh Ym"  (retry_after = time to next UTC midnight)
 ```
 
-The cooldown test lives **inside the UPDATE's WHERE**, so two `/daily` fired at the same instant can't both pass — only one matches. The streak counters are computed in Python from the pre-claim read, but that's still race-safe: only the single UPDATE whose WHERE still matches actually writes, so a losing concurrent claim never persists a stale/duplicate streak. The `/daily` reward window also keeps the chain alive — claim again within **48h** of the previous claim to continue (24h cooldown means the live window is effectively `[24h, 48h]`); miss a full day and the chain restarts at 1.
+The eligibility test lives **inside the UPDATE's WHERE**, so two `/daily` fired at the same instant can't both pass — only one matches. The streak counters are computed in Python from the pre-claim read, but that's still race-safe: only the single UPDATE whose WHERE still matches actually writes, so a losing concurrent claim never persists a stale/duplicate streak.
+
+**Daily resets on the UTC calendar day, not a rolling 24h cooldown.** You may claim once per UTC day — so a claim at 23:00 and another at 01:00 the next day are both allowed (≈2h apart), while two claims on the same UTC day are blocked no matter how many hours pass. The streak continues when the previous claim was *yesterday* (UTC) and restarts at 1 when a whole UTC day is skipped.
 
 **`/streak [member]`** → `CurrencyService.get_streak` → reads `current_streak` / `longest_streak` off the wallet (never raises; unknown guild or no wallet reports a zero, disabled streak). Shows current chain, all-time record, and days to the next milestone.
 
@@ -215,12 +218,12 @@ Settings round-trip mirrors leveling: `get_settings` uses `get_or_create` so a f
 ### Atomicity (the whole game)
 Every mutation is a single guarded `UPDATE`:
 - **Balance:** `... SET balance = balance + :delta WHERE ... AND balance + :delta >= 0` → `rowcount 0` means "would overdraw" (returns `False`); the check is inseparable from the write, so no read-modify-write race and **no app lock**.
-- **Daily:** the same shape with the 24h cooldown predicate in the WHERE.
+- **Daily:** the same shape with the calendar-day predicate (`last_daily_at < start-of-day UTC`) in the WHERE.
 - **`/pay`:** debit + credit in one transaction; debit failure aborts both.
 
 ### Anti-abuse — what's covered vs. accepted (v1)
 - **Covered for free** (via piggyback): emoji-only / link-only / too-short spam can't farm (no XP ⇒ no currency); per-user cooldown (switching channels doesn't bypass); bot authors filtered; edits/deletes after sending don't matter.
-- **Covered by design:** balance can't go negative (guard + check constraint); `/daily` can't double-claim (atomic cooldown); `/pay` can't overdraw / self-pay / pay a bot / send ≤0 or > cap; amounts capped at 1M; BigInteger prevents overflow.
+- **Covered by design:** balance can't go negative (guard + check constraint); `/daily` can't double-claim (atomic per-day guard); `/pay` can't overdraw / self-pay / pay a bot / send ≤0 or > cap; amounts capped at 1M; BigInteger prevents overflow.
 - **Accepted limits (no v1 fix):** alt-account farming + `/pay` laundering to a main account is a Discord-level problem (future mitigations: pay tax, per-day pay limit, account-age gate). Inflation is expected until sinks (shop / mini-games / pet) land — `/baltop` is decorative until then. Admins can inflate via `/eco` — that's trusted-by-design; the cap only stops typos.
 
 ### Locking down the `/eco` admin commands
@@ -265,7 +268,7 @@ Repos never commit. Bot flows commit at `session_scope` exit; REST at `get_db`. 
 | Command | Behaviour |
 |---|---|
 | `/balance [member]` | Show a wallet balance (defaults to caller). |
-| `/daily` | Claim the daily reward (24h cooldown) + advance the streak. |
+| `/daily` | Claim the daily reward (resets 00:00 UTC) + advance the streak. |
 | `/streak [member]` | Show a daily-claim streak (current, record, next milestone). |
 | `/pay <member> <amount>` | Transfer currency (if `allow_pay`). |
 | `/baltop` | Top 10 richest members. |

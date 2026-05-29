@@ -2,20 +2,17 @@
 
 Mirrors `app/services/leveling/xp_calculator.py`: a small set of deterministic
 functions the currency service composes. Keeping it pure means the streak
-rules (window, bonus curve, milestones) are unit-tested in isolation and the
-service stays a thin orchestrator.
+rules (day boundary, bonus curve, milestones) are unit-tested in isolation and
+the service stays a thin orchestrator.
 
-The streak is driven entirely by `/daily`. Because the daily cooldown is 24h,
-a member can claim at most once per day; to *keep* the chain alive they must
-claim again before a full day is skipped — i.e. within 48h of the previous
-claim. Past 48h the chain is considered broken and restarts at 1.
+The streak is driven entirely by `/daily`, which resets on the **UTC calendar
+day** (not a rolling 24h cooldown): a member may claim once per UTC day. To
+*keep* the chain alive they must claim on consecutive UTC days — claiming today
+when the previous claim was yesterday adds +1. Skip a whole UTC day and the
+chain breaks, restarting at 1 on the next claim.
 """
 
-from datetime import datetime, timedelta
-
-# Claim again within this window of the previous claim to keep the chain.
-# 48h = "you may miss being punctual, but not a whole day".
-STREAK_WINDOW = timedelta(hours=48)
+from datetime import datetime
 
 # Lump-sum coin rewards granted the day a member's streak first reaches the key.
 # Hardcoded in v1 (not FE-configurable); tuned so day-7 ≈ 2× a default daily.
@@ -25,34 +22,47 @@ MILESTONES: dict[int, int] = {7: 200, 30: 1000, 100: 5000, 365: 20000}
 def next_streak(last_claim_at: datetime | None, now: datetime, current: int) -> int:
     """Return the streak count after a successful claim at `now`.
 
+    Compares **UTC calendar days** (not elapsed hours), so the chain tracks
+    "did they claim on consecutive days" rather than "within N hours":
+
     - Never claimed (`last_claim_at is None`) → 1 (chain starts).
-    - Claimed within `STREAK_WINDOW` (≤48h ago) → `current + 1` (chain continues).
-    - Otherwise → 1 (a full day was skipped, chain restarts).
+    - Last claim was *yesterday* (UTC) → `current + 1` (chain continues).
+    - Last claim was *today* already → `current` (no change). Same-day re-claims
+      are blocked by the claim guard, so in practice this value is never
+      persisted; it's here only to keep the function total.
+    - Last claim was 2+ days ago → 1 (a full UTC day was skipped, chain resets).
 
     Args:
-        last_claim_at: Timestamp of the member's previous `/daily` claim, or
-            None if they have never claimed.
-        now: The timestamp of the current claim (typically `datetime.now(UTC)`).
-        current: The member's streak count before this claim. Ignored if the
-            chain breaks (reset to 1) or if this is the first ever claim.
+        last_claim_at: Timestamp of the member's previous `/daily` claim (UTC),
+            or None if they have never claimed.
+        now: The timestamp of the current claim (UTC; typically
+            `datetime.now(UTC)`). Both timestamps must be UTC so `.date()`
+            yields the UTC calendar day.
+        current: The member's streak count before this claim. Ignored when the
+            chain breaks (reset to 1) or on the first ever claim.
 
     Returns:
-        The new streak integer, always >= 1.
+        The new streak integer (>= 1 whenever a claim actually lands).
 
     Example:
-        >>> from datetime import UTC, datetime, timedelta
+        >>> from datetime import UTC, datetime
         >>> now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC)
         >>> next_streak(None, now, 0)
         1
-        >>> next_streak(now - timedelta(hours=30), now, 5)
+        >>> next_streak(datetime(2026, 5, 28, 23, 0, tzinfo=UTC), now, 5)  # yesterday
         6
-        >>> next_streak(now - timedelta(hours=49), now, 5)
+        >>> next_streak(datetime(2026, 5, 27, 1, 0, tzinfo=UTC), now, 5)  # 2 days ago
         1
     """
     if last_claim_at is None:
         return 1
-    if now - last_claim_at <= STREAK_WINDOW:
+    gap_days = (now.date() - last_claim_at.date()).days
+    if gap_days == 1:
         return current + 1
+    if gap_days <= 0:
+        # Same UTC day (or clock skew): no advance. The claim guard normally
+        # prevents reaching here with a successful claim.
+        return current
     return 1
 
 

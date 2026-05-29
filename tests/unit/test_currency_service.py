@@ -203,6 +203,36 @@ async def test_milestone_day_adds_lump(db_session):
 
 
 @pytest.mark.asyncio
+async def test_daily_resets_on_calendar_day_not_24h(db_session):
+    # The whole point of the day-based reset: claiming late one day (23:00) and
+    # again early the NEXT day (01:00) is allowed even though only ~2h elapsed —
+    # because it's a new UTC day — and the streak continues.
+    svc = await _setup(db_session, streak_bonus_per_day=10, streak_bonus_cap=500)
+    late = datetime(2026, 5, 1, 23, 0, tzinfo=UTC)
+    first = await svc.claim_daily(guild_discord_id=777, user_id=1, now=late)
+    assert first.claimed is True
+    assert first.streak == 1
+
+    next_day_early = datetime(2026, 5, 2, 1, 0, tzinfo=UTC)  # only 2h later
+    second = await svc.claim_daily(guild_discord_id=777, user_id=1, now=next_day_early)
+    assert second.claimed is True, "a new UTC day must allow a fresh claim within 24h"
+    assert second.streak == 2, "consecutive calendar days continue the chain"
+
+
+@pytest.mark.asyncio
+async def test_second_claim_same_day_blocked_after_many_hours(db_session):
+    # Conversely, two claims on the SAME UTC day are blocked even 10h apart.
+    svc = await _setup(db_session, streak_bonus_per_day=10, streak_bonus_cap=500)
+    morning = datetime(2026, 5, 1, 8, 0, tzinfo=UTC)
+    await svc.claim_daily(guild_discord_id=777, user_id=1, now=morning)
+    evening = datetime(2026, 5, 1, 18, 0, tzinfo=UTC)  # same day, 10h later
+    second = await svc.claim_daily(guild_discord_id=777, user_id=1, now=evening)
+    assert second.claimed is False
+    # retry_after points at the next UTC midnight (6h away), not "24h from claim".
+    assert 0 < second.retry_after_seconds <= 6 * 3600
+
+
+@pytest.mark.asyncio
 async def test_streak_disabled_only_base(db_session):
     svc = await _setup(db_session, streak_enabled=False)
     res = await svc.claim_daily(guild_discord_id=777, user_id=1)

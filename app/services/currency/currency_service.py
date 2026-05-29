@@ -33,7 +33,6 @@ from app.services.currency.streak import (
 # Per-action cap (spec §5/§8): blocks 32/64-bit overflow, fat-finger typos, and
 # runaway inflation. Transfers/admin adjustments above this are rejected.
 MAX_AMOUNT = 1_000_000
-DAILY_COOLDOWN = timedelta(hours=24)
 
 
 @dataclass(frozen=True)
@@ -64,6 +63,16 @@ class StreakInfo:
 def _as_utc(dt: datetime) -> datetime:
     """Tag a naive datetime as UTC (SQLite can hand back naive timestamps)."""
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _day_start(dt: datetime) -> datetime:
+    """Midnight (00:00:00) UTC of the day `dt` falls on — the daily-reset line.
+
+    `/daily` resets on the UTC calendar day rather than a rolling 24h window, so
+    eligibility and the streak are anchored to this boundary: anything claimed
+    before today's midnight counts as a previous day.
+    """
+    return _as_utc(dt).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class CurrencyService:
@@ -119,10 +128,12 @@ class CurrencyService:
         if cfg is None or not cfg.enabled:
             raise ValueError("Currency isn't enabled on this server.")
         now = _as_utc(now or datetime.now(UTC))
-        cutoff = now - DAILY_COOLDOWN
+        # Daily resets on the UTC calendar day: eligible if the last claim was
+        # before today's midnight (i.e. on an earlier UTC day), not "24h ago".
+        cutoff = _day_start(now)
 
         # Read the pre-claim state so we can compute the new streak. The atomic
-        # UPDATE below only persists if the cooldown guard still matches, so a
+        # UPDATE below only persists if the day guard still matches, so a
         # concurrent double-fire can't write a stale/duplicate streak.
         wallet = await self.wallet_repo.get_or_create(gid, user_id)
         if cfg.streak_enabled:
@@ -134,7 +145,7 @@ class CurrencyService:
             m_bonus = milestone_reward(new_streak)
         else:
             # Streak disabled: grant base only and drop the chain to 0. We still
-            # stamp last_daily_at (the UPDATE always does) so the 24h cooldown
+            # stamp last_daily_at (the UPDATE always does) so the daily reset
             # keeps working; resetting to 0 means re-enabling later restarts the
             # chain from scratch (spec decision #6: "bật lại → đếm từ đầu"),
             # rather than resuming the frozen count. longest_streak is preserved
@@ -167,9 +178,9 @@ class CurrencyService:
                 days_to_milestone=days_to_next_milestone(new_streak),
                 retry_after_seconds=0,
             )
-        # On cooldown: tell the caller how long until the next claim is allowed.
-        last = _as_utc(wallet.last_daily_at) if wallet and wallet.last_daily_at else now
-        remaining = int((last + DAILY_COOLDOWN - now).total_seconds())
+        # Already claimed today: the next claim unlocks at the next UTC midnight.
+        next_reset = cutoff + timedelta(days=1)
+        remaining = int((next_reset - now).total_seconds())
         return DailyResult(
             claimed=False,
             amount=0,

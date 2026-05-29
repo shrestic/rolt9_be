@@ -88,12 +88,12 @@ class WalletRepository:
         new_streak: int,
         new_longest: int,
     ) -> bool:
-        """Atomically claim the daily reward; True if claimed, False if on cooldown.
+        """Atomically claim the daily reward; True if claimed, False if already done today.
 
-        Like `add_balance`, the cooldown test lives in the WHERE clause
-        (`last_daily_at IS NULL OR last_daily_at <= cutoff`), so two `/daily`
+        Like `add_balance`, the eligibility test lives in the WHERE clause
+        (`last_daily_at IS NULL OR last_daily_at < cutoff`), so two `/daily`
         commands fired at almost the same instant can't both pass — only one
-        UPDATE matches, the other reports cooldown. This closes the
+        UPDATE matches, the other reports "already claimed". This closes the
         double-claim race that a read-then-write would leave open.
 
         Streak counters are computed by the caller (from the pre-claim wallet
@@ -105,9 +105,10 @@ class WalletRepository:
         Args:
             amount: How much to grant (base + streak bonus + milestone).
             now: Timestamp to stamp into `last_daily_at` on success.
-            cutoff: `now - 24h`, computed by the caller. Passing it in (rather
-                than using SQL `now() - interval`) keeps the statement identical
-                on Postgres and on SQLite used in tests.
+            cutoff: The daily-reset boundary (start-of-day UTC), computed by the
+                caller. A claim is eligible only if `last_daily_at < cutoff`.
+                Passing it in (rather than computing in SQL) keeps the statement
+                identical on Postgres and on SQLite used in tests.
             new_streak: The chain count to store on success.
             new_longest: `max(old_longest, new_streak)`, computed by the caller.
         """
@@ -117,8 +118,9 @@ class WalletRepository:
             .where(
                 UserWallet.guild_id == guild_id,
                 UserWallet.user_id == user_id,
-                # Eligible iff never claimed, or the last claim is older than 24h.
-                or_(UserWallet.last_daily_at.is_(None), UserWallet.last_daily_at <= cutoff),
+                # Eligible iff never claimed, or the last claim was strictly
+                # before the cutoff (caller passes start-of-day for daily reset).
+                or_(UserWallet.last_daily_at.is_(None), UserWallet.last_daily_at < cutoff),
             )
             .values(
                 balance=UserWallet.balance + amount,
