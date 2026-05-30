@@ -59,6 +59,9 @@ async def test_give_cooldown_same_pair(db_session):
         await svc.give(
             guild_discord_id=GID, giver_id=1, receiver_id=2, now=NOW + timedelta(hours=1)
         )
+    # The rejected grant must NOT have added a point (still 1, not 2).
+    blocked = await svc.get_standing(guild_discord_id=GID, user_id=2)
+    assert blocked.points == 1
     res = await svc.give(guild_discord_id=GID, giver_id=3, receiver_id=2, now=NOW)
     assert res.receiver_points == 2
 

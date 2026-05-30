@@ -47,9 +47,9 @@ class KarmaRepository:
 
         Uses SQL `points = points + 1` inside a single UPDATE so two near-simultaneous
         awards for the same member never lose each other (no read-modify-write gap).
-        `synchronize_session="fetch"` tells SQLAlchemy to re-select the row from
-        the DB when refreshing the identity map, which is required on SQLite/tests
-        where the default "evaluate" strategy can trip over timezone mismatches.
+        `synchronize_session="fetch"` re-selects the affected row to refresh the
+        identity map after the SQL-side increment, so the in-session object (and
+        the `get` below) reflect the new value.
         """
         await self._get_or_create(guild_id, user_id)
         stmt = (
