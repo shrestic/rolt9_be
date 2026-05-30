@@ -23,6 +23,7 @@ from app.bot.cogs.currency import CurrencyCog
 from app.bot.cogs.custom_commands import CustomCommandsCog
 from app.bot.cogs.leveling import LevelingCog
 from app.bot.cogs.moderation import ModerationCog
+from app.bot.cogs.pet import PetCog
 from app.bot.cogs.quests import QuestsCog
 from app.bot.cogs.xp_decay import XpDecayCog
 from app.bot.events import (
@@ -93,6 +94,7 @@ class Rolt9Bot(commands.Bot):
         await self.add_cog(CurrencyCog(self, self.discord_io))
         await self.add_cog(BadgesCog(self, self.discord_io))
         await self.add_cog(QuestsCog(self, self.discord_io))
+        await self.add_cog(PetCog(self, self.discord_io))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.
         await self.tree.sync()
