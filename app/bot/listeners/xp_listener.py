@@ -21,12 +21,15 @@ from app.repositories.guild import GuildRepository
 from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
+from app.repositories.quest import QuestRepository
+from app.repositories.quest_progress import QuestProgressRepository
 from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
 from app.repositories.user_xp import UserXpRepository
 from app.services.badges import BadgeService
 from app.services.currency import CurrencyService
 from app.services.leveling import LevelingService
+from app.services.quests import QuestService
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +41,7 @@ async def handle_message(
     service_factory: Callable[[], LevelingService],
     currency_factory: Callable[[], CurrencyService] | None = None,
     badge_factory: "Callable[[], BadgeService] | None" = None,
+    quest_factory: "Callable[[], QuestService] | None" = None,
     discord_io: DiscordClient | None = None,
 ) -> None:
     # Skip bots and DMs up front — the absolute cheapest gate.
@@ -62,11 +66,20 @@ async def handle_message(
 
     # Piggyback: currency is granted only when XP was actually awarded (i.e. the
     # message passed every anti-spam + cooldown gate). Reuses those gates for free.
+    # Capture the returned amount so we can forward it to quest progress tracking.
     if outcome is not None and currency_factory is not None:
-        await currency_factory().grant_message_reward(
+        earned = await currency_factory().grant_message_reward(
             guild_discord_id=int(message.guild.id),
             user_id=int(message.author.id),
         )
+        # Feed coins earned into quests — only when something was actually paid out.
+        if earned and quest_factory is not None:
+            await quest_factory().record_event(
+                guild_discord_id=int(message.guild.id),
+                user_id=int(message.author.id),
+                objective_type="earn_coins",
+                amount=earned,
+            )
 
     # Piggyback: on level-up, evaluate badges (catches level milestones instantly)
     # and announce any newly-earned ones as a short follow-up in the same channel.
@@ -130,17 +143,29 @@ class XpListenerCog(commands.Cog):
             wallet_repo=WalletRepository(session),
         )
 
+    def _build_quest(self, session) -> QuestService:
+        # Shares the same session as leveling/currency so all writes are in one
+        # Unit-of-Work transaction — progress updates commit or roll back together.
+        return QuestService(
+            guild_repo=GuildRepository(session),
+            quest_repo=QuestRepository(session),
+            progress_repo=QuestProgressRepository(session),
+            wallet_repo=WalletRepository(session),
+        )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         async with session_scope() as session:
             service = self._build_service(session)
             currency = self._build_currency(session)
             badge = self._build_badge(session)
+            quest = self._build_quest(session)
             await handle_message(
                 message,
                 cache=self.cache,
                 service_factory=lambda: service,
                 currency_factory=lambda: currency,
                 badge_factory=lambda: badge,
+                quest_factory=lambda: quest,
                 discord_io=self.discord_io,
             )

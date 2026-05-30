@@ -47,6 +47,11 @@ def _patch_service(monkeypatch, stub):
     _noop_badge = MagicMock()
     _noop_badge.award_new = AsyncMock(return_value=[])
     monkeypatch.setattr(currency_mod, "_build_badge_service", lambda session: _noop_badge)
+    # Default quest service is a silent no-op — tests that care about quest
+    # progress should override _build_quest_service with their own stub.
+    _noop_quest = MagicMock()
+    _noop_quest.record_event = AsyncMock()
+    monkeypatch.setattr(currency_mod, "_build_quest_service", lambda session: _noop_quest)
 
 
 def _fake_interaction(user_id=1):
@@ -185,3 +190,39 @@ async def test_daily_appends_new_badge(monkeypatch):
     await cog.daily.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
     assert "Rủng rỉnh" in msg  # the new badge name
+
+
+# ---------------------------------------------------------------------------
+# /daily — quest progress
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daily_records_quest_progress(monkeypatch):
+    """After a successful /daily, both earn_coins and daily_claim events are recorded."""
+    stub = MagicMock()
+    stub.claim_daily = AsyncMock(
+        return_value=DailyResult(
+            claimed=True,
+            amount=110,
+            base=100,
+            streak_bonus=10,
+            milestone_bonus=0,
+            balance=110,
+            streak=1,
+            days_to_milestone=6,
+            retry_after_seconds=0,
+        )
+    )
+    badge_stub = MagicMock()
+    badge_stub.award_new = AsyncMock(return_value=[])
+    quest_stub = MagicMock()
+    quest_stub.record_event = AsyncMock()
+    _patch_service(monkeypatch, stub)
+    monkeypatch.setattr(currency_mod, "_build_badge_service", lambda session: badge_stub)
+    monkeypatch.setattr(currency_mod, "_build_quest_service", lambda session: quest_stub)
+    cog = CurrencyCog(MagicMock(), MagicMock())
+    inter = _fake_interaction()
+    await cog.daily.callback(cog, inter)
+    objectives = {c.kwargs["objective_type"] for c in quest_stub.record_event.call_args_list}
+    assert objectives == {"earn_coins", "daily_claim"}

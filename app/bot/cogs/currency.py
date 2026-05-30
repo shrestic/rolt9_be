@@ -18,11 +18,14 @@ from app.discord_io.client import DiscordClient
 from app.repositories.badge_config import BadgeConfigRepository
 from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.quest import QuestRepository
+from app.repositories.quest_progress import QuestProgressRepository
 from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
 from app.repositories.user_xp import UserXpRepository
 from app.services.badges import BadgeService
 from app.services.currency import CurrencyService
+from app.services.quests import QuestService
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +35,20 @@ def _build_service(session) -> CurrencyService:
         session=session,
         guild_repo=GuildRepository(session),
         config_repo=CurrencyConfigRepository(session),
+        wallet_repo=WalletRepository(session),
+    )
+
+
+def _build_quest_service(session) -> QuestService:
+    """Wire up a QuestService on the same session as the currency transaction.
+
+    Sharing the session keeps quest progress inserts inside the same DB
+    transaction as the daily claim — either both commit or both roll back.
+    """
+    return QuestService(
+        guild_repo=GuildRepository(session),
+        quest_repo=QuestRepository(session),
+        progress_repo=QuestProgressRepository(session),
         wallet_repo=WalletRepository(session),
     )
 
@@ -138,6 +155,22 @@ class CurrencyCog(commands.Cog):
                 # One line per newly unlocked badge — emoji + name gives enough
                 # context without needing to explain the unlock condition.
                 lines.append(f"🏅 Mở khóa: {badge.emoji} **{badge.name}**!")
+            # Feed the daily reward into quests: coins earned + a daily claim tick.
+            # Both events are recorded on the same session/transaction as the claim
+            # itself, so they commit or roll back together.
+            quest_service = _build_quest_service(service.session)
+            await quest_service.record_event(
+                guild_discord_id=gid,
+                user_id=interaction.user.id,
+                objective_type="earn_coins",
+                amount=res.amount,
+            )
+            await quest_service.record_event(
+                guild_discord_id=gid,
+                user_id=interaction.user.id,
+                objective_type="daily_claim",
+                amount=1,
+            )
             return "\n".join(lines)
 
         await _run(interaction, do, ephemeral=True)
