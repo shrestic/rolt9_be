@@ -1,6 +1,6 @@
 # AI Layer — Hướng dẫn & Workflow
 
-Tầng nền AI (Claude) dùng chung cho mọi feature AI + feature đầu tiên: **AI Roast** (`/roast`).
+Tầng nền AI (Claude) dùng chung + 4 feature: **Roast, Summarize, Q&A (Ask), Personality (Chat)**.
 
 ---
 
@@ -8,8 +8,7 @@ Tầng nền AI (Claude) dùng chung cho mọi feature AI + feature đầu tiên
 
 - Bot gọi **Claude (Anthropic)** qua một **gateway dùng chung** (`AIGateway`).
 - **Bot trả tiền** (key global `ANTHROPIC_API_KEY`). Mỗi server có **hạn mức token/tháng** để chặn chi phí.
-- Feature đầu: `/roast @user` — AI cà khịa thành viên bằng tiếng Việt.
-- Các feature AI sau (Summarizer, Q&A, Personality) **tái dùng** gateway này.
+- 4 feature đều cắm vào gateway: `/roast`, `/summarize`, `/ask`, `/chat`.
 
 ---
 
@@ -19,6 +18,8 @@ Tầng nền AI (Claude) dùng chung cho mọi feature AI + feature đầu tiên
 |---|---|---|
 | **Enable AI** | Bật/tắt toàn bộ AI cho server | off |
 | **Monthly token budget** | Trần token Claude/tháng (UTC). Hết → AI từ chối tới tháng sau | 100.000 |
+| **Bot persona** | Cá tính cho `/chat` (rỗng = mặc định thân thiện) | "" |
+| **Kho tri thức** | Danh sách FAQ (title + content) cho `/ask` — thêm/xóa ở dashboard | — |
 | *(hiển thị)* | "Đã dùng X / Y token tháng này" | — |
 
 **Vận hành:** cần đặt `ANTHROPIC_API_KEY` trong env của container `api`. Thiếu key → AI báo "chưa cấu hình" (không crash).
@@ -29,10 +30,12 @@ Tầng nền AI (Claude) dùng chung cho mọi feature AI + feature đầu tiên
 
 | Lệnh | Việc |
 |---|---|
-| `/roast <member>` | AI cà khịa thành viên đó (tiếng Việt, lầy, không xúc phạm nặng) |
+| `/roast <member>` | AI cà khịa thành viên (lầy, không xúc phạm nặng). Cooldown 10s |
+| `/summarize [count]` | Tóm tắt N tin gần nhất của kênh (mặc định 30, tối đa 100). Cooldown 15s |
+| `/ask <câu hỏi>` | Trả lời dựa trên **kho tri thức** server admin nạp; ngoài kho → "chưa có thông tin". Cooldown 10s |
+| `/chat <lời nhắn>` | Trò chuyện với bot theo **persona** của server. Cooldown 8s |
 
-- Chặn roast bot. Cooldown **10s/người** (chặn đốt token).
-- AI tắt / thiếu key / hết quota tháng → ❌ thông báo nhẹ nhàng.
+- AI tắt / thiếu key / hết quota tháng → ❌ thông báo nhẹ nhàng. Roast chặn bot/tự-roast.
 
 ---
 
