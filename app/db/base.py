@@ -1,6 +1,8 @@
 from app.db.base_class import Base  # noqa: F401
+from app.models.ai_usage import AIUsage  # noqa: F401
 from app.models.custom_command import CustomCommand  # noqa: F401
 from app.models.guild import Guild  # noqa: F401
+from app.models.guild_ai_config import GuildAIConfig  # noqa: F401
 from app.models.guild_badge_config import GuildBadgeConfig  # noqa: F401
 from app.models.guild_currency_config import GuildCurrencyConfig  # noqa: F401
 from app.models.guild_karma_config import GuildKarmaConfig  # noqa: F401
