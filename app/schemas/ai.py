@@ -8,6 +8,7 @@ class AISettings(BaseModel):
 
     enabled: bool = False
     monthly_token_budget: int = Field(default=100_000, ge=0, le=100_000_000)
+    persona: str = Field(default="", max_length=500)
 
 
 class AISettingsOut(AISettings):

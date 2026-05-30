@@ -35,6 +35,7 @@ async def _out(cfg, guild_id, usage_repo: AIUsageRepository) -> AISettingsOut:
     return AISettingsOut(
         enabled=cfg.enabled,
         monthly_token_budget=cfg.monthly_token_budget,
+        persona=cfg.persona,
         tokens_used_this_month=used,
     )
 

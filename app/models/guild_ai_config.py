@@ -8,7 +8,7 @@ calls once `ai_usage` for the month reaches it) — the cost guard.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,9 @@ class GuildAIConfig(Base):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     monthly_token_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
+    # Server-wide bot persona used by `/chat` (and future AI replies). Empty = a
+    # friendly default persona (see ChatService).
+    persona: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
