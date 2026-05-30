@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    ai,
     auth,
     badges,
     commands,
@@ -30,3 +31,4 @@ api_router.include_router(quests.router, prefix="/guilds", tags=["quests"])
 api_router.include_router(pet.router, prefix="/guilds", tags=["pet"])
 api_router.include_router(karma.router, prefix="/guilds", tags=["karma"])
 api_router.include_router(minigame.router, prefix="/guilds", tags=["minigame"])
+api_router.include_router(ai.router, prefix="/guilds", tags=["ai"])

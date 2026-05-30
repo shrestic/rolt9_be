@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.discord_io.client import DiscordClient, DiscordOAuthClient
 from app.discord_io.clients.rest import RestDiscordOAuthClient
+from app.repositories.ai_config import AIConfigRepository
+from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.badge_config import BadgeConfigRepository
 from app.repositories.currency_config import CurrencyConfigRepository
 from app.repositories.custom_command import CustomCommandRepository
@@ -222,3 +224,13 @@ def get_minigame_config_repository(
 ) -> MinigameConfigRepository:
     # Per-request; used by mini-games settings GET/PUT endpoints.
     return MinigameConfigRepository(db)
+
+
+def get_ai_config_repository(db: AsyncSession = Depends(get_db)) -> AIConfigRepository:
+    # Per-request; used by AI settings GET/PUT endpoints.
+    return AIConfigRepository(db)
+
+
+def get_ai_usage_repository(db: AsyncSession = Depends(get_db)) -> AIUsageRepository:
+    # Per-request; reads the current month's token usage for the dashboard.
+    return AIUsageRepository(db)
