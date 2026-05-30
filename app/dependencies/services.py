@@ -27,6 +27,8 @@ from app.repositories.guild_settings import GuildSettingsRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.mod_case import ModCaseRepository
+from app.repositories.quest import QuestRepository
+from app.repositories.quest_progress import QuestProgressRepository
 from app.repositories.user import UserRepository
 from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
@@ -183,3 +185,16 @@ def get_leveling_service(
         reward_repo=LevelRoleRewardRepository(db),
         theme_repo=GuildRankCardThemeRepository(db),
     )
+
+
+def get_quest_repository(db: AsyncSession = Depends(get_db)) -> QuestRepository:
+    # New per request — shares the request-scoped db session so it participates
+    # in the same Unit-of-Work transaction as any other repo used in the handler.
+    return QuestRepository(db)
+
+
+def get_quest_progress_repository(
+    db: AsyncSession = Depends(get_db),
+) -> QuestProgressRepository:
+    # Same session-scoped pattern; used by progress-recording endpoints (future).
+    return QuestProgressRepository(db)

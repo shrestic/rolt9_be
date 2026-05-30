@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     leveling,
     me,
     moderation,
+    quests,
 )
 
 api_router = APIRouter()
@@ -22,3 +23,4 @@ api_router.include_router(commands.router, prefix="/guilds", tags=["commands"])
 api_router.include_router(leveling.router, prefix="/guilds", tags=["leveling"])
 api_router.include_router(currency.router, prefix="/guilds", tags=["currency"])
 api_router.include_router(badges.router, prefix="/guilds", tags=["badges"])
+api_router.include_router(quests.router, prefix="/guilds", tags=["quests"])
