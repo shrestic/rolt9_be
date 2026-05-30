@@ -31,6 +31,7 @@ from app.bot.cogs.pet import PetCog
 from app.bot.cogs.quests import QuestsCog
 from app.bot.cogs.roast import RoastCog
 from app.bot.cogs.summarizer import SummarizerCog
+from app.bot.cogs.welcome import WelcomeCog
 from app.bot.cogs.xp_decay import XpDecayCog
 from app.bot.events import (
     handle_guild_join,
@@ -77,6 +78,9 @@ class Rolt9Bot(commands.Bot):
         intents.guilds = True
         intents.guild_messages = True
         intents.message_content = True
+        # Privileged — needed for on_member_join/remove (Welcome plugin). Admin
+        # must also enable "Server Members Intent" in the Developer Portal.
+        intents.members = True
 
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
@@ -107,6 +111,7 @@ class Rolt9Bot(commands.Bot):
         await self.add_cog(SummarizerCog(self, self.discord_io))
         await self.add_cog(AskCog(self, self.discord_io))
         await self.add_cog(ChatCog(self, self.discord_io))
+        await self.add_cog(WelcomeCog(self, self.discord_io))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.
         await self.tree.sync()

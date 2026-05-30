@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     moderation,
     pet,
     quests,
+    welcome,
 )
 
 api_router = APIRouter()
@@ -32,3 +33,4 @@ api_router.include_router(pet.router, prefix="/guilds", tags=["pet"])
 api_router.include_router(karma.router, prefix="/guilds", tags=["karma"])
 api_router.include_router(minigame.router, prefix="/guilds", tags=["minigame"])
 api_router.include_router(ai.router, prefix="/guilds", tags=["ai"])
+api_router.include_router(welcome.router, prefix="/guilds", tags=["welcome"])

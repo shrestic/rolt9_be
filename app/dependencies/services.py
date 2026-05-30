@@ -40,6 +40,7 @@ from app.repositories.user import UserRepository
 from app.repositories.user_badge import BadgeRepository
 from app.repositories.user_wallet import WalletRepository
 from app.repositories.user_xp import UserXpRepository
+from app.repositories.welcome_config import WelcomeConfigRepository
 from app.services.leveling import LevelingService
 from app.services.moderation.service import ModerationService
 from app.services.oauth_session import OAuthSessionService
@@ -240,3 +241,10 @@ def get_ai_usage_repository(db: AsyncSession = Depends(get_db)) -> AIUsageReposi
 def get_kb_repository(db: AsyncSession = Depends(get_db)) -> KbRepository:
     # Per-request; used by the AI knowledge-base CRUD endpoints.
     return KbRepository(db)
+
+
+def get_welcome_config_repository(
+    db: AsyncSession = Depends(get_db),
+) -> WelcomeConfigRepository:
+    # Per-request; used by the welcome plugin settings endpoints.
+    return WelcomeConfigRepository(db)
