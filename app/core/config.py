@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/discord/callback"
     BOT_INVITE_URL: str = Field(default="")
 
+    # AI (Anthropic Claude) — global key, bot pays; per-guild budget guards cost.
+    ANTHROPIC_API_KEY: str = Field(default="")
+    AI_MODEL: str = "claude-haiku-4-5-20251001"
+    AI_MAX_TOKENS: int = 400
+
     # Tokens
     TOKEN_ENCRYPTION_KEY: str = Field(default="")
 
