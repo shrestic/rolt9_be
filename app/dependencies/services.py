@@ -27,6 +27,8 @@ from app.repositories.guild_settings import GuildSettingsRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.mod_case import ModCaseRepository
+from app.repositories.pet import PetRepository
+from app.repositories.pet_cooldown import PetCooldownRepository
 from app.repositories.quest import QuestRepository
 from app.repositories.user import UserRepository
 from app.repositories.user_badge import BadgeRepository
@@ -190,3 +192,13 @@ def get_quest_repository(db: AsyncSession = Depends(get_db)) -> QuestRepository:
     # New per request — shares the request-scoped db session so it participates
     # in the same Unit-of-Work transaction as any other repo used in the handler.
     return QuestRepository(db)
+
+
+def get_pet_repository(db: AsyncSession = Depends(get_db)) -> PetRepository:
+    # Per-request, shares the UoW session with other repos in the same handler.
+    return PetRepository(db)
+
+
+def get_pet_cooldown_repository(db: AsyncSession = Depends(get_db)) -> PetCooldownRepository:
+    # Per-request — needed by the /status endpoint to construct PetService.
+    return PetCooldownRepository(db)
