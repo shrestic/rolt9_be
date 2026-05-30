@@ -159,7 +159,53 @@ async def test_update_quest_enabled(seed):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. DELETE /{quest_id} → 200; subsequent GET returns []
+# 4. PATCH partial — omitted fields must not be clobbered (regression for full-replace bug)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_partial_patch_preserves_omitted_fields(seed):
+    """A PATCH that only sends {'enabled': False} must leave description unchanged.
+
+    Before the fix, payload.model_dump() serialised every field (with defaults),
+    so omitting description caused repo.update() to write None over the original value.
+    """
+    client, _ = await seed()
+
+    # Create a quest with a non-null description.
+    _mock_owned()
+    post_r = client.post(_list_url(), json=QUEST_BODY)
+    assert post_r.status_code == 200, post_r.text
+    created = post_r.json()
+    quest_id = created["id"]
+    original_description = created["description"]  # "d" from QUEST_BODY
+
+    # PATCH with ONLY enabled=False — description intentionally absent.
+    _mock_owned()
+    patch_r = client.patch(_item_url(quest_id), json={"enabled": False})
+    assert patch_r.status_code == 200, patch_r.text
+    patched = patch_r.json()
+
+    # enabled must be updated…
+    assert patched["enabled"] is False
+    # …but description must be untouched (was "d", must still be "d").
+    assert patched["description"] == original_description, (
+        f"description was clobbered: expected {original_description!r}, "
+        f"got {patched['description']!r}"
+    )
+
+    # Confirm the GET also reflects the preserved description.
+    _mock_owned()
+    get_r = client.get(_list_url())
+    assert get_r.status_code == 200, get_r.text
+    row = next(q for q in get_r.json() if q["id"] == quest_id)
+    assert row["description"] == original_description
+    assert row["enabled"] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. DELETE /{quest_id} → 200; subsequent GET returns []
 # ─────────────────────────────────────────────────────────────────────────────
 
 

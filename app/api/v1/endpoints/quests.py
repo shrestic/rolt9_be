@@ -15,7 +15,7 @@ from app.dependencies.services import get_quest_repository
 from app.models.guild import Guild
 from app.models.guild_quest import GuildQuest
 from app.repositories.quest import QuestRepository
-from app.schemas.quests import QuestIn, QuestOut
+from app.schemas.quests import QuestIn, QuestOut, QuestUpdate
 
 router = APIRouter()
 
@@ -55,16 +55,23 @@ async def create_quest(
 
 @router.patch("/{guild_id}/quests/{quest_id}", response_model=QuestOut)
 async def update_quest(
-    payload: QuestIn,
+    payload: QuestUpdate,
     quest_id: uuid.UUID = Path(...),
     guild: Guild = Depends(require_managed_guild),
     repo: QuestRepository = Depends(get_quest_repository),
 ):
-    """Update an existing quest definition. Returns 404 if not found in this guild."""
+    """Partially update an existing quest definition.
+
+    Only the fields present in the request body are written; omitted fields
+    keep their current database values.  Returns 404 if the quest is not
+    found in this guild.
+    """
     quest = await repo.get(guild.id, quest_id)
     if quest is None:
         raise HTTPException(status_code=404, detail="Quest not found")
-    return _out(await repo.update(quest, payload.model_dump()))
+    # exclude_unset=True ensures we only pass fields the client explicitly
+    # sent — omitted fields are not included, so the repo won't overwrite them.
+    return _out(await repo.update(quest, payload.model_dump(exclude_unset=True)))
 
 
 @router.delete("/{guild_id}/quests/{quest_id}")
