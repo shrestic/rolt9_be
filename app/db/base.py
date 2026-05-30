@@ -6,6 +6,7 @@ from app.models.guild_ai_config import GuildAIConfig  # noqa: F401
 from app.models.guild_badge_config import GuildBadgeConfig  # noqa: F401
 from app.models.guild_currency_config import GuildCurrencyConfig  # noqa: F401
 from app.models.guild_karma_config import GuildKarmaConfig  # noqa: F401
+from app.models.guild_kb_entry import GuildKbEntry  # noqa: F401
 from app.models.guild_leveling_config import GuildLevelingConfig  # noqa: F401
 from app.models.guild_minigame_config import GuildMinigameConfig  # noqa: F401
 from app.models.guild_pet import GuildPet  # noqa: F401

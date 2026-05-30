@@ -16,4 +16,19 @@ class AISettingsOut(AISettings):
     tokens_used_this_month: int = 0
 
 
-__all__ = ["AISettings", "AISettingsOut"]
+class KbEntryIn(BaseModel):
+    """Create payload for a knowledge-base entry."""
+
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class KbEntryOut(BaseModel):
+    """A knowledge-base entry as returned to the dashboard."""
+
+    id: str
+    title: str
+    content: str
+
+
+__all__ = ["AISettings", "AISettingsOut", "KbEntryIn", "KbEntryOut"]

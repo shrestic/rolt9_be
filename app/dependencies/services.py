@@ -28,6 +28,7 @@ from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
 from app.repositories.guild_settings import GuildSettingsRepository
 from app.repositories.karma import KarmaRepository
 from app.repositories.karma_config import KarmaConfigRepository
+from app.repositories.kb import KbRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.minigame_config import MinigameConfigRepository
@@ -234,3 +235,8 @@ def get_ai_config_repository(db: AsyncSession = Depends(get_db)) -> AIConfigRepo
 def get_ai_usage_repository(db: AsyncSession = Depends(get_db)) -> AIUsageRepository:
     # Per-request; reads the current month's token usage for the dashboard.
     return AIUsageRepository(db)
+
+
+def get_kb_repository(db: AsyncSession = Depends(get_db)) -> KbRepository:
+    # Per-request; used by the AI knowledge-base CRUD endpoints.
+    return KbRepository(db)
