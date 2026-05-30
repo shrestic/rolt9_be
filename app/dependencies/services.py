@@ -24,6 +24,8 @@ from app.repositories.custom_command import CustomCommandRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.guild_rank_card_theme import GuildRankCardThemeRepository
 from app.repositories.guild_settings import GuildSettingsRepository
+from app.repositories.karma import KarmaRepository
+from app.repositories.karma_config import KarmaConfigRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
 from app.repositories.mod_case import ModCaseRepository
@@ -202,3 +204,13 @@ def get_pet_repository(db: AsyncSession = Depends(get_db)) -> PetRepository:
 def get_pet_cooldown_repository(db: AsyncSession = Depends(get_db)) -> PetCooldownRepository:
     # Per-request — needed by the /status endpoint to construct PetService.
     return PetCooldownRepository(db)
+
+
+def get_karma_repository(db: AsyncSession = Depends(get_db)) -> KarmaRepository:
+    # Per-request; shares the UoW session with other repos in the same handler.
+    return KarmaRepository(db)
+
+
+def get_karma_config_repository(db: AsyncSession = Depends(get_db)) -> KarmaConfigRepository:
+    # Per-request; used by karma settings GET/PUT endpoints.
+    return KarmaConfigRepository(db)

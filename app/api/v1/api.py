@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     currency,
     guilds,
     health,
+    karma,
     leveling,
     me,
     moderation,
@@ -26,3 +27,4 @@ api_router.include_router(currency.router, prefix="/guilds", tags=["currency"])
 api_router.include_router(badges.router, prefix="/guilds", tags=["badges"])
 api_router.include_router(quests.router, prefix="/guilds", tags=["quests"])
 api_router.include_router(pet.router, prefix="/guilds", tags=["pet"])
+api_router.include_router(karma.router, prefix="/guilds", tags=["karma"])
