@@ -27,6 +27,7 @@ from app.bot.cogs.minigame import MinigameCog
 from app.bot.cogs.moderation import ModerationCog
 from app.bot.cogs.pet import PetCog
 from app.bot.cogs.quests import QuestsCog
+from app.bot.cogs.roast import RoastCog
 from app.bot.cogs.xp_decay import XpDecayCog
 from app.bot.events import (
     handle_guild_join,
@@ -99,6 +100,7 @@ class Rolt9Bot(commands.Bot):
         await self.add_cog(PetCog(self, self.discord_io))
         await self.add_cog(KarmaCog(self, self.discord_io))
         await self.add_cog(MinigameCog(self, self.discord_io))
+        await self.add_cog(RoastCog(self, self.discord_io))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.
         await self.tree.sync()
