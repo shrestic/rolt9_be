@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     karma,
     leveling,
     me,
+    minigame,
     moderation,
     pet,
     quests,
@@ -28,3 +29,4 @@ api_router.include_router(badges.router, prefix="/guilds", tags=["badges"])
 api_router.include_router(quests.router, prefix="/guilds", tags=["quests"])
 api_router.include_router(pet.router, prefix="/guilds", tags=["pet"])
 api_router.include_router(karma.router, prefix="/guilds", tags=["karma"])
+api_router.include_router(minigame.router, prefix="/guilds", tags=["minigame"])

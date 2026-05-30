@@ -28,6 +28,7 @@ from app.repositories.karma import KarmaRepository
 from app.repositories.karma_config import KarmaConfigRepository
 from app.repositories.level_role_reward import LevelRoleRewardRepository
 from app.repositories.leveling_config import GuildLevelingConfigRepository
+from app.repositories.minigame_config import MinigameConfigRepository
 from app.repositories.mod_case import ModCaseRepository
 from app.repositories.pet import PetRepository
 from app.repositories.pet_cooldown import PetCooldownRepository
@@ -214,3 +215,10 @@ def get_karma_repository(db: AsyncSession = Depends(get_db)) -> KarmaRepository:
 def get_karma_config_repository(db: AsyncSession = Depends(get_db)) -> KarmaConfigRepository:
     # Per-request; used by karma settings GET/PUT endpoints.
     return KarmaConfigRepository(db)
+
+
+def get_minigame_config_repository(
+    db: AsyncSession = Depends(get_db),
+) -> MinigameConfigRepository:
+    # Per-request; used by mini-games settings GET/PUT endpoints.
+    return MinigameConfigRepository(db)
