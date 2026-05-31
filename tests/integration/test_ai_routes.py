@@ -86,7 +86,7 @@ async def test_put_sets_key_and_hides_it(seed):
         json={
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.4-mini",
             "monthly_budget_usd": "12.5",
             "persona": "",
             "api_key": "sk-supersecret",
@@ -131,7 +131,7 @@ async def test_put_empty_key_clears_it(seed):
         json={
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.4-mini",
             "monthly_budget_usd": "5",
             "persona": "",
             "api_key": "sk-abc1234",
@@ -143,7 +143,7 @@ async def test_put_empty_key_clears_it(seed):
         json={
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.4-mini",
             "monthly_budget_usd": "5",
             "persona": "",
             "api_key": "",

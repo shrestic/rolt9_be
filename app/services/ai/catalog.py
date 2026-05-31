@@ -10,22 +10,58 @@ xác nhận thực tế với LiteLLM.
 """
 
 # provider key -> {label hiển thị, danh sách model cho dropdown}
+# Provider key phải đúng tên LiteLLM (ghép "provider/model" khi gọi).
+# Cập nhật model mới nhất qua web search — tháng 5/2026. Model có alias "-latest"
+# thì ưu tiên dùng alias (tự trỏ bản mới, khỏi sửa code).
 AI_CATALOG: dict[str, dict] = {
     "anthropic": {
         "label": "Claude (Anthropic)",
-        "models": ["claude-haiku-4-5", "claude-sonnet-4-6"],
+        "models": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
     },
     "openai": {
         "label": "OpenAI",
-        "models": ["gpt-4o-mini", "gpt-4o"],
+        "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o4-mini"],
     },
     "gemini": {
         "label": "Google Gemini",
-        "models": ["gemini-2.0-flash", "gemini-2.0-pro"],
+        "models": [
+            "gemini-3.1-pro",
+            "gemini-3.5-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+        ],
+    },
+    "deepseek": {
+        # Rẻ nhất nhóm này.
+        #   - deepseek-chat: NON-thinking — nhanh, rẻ, trả lời ngay (HỢP cho bot
+        #     roast/chat/summarize). LƯU Ý: alias này DeepSeek dừng 24/07/2026.
+        #   - deepseek-v4-flash / v4-pro: có "thinking" (reasoning) — chậm hơn,
+        #     tốn token suy luận; cần AI_MAX_TOKENS rộng kẻo trả về rỗng.
+        "label": "DeepSeek",
+        "models": ["deepseek-chat", "deepseek-v4-flash", "deepseek-v4-pro"],
     },
     "groq": {
+        # Inference siêu nhanh, free tier rộng. gpt-oss model có dạng "openai/...".
         "label": "Groq",
-        "models": ["llama-3.3-70b-versatile"],
+        "models": [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+        ],
+    },
+    "mistral": {
+        "label": "Mistral",
+        "models": [
+            "mistral-large-latest",
+            "mistral-medium-latest",
+            "mistral-small-latest",
+            "magistral-medium-latest",
+        ],
+    },
+    "xai": {
+        "label": "xAI Grok",
+        "models": ["grok-4.3", "grok-4.20-0309-non-reasoning"],
     },
 }
 
