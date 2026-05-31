@@ -14,7 +14,9 @@ from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.companion_service import (
     CompanionService,
     build_companion_system,
+    build_event_snapshot,
     build_snapshot,
+    newly_started_activities,
 )
 from app.services.ai.provider import FakeAIProvider
 
@@ -60,6 +62,51 @@ def test_build_snapshot_voice_and_chat():
 
 def test_build_snapshot_empty_none():
     assert build_snapshot([], [], [], 999) is None
+
+
+# ---------- real-time: phát hiện vừa bật game ----------
+
+
+def _listening(name):
+    """Member đang nghe nhạc (vd Spotify) — activity type listening."""
+    act = SimpleNamespace(type=discord.ActivityType.listening, name=name)
+    uid = hash(name + "L") % 9999
+    return SimpleNamespace(
+        id=uid, display_name="Mèo", bot=False, activities=[act], mention=f"<@{uid}>"
+    )
+
+
+def test_newly_started_activities_detects_new_game():
+    before = _member("An")  # chưa làm gì
+    after = _member("An", games=["Valorant"])  # vừa bật Valorant
+    assert newly_started_activities(before, after) == ["chơi Valorant"]
+
+
+def test_newly_started_activities_ignores_already_active():
+    # đang chơi Valorant từ trước, presence update vì lý do khác -> KHÔNG coi là mới
+    before = _member("An", games=["Valorant"])
+    after = _member("An", games=["Valorant"])
+    assert newly_started_activities(before, after) == []
+
+
+def test_newly_started_activities_detects_non_game():
+    # KHÔNG chỉ game: vừa mở Spotify cũng bắt được
+    before = _member("An")  # chưa làm gì
+    after = _listening("Spotify")  # vừa mở Spotify
+    assert "nghe Spotify" in newly_started_activities(before, after)
+
+
+def test_build_snapshot_includes_non_game_activity():
+    out = build_snapshot([_listening("Spotify")], [], [], bot_id=999)
+    assert out is not None and "nghe Spotify" in out
+
+
+def test_build_event_snapshot_has_event_mention_and_context():
+    an = _member("An", games=["Valorant"])
+    binh = _member("Binh", games=["Valorant"])  # người khác cũng đang chơi -> bối cảnh
+    out = build_event_snapshot(an, ["chơi Valorant"], [an, binh], [], bot_id=999)
+    assert "VỪA MỚI" in out and "Valorant" in out
+    assert f"<@{an.id}>" in out  # có mention để @ping người vừa bật game
 
 
 def test_build_companion_system_persona():

@@ -131,3 +131,97 @@ async def test_handle_guild_skip_silenced(monkeypatch):
     await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=10_000.0)
     ch.send.assert_not_awaited()
     assert 100 not in cog.cooldown
+
+
+# ---------- real-time: on_presence_update (vừa bật game) ----------
+
+
+def _pmember(guild, game=None, name="An", uid=1):
+    """Member cho sự kiện presence: có .guild + .mention + activities."""
+    acts = [SimpleNamespace(type=discord.ActivityType.playing, name=game)] if game else []
+    return SimpleNamespace(
+        id=uid, bot=False, display_name=name, mention=f"<@{uid}>", activities=acts, guild=guild
+    )
+
+
+@pytest.mark.asyncio
+async def test_presence_event_posts_when_game_started(monkeypatch):
+    stub = MagicMock()
+    stub.decide = AsyncMock(return_value="Ê <@1> chơi Valorant một mình kìa, ai vô gánh ko")
+    _patch(monkeypatch, stub)
+    cog = _cog(_cfg())
+    ch = _channel()
+    member = _pmember(None, game="Valorant")
+    guild = _guild(ch, members=[member])
+    await cog._handle_presence_event(guild, member, ["Valorant"], now=10_000.0)
+    stub.decide.assert_awaited_once()
+    ch.send.assert_awaited_once()
+    assert cog.cooldown[100] == 10_000.0
+    snap = stub.decide.call_args.kwargs["snapshot"]
+    assert "VỪA MỚI" in snap and "Valorant" in snap  # snapshot nêu rõ sự kiện vừa bật game
+
+
+@pytest.mark.asyncio
+async def test_presence_event_skip_when_disabled(monkeypatch):
+    stub = MagicMock()
+    stub.decide = AsyncMock()
+    _patch(monkeypatch, stub)
+    cog = _cog(_cfg(companion_enabled=False))
+    member = _pmember(None, game="Valorant")
+    await cog._handle_presence_event(_guild(_channel(), [member]), member, ["Valorant"], now=1.0)
+    stub.decide.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_presence_event_respects_cooldown(monkeypatch):
+    stub = MagicMock()
+    stub.decide = AsyncMock(return_value="hi")
+    _patch(monkeypatch, stub)
+    cog = _cog(_cfg(companion_cooldown_min=5))
+    cog.cooldown[100] = 10_000.0  # vừa nói cách đây 60s
+    member = _pmember(None, game="Valorant")
+    await cog._handle_presence_event(
+        _guild(_channel(), [member]), member, ["Valorant"], now=10_060.0
+    )
+    stub.decide.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_on_presence_update_fires_only_on_new_game(monkeypatch):
+    cog = _cog(_cfg())
+    cog._handle_presence_event = AsyncMock()
+    g = SimpleNamespace(id=100)
+    # chưa chơi -> vừa bật Valorant: PHẢI fire
+    await cog.on_presence_update(_pmember(g), _pmember(g, game="Valorant"))
+    cog._handle_presence_event.assert_awaited_once()
+    # đang chơi sẵn Valorant, presence đổi vì lý do khác: KHÔNG fire
+    cog._handle_presence_event.reset_mock()
+    await cog.on_presence_update(_pmember(g, game="Valorant"), _pmember(g, game="Valorant"))
+    cog._handle_presence_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_on_presence_update_ignores_bots(monkeypatch):
+    cog = _cog(_cfg())
+    cog._handle_presence_event = AsyncMock()
+    g = SimpleNamespace(id=100)
+    bot_after = _pmember(g, game="Valorant")
+    bot_after.bot = True
+    await cog.on_presence_update(_pmember(g), bot_after)
+    cog._handle_presence_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_decide_and_post_strips_self_mention(monkeypatch):
+    # model lỡ tag chính bot -> phải bị gỡ trước khi gửi
+    stub = MagicMock()
+    stub.decide = AsyncMock(return_value="Ê <@1> vào chơi đi, <@777> tao cũng tham gia")
+    _patch(monkeypatch, stub)
+    cog = _cog(_cfg())
+    cog.bot.user = SimpleNamespace(id=777)  # bot là 777
+    ch = _channel()
+    member = _pmember(None, game="Valorant", uid=1)
+    await cog._handle_presence_event(_guild(ch, [member]), member, ["chơi Valorant"], now=10_000.0)
+    sent = ch.send.call_args.args[0]
+    assert "<@777>" not in sent  # mention bot đã bị gỡ
+    assert "<@1>" in sent  # mention người khác vẫn còn
