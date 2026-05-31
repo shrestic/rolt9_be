@@ -25,6 +25,8 @@ class AICompletion:
     input_tokens: int
     output_tokens: int
     cost_usd: float  # từ litellm.completion_cost(); 0.0 nếu không tính được
+    tool_calls: list[dict] | None = None  # [{id, name, arguments(str json)}] khi model gọi tool
+    raw_message: dict | None = None  # assistant message (kèm tool_calls) để nối vào messages
 
 
 class AIProvider(Protocol):
@@ -38,6 +40,8 @@ class AIProvider(Protocol):
         prompt: str,
         max_tokens: int,
         history: list[dict] | None = None,
+        messages: list[dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> AICompletion: ...
 
 
@@ -52,11 +56,15 @@ class FakeAIProvider:
         input_tokens: int = 10,
         output_tokens: int = 20,
         cost_usd: float = 0.001,
+        turns: list[dict] | None = None,
     ):
         self._text = text
         self._in = input_tokens
         self._out = output_tokens
         self._cost = cost_usd
+        # turns: kịch bản nhiều lượt cho tool-calling test, mỗi phần tử là
+        # {"tool_calls": [...]} hoặc {"text": "..."}; mỗi complete() lấy 1 phần tử.
+        self._turns = list(turns) if turns else None
 
     async def complete(
         self,
@@ -68,7 +76,38 @@ class FakeAIProvider:
         prompt: str,
         max_tokens: int,
         history: list[dict] | None = None,
+        messages: list[dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> AICompletion:
+        if self._turns:
+            turn = self._turns.pop(0)
+            if "tool_calls" in turn:
+                tcs = turn["tool_calls"]
+                return AICompletion(
+                    text="",
+                    input_tokens=self._in,
+                    output_tokens=self._out,
+                    cost_usd=self._cost,
+                    tool_calls=tcs,
+                    raw_message={
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": t["id"],
+                                "type": "function",
+                                "function": {"name": t["name"], "arguments": t["arguments"]},
+                            }
+                            for t in tcs
+                        ],
+                    },
+                )
+            return AICompletion(
+                text=turn["text"],
+                input_tokens=self._in,
+                output_tokens=self._out,
+                cost_usd=self._cost,
+            )
         return AICompletion(
             text=self._text,
             input_tokens=self._in,
@@ -90,20 +129,27 @@ class LiteLLMProvider:
         prompt: str,
         max_tokens: int,
         history: list[dict] | None = None,
+        messages: list[dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> AICompletion:
         import litellm  # lazy — giữ package optional cho test/deploy không key
 
         _register_custom_prices(litellm)
-        messages = [{"role": "system", "content": system}]
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": prompt})
-        resp = await litellm.acompletion(
-            model=f"{provider}/{model}",
-            api_key=api_key,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
+        # `messages` truyền sẵn (vòng tool-calling) thì dùng nguyên; else dựng từ system/history/prompt.
+        if messages is None:
+            messages = [{"role": "system", "content": system}]
+            if history:
+                messages.extend(history)
+            messages.append({"role": "user", "content": prompt})
+        kwargs = {
+            "model": f"{provider}/{model}",
+            "api_key": api_key,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = tools
+        resp = await litellm.acompletion(**kwargs)
         # completion_cost có thể raise/trả 0 với model lạ — bọc lại, fallback 0.0.
         try:
             cost = float(litellm.completion_cost(resp))
@@ -112,9 +158,36 @@ class LiteLLMProvider:
             cost = 0.0
         usage = resp.usage
         message = resp.choices[0].message
-        # Reasoning models (DeepSeek, o-series, …) có thể tiêu hết token budget
-        # cho phần suy luận và trả về content=None. Không để .strip() nổ —
-        # báo lỗi rõ ràng, có hướng xử lý.
+
+        # Model gọi tool -> trả tool_calls + raw_message (để nối vào messages cho bước sau).
+        raw_tool_calls = getattr(message, "tool_calls", None)
+        if raw_tool_calls:
+            tool_calls = [
+                {"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
+                for tc in raw_tool_calls
+            ]
+            raw_message = {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in raw_tool_calls
+                ],
+            }
+            return AICompletion(
+                text="",
+                input_tokens=usage.prompt_tokens,
+                output_tokens=usage.completion_tokens,
+                cost_usd=cost,
+                tool_calls=tool_calls,
+                raw_message=raw_message,
+            )
+
+        # Reasoning models có thể tiêu hết token cho suy luận và trả content=None.
         content = (message.content or "").strip()
         if not content:
             if getattr(message, "reasoning_content", None):

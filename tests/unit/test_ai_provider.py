@@ -166,3 +166,92 @@ async def test_litellm_provider_includes_history(monkeypatch):
     roles = [m["role"] for m in captured["messages"]]
     assert roles == ["system", "user", "assistant", "user"]
     assert captured["messages"][-1]["content"] == "now"
+
+
+@pytest.mark.asyncio
+async def test_fake_provider_scripted_tool_calls():
+    p = FakeAIProvider(
+        turns=[
+            {"tool_calls": [{"id": "c1", "name": "web_search", "arguments": '{"query":"x"}'}]},
+            {"text": "kết quả cuối"},
+        ]
+    )
+    first = await p.complete(
+        provider="p",
+        model="m",
+        api_key="k",
+        system="",
+        prompt="",
+        max_tokens=10,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[{"type": "function"}],
+    )
+    assert first.tool_calls and first.tool_calls[0]["name"] == "web_search"
+    assert first.raw_message["role"] == "assistant"
+    second = await p.complete(
+        provider="p",
+        model="m",
+        api_key="k",
+        system="",
+        prompt="",
+        max_tokens=10,
+        messages=[],
+        tools=None,
+    )
+    assert second.text == "kết quả cuối"
+    assert second.tool_calls is None
+
+
+@pytest.mark.asyncio
+async def test_litellm_uses_messages_and_tools(monkeypatch):
+    import sys
+    import types
+
+    captured = {}
+
+    class _Fn:
+        name = "web_search"
+        arguments = '{"query":"x"}'
+
+    class _TC:
+        id = "c1"
+        function = _Fn()
+
+    class _Msg:
+        content = None
+        tool_calls = [_TC()]
+
+    class _Choice:
+        message = _Msg()
+
+    class _Usage:
+        prompt_tokens = 2
+        completion_tokens = 3
+
+    class _Resp:
+        choices = [_Choice()]
+        usage = _Usage()
+
+    async def _acompletion(**kwargs):
+        captured.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        types.SimpleNamespace(acompletion=_acompletion, completion_cost=lambda r: 0.0),
+    )
+    out = await LiteLLMProvider().complete(
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="k",
+        system="",
+        prompt="",
+        max_tokens=50,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[{"type": "function", "function": {"name": "web_search"}}],
+    )
+    assert captured["messages"] == [{"role": "user", "content": "hi"}]
+    assert captured["tools"][0]["function"]["name"] == "web_search"
+    assert out.tool_calls[0] == {"id": "c1", "name": "web_search", "arguments": '{"query":"x"}'}
+    assert out.raw_message["tool_calls"][0]["function"]["name"] == "web_search"
