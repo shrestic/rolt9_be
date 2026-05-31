@@ -19,6 +19,7 @@ from app.repositories.agent_message import AgentMessageRepository
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.actions.registry import ACTION_PERMS
 from app.services.ai.actions.registry import execute as run_action
@@ -29,7 +30,26 @@ from app.services.ai.provider import get_ai_provider
 log = logging.getLogger(__name__)
 
 AGENT_COOLDOWN = 5.0  # giây giữa 2 tin của cùng 1 user
+CHANNEL_CONTEXT_LIMIT = 12  # số tin gần đây trong kênh nạp cho bot để bám sát hội thoại
 _PERM_FLAGS = ("manage_guild", "manage_roles", "ban_members", "kick_members", "moderate_members")
+
+
+async def collect_channel_context(channel, *, before, limit: int = CHANNEL_CONTEXT_LIMIT) -> str:
+    """Đọc vài tin gần đây NHẤT trong kênh (trước tin đang xử lý) thành chuỗi
+    'Tên: nội dung' theo thứ tự thời gian, để bot bám sát cuộc trò chuyện đang diễn ra.
+    Lỗi đọc lịch sử (thiếu quyền) -> trả chuỗi rỗng, không chặn luồng trả lời."""
+    lines: list[str] = []
+    try:
+        async for m in channel.history(limit=limit, before=before):
+            text = (m.clean_content or "").strip().replace("\n", " ")
+            if not text:
+                continue
+            who = getattr(m.author, "display_name", str(m.author))
+            lines.append(f"{who}: {text}"[:300])
+    except (DiscordError, discord.DiscordException, AttributeError):
+        return ""
+    lines.reverse()  # history() trả mới->cũ; đảo lại thành cũ->mới cho dễ đọc
+    return "\n".join(lines)
 
 
 def perms_dict(guild_permissions) -> dict:
@@ -121,6 +141,7 @@ def _build_service(session) -> AgentService:
         config_repo=AIConfigRepository(session),
         agent_msg_repo=AgentMessageRepository(session),
         memory_repo=UserMemoryRepository(session),
+        memory_doc_repo=MemoryDocRepository(session),
         gateway=gateway,
     )
 
@@ -157,6 +178,7 @@ class AgentCog(commands.Cog):
         bot_id = self.bot.user.id if self.bot.user else None
         target_user_ids = [u.id for u in message.mentions if u.id != bot_id]
         commander_perms = perms_dict(message.author.guild_permissions)
+        channel_context = await collect_channel_context(message.channel, before=message)
         async with session_scope() as session:
             svc = _build_service(session)
             try:
@@ -172,6 +194,7 @@ class AgentCog(commands.Cog):
                     role_names=[r.name for r in getattr(g, "roles", [])],
                     target_user_ids=target_user_ids,
                     commander_id=int(message.author.id),
+                    channel_context=channel_context,
                 )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
@@ -239,3 +262,39 @@ class AgentCog(commands.Cog):
                     guild.id, int(interaction.user.id)
                 )
         await interaction.response.send_message(facts or "Mình chưa nhớ gì về bạn.", ephemeral=True)
+
+    @app_commands.command(
+        name="claw-lore", description="Xem trí nhớ chung của server (biệt danh, luật, …)"
+    )
+    async def claw_lore(self, interaction: discord.Interaction) -> None:
+        """Hiển thị memory_doc toàn server. Ai cũng xem được (chỉ đọc)."""
+        doc = ""
+        async with session_scope() as session:
+            guild = await GuildRepository(session).get_by_discord_id(int(interaction.guild_id))
+            if guild is not None:
+                doc = await MemoryDocRepository(session).get_doc(guild.id)
+        await interaction.response.send_message(
+            f"📒 **Trí nhớ server:**\n{doc}"
+            if doc.strip()
+            else "Server chưa có trí nhớ chung nào.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="claw-lore-clear",
+        description="Xoá toàn bộ trí nhớ chung của server (cần Manage Server)",
+    )
+    async def claw_lore_clear(self, interaction: discord.Interaction) -> None:
+        """Xoá memory_doc. Chỉ người có Manage Server mới được (đây là dữ liệu chung)."""
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "Bạn cần quyền **Manage Server** để xoá trí nhớ chung.", ephemeral=True
+            )
+            return
+        async with session_scope() as session:
+            guild = await GuildRepository(session).get_by_discord_id(int(interaction.guild_id))
+            if guild is not None:
+                await MemoryDocRepository(session).clear(guild.id)
+        await interaction.response.send_message(
+            "🧹 Đã xoá trí nhớ chung của server.", ephemeral=True
+        )

@@ -57,13 +57,18 @@ def _patch(monkeypatch, stub):
 
     monkeypatch.setattr(companion_mod, "session_scope", fake_scope)
     monkeypatch.setattr(companion_mod, "_build_service", lambda session: stub)
+    # MemoryDocRepository(session).get_doc(...) -> "" (companion nạp lore qua đây)
+    doc_repo = MagicMock()
+    doc_repo.get_doc = AsyncMock(return_value="")
+    monkeypatch.setattr(companion_mod, "MemoryDocRepository", lambda session: doc_repo)
 
 
 def _cog(cfg):
     bot = MagicMock()
     bot.user = SimpleNamespace(id=1)
     cog = CompanionCog(bot, MagicMock())
-    cog._load_cfg = AsyncMock(return_value=cfg)
+    # _load_cfg trả (guild_row, cfg); guild_row.id dùng để nạp memory_doc
+    cog._load_cfg = AsyncMock(return_value=(SimpleNamespace(id="gpk"), cfg))
     return cog
 
 

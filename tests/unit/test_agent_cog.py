@@ -262,3 +262,49 @@ async def test_on_message_destructive_sends_confirm(monkeypatch):
     await cog.on_message(msg)
     msg.channel.send.assert_awaited_once()  # gửi nút xác nhận
     run_mock.assert_not_awaited()  # CHƯA execute (chờ ✅)
+
+
+class _HistMsg:
+    """Tin nhắn giả cho channel.history()."""
+
+    def __init__(self, who, text):
+        self.clean_content = text
+        self.author = SimpleNamespace(display_name=who)
+
+
+class _HistChannel:
+    def __init__(self, msgs, *, raises=False):
+        self._msgs = msgs
+        self._raises = raises
+
+    def history(self, *, limit, before):
+        chan = self
+
+        class _It:
+            def __aiter__(self_inner):
+                self_inner._i = iter(chan._msgs)
+                return self_inner
+
+            async def __anext__(self_inner):
+                if chan._raises:
+                    raise agent_mod.discord.DiscordException("boom")
+                try:
+                    return next(self_inner._i)
+                except StopIteration:
+                    raise StopAsyncIteration
+
+        return _It()
+
+
+@pytest.mark.asyncio
+async def test_collect_channel_context_orders_oldest_first():
+    # history() trả mới->cũ; helper phải đảo lại thành cũ->mới + format 'Tên: nội dung'
+    ch = _HistChannel([_HistMsg("An", "tin moi"), _HistMsg("Phong", "tin cu")])
+    out = await agent_mod.collect_channel_context(ch, before=object())
+    assert out == "Phong: tin cu\nAn: tin moi"
+
+
+@pytest.mark.asyncio
+async def test_collect_channel_context_swallows_errors():
+    ch = _HistChannel([], raises=True)
+    assert await agent_mod.collect_channel_context(ch, before=object()) == ""

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.repositories.agent_message import AgentMessageRepository
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.tools.registry import ToolContext
@@ -40,12 +41,26 @@ _EXTRACT_SYSTEM = (
 )
 
 
-def build_system(persona: str, facts: str, user_name: str) -> str:
-    """Ghép persona + facts nhớ về user thành system prompt cho lượt trả lời."""
+def build_system(
+    persona: str,
+    facts: str,
+    user_name: str,
+    memory_doc: str = "",
+    channel_context: str = "",
+) -> str:
+    """Ghép persona + trí nhớ server (memory_doc) + facts về user + ngữ cảnh kênh
+    thành system prompt. memory_doc là lore chung toàn server (biệt danh, luật, …) áp
+    cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại."""
     base = persona or DEFAULT_PERSONA
     parts = [base, _TOOL_NUDGE, f"\nBạn đang nói chuyện với '{user_name}'."]
+    if memory_doc.strip():
+        # Lore toàn server — luôn tuân theo (vd: "từ nay gọi An là X").
+        parts.append(f"\nTRÍ NHỚ SERVER (luôn áp dụng):\n{memory_doc.strip()}")
     if facts.strip():
         parts.append(f"\nNhững điều bạn nhớ về người này:\n{facts.strip()}")
+    if channel_context.strip():
+        # Tin gần đây trong kênh để bám sát cuộc trò chuyện đang diễn ra.
+        parts.append(f"\nVài tin nhắn gần đây trong kênh:\n{channel_context.strip()}")
     return "\n".join(parts)
 
 
@@ -57,12 +72,14 @@ class AgentService:
         config_repo: AIConfigRepository,
         agent_msg_repo: AgentMessageRepository,
         memory_repo: UserMemoryRepository,
+        memory_doc_repo: MemoryDocRepository,
         gateway: AIGateway,
     ):
         self.guild_repo = guild_repo
         self.config_repo = config_repo
         self.agent_msg_repo = agent_msg_repo
         self.memory_repo = memory_repo
+        self.memory_doc_repo = memory_doc_repo
         self.gateway = gateway
 
     async def _guild_pk(self, guild_discord_id: int) -> uuid.UUID:
@@ -85,6 +102,7 @@ class AgentService:
         role_names: list[str] | None = None,
         target_user_ids: list[int] | None = None,
         commander_id: int | None = None,
+        channel_context: str = "",
     ) -> tuple[uuid.UUID, str, list] | None:
         """Gating + chọn conversation + gọi AI. Trả (conversation_id, text, pending_actions),
         hoặc None nếu agent không nên trả lời. Lỗi cấu hình AI raise ValueError để cog báo ❌."""
@@ -104,10 +122,11 @@ class AgentService:
             conversation_id = uuid.uuid4()
 
         facts = await self.memory_repo.get_facts(guild.id, user_discord_id)
+        memory_doc = await self.memory_doc_repo.get_doc(guild.id)
         history = await self.agent_msg_repo.recent_turns(
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
-        system = build_system(cfg.persona, facts, user_name)
+        system = build_system(cfg.persona, facts, user_name, memory_doc, channel_context)
 
         perms = commander_perms or {}
         can_act = any(perms.values())
@@ -120,26 +139,22 @@ class AgentService:
             commander_id=commander_id,
             commander_perms=perms,
             guild_discord_id=guild_discord_id,
+            # Tool `remember` LUÔN có — ghi vào trí nhớ server qua repo này.
+            memory_repo_doc=self.memory_doc_repo,
+            guild_pk=guild.id,
         )
 
-        if cfg.tools_enabled or include_actions:
-            text = await run_with_tools(
-                gateway=self.gateway,
-                guild_discord_id=guild_discord_id,
-                system=system,
-                history=history,
-                user_text=message_text,
-                ctx=ctx,
-                has_search=cfg.tools_enabled and bool(settings.TAVILY_API_KEY),
-                include_actions=include_actions,
-            )
-        else:
-            text = await self.gateway.complete(
-                guild_discord_id=guild_discord_id,
-                system=system,
-                prompt=message_text,
-                history=history,
-            )
+        # Luôn đi qua tool-loop: tool `remember` luôn sẵn sàng nên không còn nhánh "chat chay".
+        text = await run_with_tools(
+            gateway=self.gateway,
+            guild_discord_id=guild_discord_id,
+            system=system,
+            history=history,
+            user_text=message_text,
+            ctx=ctx,
+            has_search=cfg.tools_enabled and bool(settings.TAVILY_API_KEY),
+            include_actions=include_actions,
+        )
         return conversation_id, text, ctx.pending
 
     async def remember(

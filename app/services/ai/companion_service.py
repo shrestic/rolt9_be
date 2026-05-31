@@ -15,14 +15,19 @@ log = logging.getLogger(__name__)
 _DEFAULT_PERSONA = "Bạn là một thành viên AI của server Discord, tính cách lầy lội nhưng dễ thương."
 
 
-def build_companion_system(persona: str) -> str:
+def build_companion_system(persona: str, memory_doc: str = "") -> str:
     base = persona or _DEFAULT_PERSONA
-    return (
-        base + "\n\nDưới đây là TÌNH HÌNH SERVER lúc này. Nếu có gì đáng để buông MỘT câu ngắn, "
+    parts = [base]
+    if memory_doc.strip():
+        # Lore server (biệt danh/luật/tính cách) — để companion buông câu đúng "chất" server.
+        parts.append(f"\nTRÍ NHỚ SERVER (luôn áp dụng):\n{memory_doc.strip()}")
+    parts.append(
+        "\nDưới đây là TÌNH HÌNH SERVER lúc này. Nếu có gì đáng để buông MỘT câu ngắn, "
         "duyên, tự nhiên (tiếng Việt) — cà khịa nhẹ hoặc bắt chuyện — thì trả về đúng câu đó. "
         "Nếu KHÔNG có gì đáng nói, trả về đúng chữ SKIP. Đừng spam, đừng lặp lại, "
         "không chào hỏi máy móc."
     )
+    return "\n".join(parts)
 
 
 def build_snapshot(members, voice_channels, recent_messages, bot_id) -> str | None:
@@ -83,11 +88,13 @@ class CompanionService:
     def __init__(self, *, gateway: AIGateway):
         self.gateway = gateway
 
-    async def decide(self, *, guild_discord_id: int, snapshot: str, persona: str) -> str | None:
+    async def decide(
+        self, *, guild_discord_id: int, snapshot: str, persona: str, memory_doc: str = ""
+    ) -> str | None:
         try:
             out = await self.gateway.complete(
                 guild_discord_id=guild_discord_id,
-                system=build_companion_system(persona),
+                system=build_companion_system(persona, memory_doc),
                 prompt=snapshot,
             )
         except ValueError:

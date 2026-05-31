@@ -16,6 +16,7 @@ from app.discord_io.errors import DiscordError
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.memory_doc import MemoryDocRepository
 from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.companion_service import CompanionService, build_snapshot
 from app.services.ai.provider import get_ai_provider
@@ -64,12 +65,13 @@ class CompanionCog(commands.Cog):
     async def _load_cfg(self, session, guild_discord_id: int):
         guild = await GuildRepository(session).get_by_discord_id(guild_discord_id)
         if guild is None:
-            return None
-        return await AIConfigRepository(session).get(guild.id)
+            return None, None
+        cfg = await AIConfigRepository(session).get(guild.id)
+        return guild, cfg
 
     async def _handle_guild(self, guild, *, now: float) -> None:
         async with session_scope() as session:
-            cfg = await self._load_cfg(session, int(guild.id))
+            guild_row, cfg = await self._load_cfg(session, int(guild.id))
             if (
                 cfg is None
                 or not cfg.enabled
@@ -94,8 +96,12 @@ class CompanionCog(commands.Cog):
             )
             if snapshot is None:
                 return
+            memory_doc = await MemoryDocRepository(session).get_doc(guild_row.id)
             text = await _build_service(session).decide(
-                guild_discord_id=int(guild.id), snapshot=snapshot, persona=cfg.persona
+                guild_discord_id=int(guild.id),
+                snapshot=snapshot,
+                persona=cfg.persona,
+                memory_doc=memory_doc,
             )
             if not text:
                 return

@@ -59,6 +59,11 @@ def test_build_companion_system_persona():
     assert "mèo máy" in s and "SKIP" in s
 
 
+def test_build_companion_system_includes_memory_doc():
+    s = build_companion_system("Bạn là mèo máy", "- gọi An là thằng loz")
+    assert "thằng loz" in s and "TRÍ NHỚ SERVER" in s
+
+
 async def _svc(db_session, provider, *, discord_id=4242, enabled=True):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=discord_id, name="g", icon_url=None, is_active=True))

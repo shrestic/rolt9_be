@@ -9,6 +9,7 @@ from app.repositories.agent_message import AgentMessageRepository
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
+from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.agent_service import AgentService, build_system
 from app.services.ai.ai_gateway import AIGateway
@@ -22,6 +23,19 @@ def test_build_system_includes_persona_and_facts():
     assert "mèo máy" in s
     assert "Phong" in s
     assert "CÔNG CỤ" in s or "công cụ" in s  # nudge dùng tool
+
+
+def test_build_system_includes_memory_doc_and_channel_context():
+    s = build_system(
+        "Bạn là mèo máy.",
+        "",
+        "Phong",
+        memory_doc="- gọi An là thằng loz",
+        channel_context="An: hello\nPhong: hi",
+    )
+    assert "thằng loz" in s
+    assert "TRÍ NHỚ SERVER" in s
+    assert "An: hello" in s
 
 
 async def _svc(
@@ -64,6 +78,7 @@ async def _svc(
         config_repo=AIConfigRepository(db_session),
         agent_msg_repo=AgentMessageRepository(db_session),
         memory_repo=UserMemoryRepository(db_session),
+        memory_doc_repo=MemoryDocRepository(db_session),
         gateway=gateway,
     )
     return gid, svc
