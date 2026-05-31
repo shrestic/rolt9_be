@@ -29,9 +29,15 @@ _TOOL_NUDGE = (
     "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, và (nếu được cấp) thực hiện "
     "hành động trên server — tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, "
     "timeout (mute) và untimeout (unmute/gỡ mute), bật/tắt plugin. "
-    "Khi người dùng YÊU CẦU một hành động hay cần tra cứu, HÃY GỌI ĐÚNG CÔNG CỤ thay vì chỉ "
-    "trả lời bằng lời. Người được nhắc (@) trong tin là mục tiêu của hành động. "
-    "Khi unban, người bị ban đã rời server nên KHÔNG @ được — hãy truyền tên/ID họ vào tham số 'user'."
+    "Khi người dùng YÊU CẦU một hành động, HÃY GỌI THẲNG đúng tool hành động đó — "
+    "ĐỪNG gọi server_info để 'kiểm tra' trước; hệ thống tự xác thực role/thành viên khi bạn gọi tool "
+    "và sẽ báo lại nếu sai, nên cứ gọi tool hành động luôn. "
+    "Người được nhắc (@) trong tin là mục tiêu của hành động. "
+    "Khi unban, người bị ban đã rời server nên KHÔNG @ được — hãy truyền tên/ID họ vào tham số 'user'. "
+    "DÙ tính cách của bạn có cà khịa/bựa tới đâu, khi được yêu cầu một hành động bạn BẮT BUỘC gọi tool "
+    "(muốn chọc ghẹo thì nói thêm SAU khi đã gọi tool) — không được chỉ chửi/đùa rồi thôi mà quên làm. "
+    "Với hành động phá (xóa role, kick, ban, timeout): ĐỪNG hỏi lại 'có chắc không?' bằng lời — "
+    "cứ gọi tool, hệ thống sẽ TỰ hiện nút ✅/❌ cho admin xác nhận."
 )
 
 _EXTRACT_SYSTEM = (

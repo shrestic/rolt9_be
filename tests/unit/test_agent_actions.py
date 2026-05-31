@@ -10,6 +10,7 @@ from app.repositories.welcome_config import WelcomeConfigRepository
 from app.services.ai.actions.registry import (
     ACTION_PERMS,
     DESTRUCTIVE,
+    PLUGIN_TOGGLES,
     PendingAction,
     execute,
     stage,
@@ -89,6 +90,24 @@ async def test_stage_toggle_plugin():
     assert p.params == {"plugin": "welcome", "enabled": True} and p.destructive is False
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plugin", list(PLUGIN_TOGGLES))
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_stage_toggle_every_plugin(plugin, enabled):
+    # Mọi plugin trong PLUGIN_TOGGLES đều stage được, cả bật lẫn tắt.
+    p = await stage("toggle_plugin", {"plugin": plugin, "enabled": enabled}, _ctx())
+    assert isinstance(p, PendingAction)
+    assert p.params == {"plugin": plugin, "enabled": enabled}
+
+
+def test_toggle_plugin_spec_enum_matches_registry():
+    # Enum trong spec phải khớp đúng danh sách plugin -> model chỉ chọn plugin hợp lệ.
+    from app.services.ai.actions.registry import ACTION_SPECS
+
+    spec = next(s for s in ACTION_SPECS if s["function"]["name"] == "toggle_plugin")
+    assert spec["function"]["parameters"]["properties"]["plugin"]["enum"] == list(PLUGIN_TOGGLES)
+
+
 def test_action_perms_and_destructive():
     assert ACTION_PERMS["ban"] == "ban_members"
     assert ACTION_PERMS["toggle_plugin"] == "manage_guild"
@@ -110,6 +129,23 @@ async def test_execute_toggle_plugin_db(db_session):
     assert "bật" in out.lower()
     cfg = await WelcomeConfigRepository(db_session).get_or_create(gid)
     assert cfg.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_execute_toggle_plugin_agent_field(db_session):
+    # plugin 'agent' flip field agent_enabled (KHÁC field 'enabled') -> verify map đúng field
+    from app.repositories.ai_config import AIConfigRepository
+
+    gid = uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=556, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    guild = SimpleNamespace(id=556)
+    p = PendingAction("toggle_plugin", False, "", {"plugin": "agent", "enabled": True})
+    out = await execute(p, guild=guild, session=db_session)
+    await db_session.commit()
+    assert "bật" in out.lower()
+    cfg = await AIConfigRepository(db_session).get(gid)
+    assert cfg.agent_enabled is True
 
 
 @pytest.mark.asyncio
