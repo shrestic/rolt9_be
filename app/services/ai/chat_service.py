@@ -29,9 +29,10 @@ class ChatService:
             raise ValueError("Server chưa đăng ký với bot.")
         cfg = await self.config_repo.get(guild.id)
         persona = (cfg.persona if cfg and cfg.persona else "") or DEFAULT_PERSONA
+        # Để gateway dùng settings.AI_MAX_TOKENS (đủ rộng cho model reasoning);
+        # hardcode 400 trước đây làm model thinking như DeepSeek trả về rỗng.
         return await self.gateway.complete(
             guild_discord_id=guild_discord_id,
             system=persona,
             prompt=message,
-            max_tokens=400,
         )

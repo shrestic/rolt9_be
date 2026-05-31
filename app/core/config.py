@@ -28,10 +28,12 @@ class Settings(BaseSettings):
     DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/discord/callback"
     BOT_INVITE_URL: str = Field(default="")
 
-    # AI (Anthropic Claude) — global key, bot pays; per-guild budget guards cost.
+    # AI — BYO-key per-guild (xem ai_gateway). ANTHROPIC_API_KEY deprecated (không
+    # còn fallback). AI_MAX_TOKENS phải đủ rộng cho model reasoning (DeepSeek,
+    # o-series…) vì chúng tiêu token cho phần suy luận trước khi trả lời.
     ANTHROPIC_API_KEY: str = Field(default="")
     AI_MODEL: str = "claude-haiku-4-5-20251001"
-    AI_MAX_TOKENS: int = 400
+    AI_MAX_TOKENS: int = 8192
 
     # Tokens
     TOKEN_ENCRYPTION_KEY: str = Field(default="")

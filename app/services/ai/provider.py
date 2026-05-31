@@ -90,6 +90,7 @@ class LiteLLMProvider:
     ) -> AICompletion:
         import litellm  # lazy — giữ package optional cho test/deploy không key
 
+        _register_custom_prices(litellm)
         resp = await litellm.acompletion(
             model=f"{provider}/{model}",
             api_key=api_key,
@@ -106,12 +107,58 @@ class LiteLLMProvider:
             log.warning("litellm.completion_cost failed for %s/%s", provider, model)
             cost = 0.0
         usage = resp.usage
+        message = resp.choices[0].message
+        # Reasoning models (DeepSeek, o-series, …) có thể tiêu hết token budget
+        # cho phần suy luận và trả về content=None. Không để .strip() nổ —
+        # báo lỗi rõ ràng, có hướng xử lý.
+        content = (message.content or "").strip()
+        if not content:
+            if getattr(message, "reasoning_content", None):
+                raise ValueError(
+                    "Model dùng hết token cho phần suy luận mà chưa kịp trả lời — "
+                    "tăng AI_MAX_TOKENS hoặc chọn model không-reasoning."
+                )
+            raise ValueError("Model trả về nội dung rỗng.")
         return AICompletion(
-            text=resp.choices[0].message.content.strip(),
+            text=content,
             input_tokens=usage.prompt_tokens,
             output_tokens=usage.completion_tokens,
             cost_usd=cost,
         )
+
+
+# Giá custom cho model litellm CHƯA có trong bảng giá built-in (model quá mới),
+# để completion_cost() tính được USD → budget guard hoạt động. Đơn vị: USD / 1
+# token (= giá_per_1M / 1_000_000). Nguồn: DeepSeek pricing, tháng 5/2026
+# (flash $0.14/$0.28, pro $0.435/$0.87 per 1M cache-miss in/out).
+_CUSTOM_PRICES = {
+    "deepseek/deepseek-v4-flash": {
+        "input_cost_per_token": 0.14 / 1_000_000,
+        "output_cost_per_token": 0.28 / 1_000_000,
+        "litellm_provider": "deepseek",
+        "mode": "chat",
+    },
+    "deepseek/deepseek-v4-pro": {
+        "input_cost_per_token": 0.435 / 1_000_000,
+        "output_cost_per_token": 0.87 / 1_000_000,
+        "litellm_provider": "deepseek",
+        "mode": "chat",
+    },
+}
+
+_prices_registered = False
+
+
+def _register_custom_prices(litellm) -> None:
+    """Nạp giá custom vào litellm một lần (idempotent). Lỗi -> bỏ qua, không crash."""
+    global _prices_registered
+    if _prices_registered:
+        return
+    try:
+        litellm.register_model(_CUSTOM_PRICES)
+        _prices_registered = True
+    except Exception:  # noqa: BLE001 — thiếu giá chỉ làm cost=0, không được làm hỏng call
+        log.warning("litellm.register_model failed for custom prices")
 
 
 _provider: AIProvider | None = None
