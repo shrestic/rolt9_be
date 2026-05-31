@@ -23,17 +23,26 @@ def test_build_system_includes_persona_and_facts():
     assert "Phong" in s
 
 
-async def _svc(db_session, provider=None):
+async def _svc(
+    db_session,
+    *,
+    provider=None,
+    enabled=True,
+    agent_enabled=True,
+    agent_channel_id=None,
+    with_key=True,
+):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
     db_session.add(
         GuildAIConfig(
             guild_id=gid,
-            enabled=True,
-            agent_enabled=True,
+            enabled=enabled,
+            agent_enabled=agent_enabled,
+            agent_channel_id=agent_channel_id,
             provider="deepseek",
             model="deepseek-chat",
-            api_key_enc=encrypt_str("sk-test"),
+            api_key_enc=encrypt_str("sk-test") if with_key else None,
             monthly_budget_usd=5,
             persona="Bạn là trợ lý vui.",
         )
@@ -56,34 +65,132 @@ async def _svc(db_session, provider=None):
 
 
 @pytest.mark.asyncio
-async def test_reply_returns_text(db_session):
-    gid, svc = await _svc(db_session)
-    cid = uuid.uuid4()
-    text = await svc.reply(
+async def test_respond_returns_conversation_and_text(db_session):
+    _, svc = await _svc(db_session)
+    result = await svc.respond(
         guild_discord_id=GID,
+        channel_id=10,
         user_discord_id=1,
-        conversation_id=cid,
         user_name="Phong",
         message_text="hello",
+        reference_message_id=None,
     )
+    assert result is not None
+    conversation_id, text = result
+    assert isinstance(conversation_id, uuid.UUID)
     assert text == "chào"
 
 
 @pytest.mark.asyncio
-async def test_persist_stores_two_turns(db_session):
-    gid, svc = await _svc(db_session)
-    cid = uuid.uuid4()
-    await svc.persist(gid, cid, "hỏi", "đáp", bot_message_id=555)
-    await db_session.commit()
-    repo = AgentMessageRepository(db_session)
-    turns = await repo.recent_turns(cid, limit=10, char_cap=9999)
-    assert [t["role"] for t in turns] == ["user", "assistant"]
-    assert await repo.conversation_of(555) == cid
+async def test_respond_none_when_agent_disabled(db_session):
+    _, svc = await _svc(db_session, agent_enabled=False)
+    assert (
+        await svc.respond(
+            guild_discord_id=GID,
+            channel_id=10,
+            user_discord_id=1,
+            user_name="P",
+            message_text="hi",
+            reference_message_id=None,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
-async def test_extract_memory_upserts(db_session):
-    gid, svc = await _svc(db_session, provider=FakeAIProvider(text="- tên Phong", cost_usd=0.0))
-    await svc.extract_memory(GID, 1, "tôi tên Phong", "chào Phong", "")
+async def test_respond_none_when_ai_disabled(db_session):
+    _, svc = await _svc(db_session, enabled=False)
+    assert (
+        await svc.respond(
+            guild_discord_id=GID,
+            channel_id=10,
+            user_discord_id=1,
+            user_name="P",
+            message_text="hi",
+            reference_message_id=None,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_respond_none_on_wrong_channel(db_session):
+    _, svc = await _svc(db_session, agent_channel_id=999)
+    assert (
+        await svc.respond(
+            guild_discord_id=GID,
+            channel_id=10,
+            user_discord_id=1,
+            user_name="P",
+            message_text="hi",
+            reference_message_id=None,
+        )
+        is None
+    )
+    # đúng kênh -> trả lời
+    assert (
+        await svc.respond(
+            guild_discord_id=GID,
+            channel_id=999,
+            user_discord_id=1,
+            user_name="P",
+            message_text="hi",
+            reference_message_id=None,
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_respond_raises_on_missing_key(db_session):
+    _, svc = await _svc(db_session, with_key=False)
+    with pytest.raises(ValueError):
+        await svc.respond(
+            guild_discord_id=GID,
+            channel_id=10,
+            user_discord_id=1,
+            user_name="P",
+            message_text="hi",
+            reference_message_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_respond_continues_conversation_via_reference(db_session):
+    gid, svc = await _svc(db_session)
+    # Seed một lượt assistant cũ với discord_message_id=555 thuộc cuộc cũ.
+    cid = uuid.uuid4()
+    await AgentMessageRepository(db_session).add_turn(
+        gid, cid, "assistant", "câu cũ", discord_message_id=555
+    )
     await db_session.commit()
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="tiếp",
+        reference_message_id=555,
+    )
+    assert result is not None
+    assert result[0] == cid  # nối tiếp đúng cuộc cũ
+
+
+@pytest.mark.asyncio
+async def test_remember_persists_and_extracts(db_session):
+    gid, svc = await _svc(db_session, provider=FakeAIProvider(text="- tên Phong", cost_usd=0.0))
+    cid = uuid.uuid4()
+    await svc.remember(
+        guild_discord_id=GID,
+        conversation_id=cid,
+        user_discord_id=1,
+        user_text="tôi tên Phong",
+        assistant_text="chào Phong",
+        bot_message_id=777,
+    )
+    await db_session.commit()
+    msg_repo = AgentMessageRepository(db_session)
+    turns = await msg_repo.recent_turns(cid, limit=10, char_cap=9999)
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    assert await msg_repo.conversation_of(777) == cid
     assert "Phong" in await UserMemoryRepository(db_session).get_facts(gid, 1)

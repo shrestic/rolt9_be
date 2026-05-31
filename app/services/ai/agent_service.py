@@ -59,27 +59,65 @@ class AgentService:
             raise ValueError("Server chưa đăng ký với bot.")
         return guild.id
 
-    async def reply(
+    async def respond(
         self,
         *,
         guild_discord_id: int,
+        channel_id: int,
         user_discord_id: int,
-        conversation_id: uuid.UUID,
         user_name: str,
         message_text: str,
-    ) -> str:
-        gid = await self._guild_pk(guild_discord_id)
-        cfg = await self.config_repo.get(gid)
-        facts = await self.memory_repo.get_facts(gid, user_discord_id)
+        reference_message_id: int | None,
+    ) -> tuple[uuid.UUID, str] | None:
+        """Gating + chọn conversation + gọi AI. Trả (conversation_id, text), hoặc None nếu
+        agent không nên trả lời (chưa đăng ký / AI off / agent off / sai kênh). Lỗi cấu hình
+        AI (thiếu key / hết budget) raise ValueError để cog báo ❌."""
+        guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
+        if guild is None:
+            return None
+        cfg = await self.config_repo.get(guild.id)
+        if cfg is None or not cfg.enabled or not cfg.agent_enabled:
+            return None
+        if cfg.agent_channel_id and channel_id != cfg.agent_channel_id:
+            return None
+
+        conversation_id = None
+        if reference_message_id is not None:
+            conversation_id = await self.agent_msg_repo.conversation_of(reference_message_id)
+        if conversation_id is None:
+            conversation_id = uuid.uuid4()
+
+        facts = await self.memory_repo.get_facts(guild.id, user_discord_id)
         history = await self.agent_msg_repo.recent_turns(
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
-        system = build_system(cfg.persona if cfg else "", facts, user_name)
-        return await self.gateway.complete(
+        system = build_system(cfg.persona, facts, user_name)
+        text = await self.gateway.complete(
             guild_discord_id=guild_discord_id,
             system=system,
             prompt=message_text,
             history=history,
+        )
+        return conversation_id, text
+
+    async def remember(
+        self,
+        *,
+        guild_discord_id: int,
+        conversation_id: uuid.UUID,
+        user_discord_id: int,
+        user_text: str,
+        assistant_text: str,
+        bot_message_id: int,
+    ) -> None:
+        """Sau khi đã gửi reply: lưu 2 lượt + async rút facts. Lỗi rút facts không chặn."""
+        guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
+        if guild is None:
+            return
+        old_facts = await self.memory_repo.get_facts(guild.id, user_discord_id)
+        await self.persist(guild.id, conversation_id, user_text, assistant_text, bot_message_id)
+        await self.extract_memory(
+            guild_discord_id, user_discord_id, user_text, assistant_text, old_facts
         )
 
     async def persist(

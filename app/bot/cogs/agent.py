@@ -7,7 +7,6 @@ kênh). Cooldown/user chống spam. Cần intents.message_content (đã bật).
 
 import logging
 import time
-import uuid
 
 import discord
 from discord import app_commands
@@ -85,48 +84,41 @@ class AgentCog(commands.Cog):
         if not self.cooldown.ready(message.author.id, now=now):
             return
 
+        user_text = message.clean_content
+        ref_id = (
+            int(message.reference.message_id)
+            if message.reference and message.reference.message_id
+            else None
+        )
         async with session_scope() as session:
-            guild = await GuildRepository(session).get_by_discord_id(int(message.guild.id))
-            if guild is None:
-                return
-            cfg = await AIConfigRepository(session).get(guild.id)
-            if cfg is None or not cfg.enabled or not cfg.agent_enabled:
-                return
-            if cfg.agent_channel_id and int(message.channel.id) != cfg.agent_channel_id:
-                return
-
-            # Conversation: reply tới tin bot -> nối tiếp; còn lại -> cuộc mới.
-            msg_repo = AgentMessageRepository(session)
-            conversation_id = None
-            if message.reference and message.reference.message_id:
-                conversation_id = await msg_repo.conversation_of(int(message.reference.message_id))
-            if conversation_id is None:
-                conversation_id = uuid.uuid4()
-
             svc = _build_service(session)
-            user_text = message.clean_content
             try:
-                text = await svc.reply(
+                result = await svc.respond(
                     guild_discord_id=int(message.guild.id),
+                    channel_id=int(message.channel.id),
                     user_discord_id=int(message.author.id),
-                    conversation_id=conversation_id,
                     user_name=getattr(message.author, "display_name", str(message.author)),
                     message_text=user_text,
+                    reference_message_id=ref_id,
                 )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
                 return
+            if result is None:
+                return
 
+            conversation_id, text = result
             self.cooldown.mark(message.author.id, now=now)
             sent = await self._safe_reply(message, text)
             if sent is None:
                 return
-            old_facts = await svc.memory_repo.get_facts(guild.id, int(message.author.id))
-            await svc.persist(
-                guild.id, conversation_id, user_text, text, bot_message_id=int(sent.id)
-            )
-            await svc.extract_memory(
-                int(message.guild.id), int(message.author.id), user_text, text, old_facts
+            await svc.remember(
+                guild_discord_id=int(message.guild.id),
+                conversation_id=conversation_id,
+                user_discord_id=int(message.author.id),
+                user_text=user_text,
+                assistant_text=text,
+                bot_message_id=int(sent.id),
             )
 
     async def _safe_reply(self, message, content: str):
