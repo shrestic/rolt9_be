@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = Field(default="")
     AI_MODEL: str = "claude-haiku-4-5-20251001"
     AI_MAX_TOKENS: int = 8192
+    # Claw Agent tools: web search qua Tavily (key global, bot trả). Rỗng = tắt web_search.
+    TAVILY_API_KEY: str = Field(default="")
 
     # Tokens
     TOKEN_ENCRYPTION_KEY: str = Field(default="")
