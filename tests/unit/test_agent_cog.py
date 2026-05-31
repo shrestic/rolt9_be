@@ -10,11 +10,20 @@ from app.bot.cogs.agent import AGENT_COOLDOWN, AgentCog, CooldownTracker, is_add
 
 
 class _User:
-    def __init__(self, id, bot=False, name="rolt9"):
+    def __init__(self, id, bot=False, name="rolt9", perms=None):
         self.id = id
         self.bot = bot
         self.name = name
         self.display_name = f"u{id}"
+        flags = {
+            "manage_guild": False,
+            "manage_roles": False,
+            "ban_members": False,
+            "kick_members": False,
+            "moderate_members": False,
+        }
+        flags.update(perms or {})
+        self.guild_permissions = SimpleNamespace(**flags)
 
 
 class _Ref:
@@ -51,7 +60,7 @@ class _Msg:
             if guild
             else None
         )
-        self.channel = SimpleNamespace(id=10)
+        self.channel = SimpleNamespace(id=10, send=AsyncMock())
         self.clean_content = clean_content
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
 
@@ -125,7 +134,7 @@ def _cog():
 async def test_on_message_replies_and_remembers(monkeypatch):
     cid = uuid.uuid4()
     stub = MagicMock()
-    stub.respond = AsyncMock(return_value=(cid, "trả lời"))
+    stub.respond = AsyncMock(return_value=(cid, "trả lời", []))
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
@@ -191,7 +200,7 @@ async def test_on_message_value_error_replies_error(monkeypatch):
 async def test_on_message_cooldown_blocks_second(monkeypatch):
     cid = uuid.uuid4()
     stub = MagicMock()
-    stub.respond = AsyncMock(return_value=(cid, "ok"))
+    stub.respond = AsyncMock(return_value=(cid, "ok", []))
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
@@ -199,3 +208,57 @@ async def test_on_message_cooldown_blocks_second(monkeypatch):
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # ngay lập tức -> cooldown
     assert stub.respond.await_count == 1
+
+
+# ---------- actions (perms + pending handling) ----------
+
+from app.bot.cogs.agent import confirm_perm_ok, perms_dict  # noqa: E402
+from app.services.ai.actions.registry import PendingAction  # noqa: E402
+
+
+def test_perms_dict_and_confirm_perm_ok():
+    gp = SimpleNamespace(
+        manage_guild=True,
+        manage_roles=False,
+        ban_members=True,
+        kick_members=False,
+        moderate_members=False,
+    )
+    d = perms_dict(gp)
+    assert d["manage_guild"] is True and d["ban_members"] is True and d["manage_roles"] is False
+    assert confirm_perm_ok("ban", d) is True  # cần ban_members -> có
+    assert confirm_perm_ok("create_role", d) is False  # cần manage_roles -> không
+
+
+@pytest.mark.asyncio
+async def test_on_message_executes_safe_action(monkeypatch):
+    cid = uuid.uuid4()
+    safe = PendingAction(
+        "toggle_plugin", False, "Bật welcome", {"plugin": "welcome", "enabled": True}
+    )
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=(cid, "ok", [safe]))
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    run_mock = AsyncMock(return_value="Đã bật welcome.")
+    monkeypatch.setattr(agent_mod, "run_action", run_mock)
+    cog = _cog()
+    await cog.on_message(_Msg(author=_User(2), mentions=[_User(1)]))
+    run_mock.assert_awaited_once()  # action an toàn -> chạy ngay
+
+
+@pytest.mark.asyncio
+async def test_on_message_destructive_sends_confirm(monkeypatch):
+    cid = uuid.uuid4()
+    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    run_mock = AsyncMock()
+    monkeypatch.setattr(agent_mod, "run_action", run_mock)
+    cog = _cog()
+    msg = _Msg(author=_User(2), mentions=[_User(1)])
+    await cog.on_message(msg)
+    msg.channel.send.assert_awaited_once()  # gửi nút xác nhận
+    run_mock.assert_not_awaited()  # CHƯA execute (chờ ✅)

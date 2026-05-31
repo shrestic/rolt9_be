@@ -20,6 +20,8 @@ from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.user_memory import UserMemoryRepository
+from app.services.ai.actions.registry import ACTION_PERMS
+from app.services.ai.actions.registry import execute as run_action
 from app.services.ai.agent_service import AgentService
 from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.provider import get_ai_provider
@@ -27,6 +29,42 @@ from app.services.ai.provider import get_ai_provider
 log = logging.getLogger(__name__)
 
 AGENT_COOLDOWN = 5.0  # giây giữa 2 tin của cùng 1 user
+_PERM_FLAGS = ("manage_guild", "manage_roles", "ban_members", "kick_members", "moderate_members")
+
+
+def perms_dict(guild_permissions) -> dict:
+    """Trích các flag quyền liên quan action thành dict (để gate stage + confirm)."""
+    return {f: bool(getattr(guild_permissions, f, False)) for f in _PERM_FLAGS}
+
+
+def confirm_perm_ok(kind: str, perms: dict) -> bool:
+    """Người bấm ✅ có đủ quyền cho action này không (Administrator có sẵn mọi flag)."""
+    return bool(perms.get(ACTION_PERMS.get(kind, "")))
+
+
+class ActionConfirmView(discord.ui.View):
+    """Nút ✅/❌ cho hành động PHÁ (ban/kick/timeout/delete_role)."""
+
+    def __init__(self, pending):
+        super().__init__(timeout=120)
+        self.pending = pending
+
+    @discord.ui.button(label="✅ Xác nhận", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not confirm_perm_ok(self.pending.kind, perms_dict(interaction.user.guild_permissions)):
+            await interaction.response.send_message(
+                "Bạn không đủ quyền cho hành động này.", ephemeral=True
+            )
+            return
+        async with session_scope() as session:
+            res = await run_action(self.pending, guild=interaction.guild, session=session)
+        await interaction.response.edit_message(content=f"✅ {res}", view=None)
+        self.stop()
+
+    @discord.ui.button(label="❌ Hủy", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(content="Đã hủy.", view=None)
+        self.stop()
 
 
 def is_addressed(message, bot_user) -> bool:
@@ -116,6 +154,9 @@ class AgentCog(commands.Cog):
             "roles": [r.name for r in getattr(g, "roles", []) if r.name != "@everyone"][:50],
             "channels": [c.name for c in getattr(g, "channels", [])][:50],
         }
+        bot_id = self.bot.user.id if self.bot.user else None
+        target_user_ids = [u.id for u in message.mentions if u.id != bot_id]
+        commander_perms = perms_dict(message.author.guild_permissions)
         async with session_scope() as session:
             svc = _build_service(session)
             try:
@@ -127,6 +168,10 @@ class AgentCog(commands.Cog):
                     message_text=user_text,
                     reference_message_id=ref_id,
                     server_snapshot=server_snapshot,
+                    commander_perms=commander_perms,
+                    role_names=[r.name for r in getattr(g, "roles", [])],
+                    target_user_ids=target_user_ids,
+                    commander_id=int(message.author.id),
                 )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
@@ -137,7 +182,7 @@ class AgentCog(commands.Cog):
             if result is None:
                 return
 
-            conversation_id, text = result
+            conversation_id, text, pending = result
             self.cooldown.mark(message.author.id, now=now)
             sent = await self._safe_reply(message, text)
             if sent is None:
@@ -150,6 +195,22 @@ class AgentCog(commands.Cog):
                 assistant_text=text,
                 bot_message_id=int(sent.id),
             )
+            # Hành động: an toàn làm luôn; phá -> gửi nút xác nhận.
+            for p in pending:
+                if p.destructive:
+                    await self._send_confirm(message, p)
+                else:
+                    res = await run_action(p, guild=message.guild, session=session)
+                    await self._safe_reply(message, f"✅ {res}")
+
+    async def _send_confirm(self, message, pending) -> None:
+        try:
+            await message.channel.send(
+                f"🤖 Xác nhận hành động: **{pending.description}**?",
+                view=ActionConfirmView(pending),
+            )
+        except (DiscordError, discord.DiscordException):
+            log.warning("agent: failed to send confirm in channel %s", message.channel.id)
 
     async def _safe_reply(self, message, content: str):
         try:
