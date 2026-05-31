@@ -19,6 +19,7 @@ class AISettings(BaseModel):
     agent_enabled: bool = False
     agent_channel_id: str | None = None
     tools_enabled: bool = True
+    actions_enabled: bool = False
     api_key: str | None = None
 
 
@@ -33,6 +34,7 @@ class AISettingsOut(BaseModel):
     agent_enabled: bool
     agent_channel_id: str | None = None
     tools_enabled: bool
+    actions_enabled: bool
     has_key: bool
     key_hint: str = ""  # 4 ký tự cuối của key, "" nếu chưa có
     tokens_used_this_month: int = 0

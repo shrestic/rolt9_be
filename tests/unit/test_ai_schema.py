@@ -21,6 +21,7 @@ def test_out_shape_hides_key():
         persona="",
         agent_enabled=False,
         tools_enabled=True,
+        actions_enabled=False,
         has_key=True,
         key_hint="sk-x"[-4:],
         tokens_used_this_month=120,
