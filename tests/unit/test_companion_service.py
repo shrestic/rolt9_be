@@ -21,7 +21,8 @@ from app.services.ai.provider import FakeAIProvider
 
 def _member(name, games=(), bot=False):
     acts = [SimpleNamespace(type=discord.ActivityType.playing, name=g) for g in games]
-    return SimpleNamespace(id=hash(name) % 10000, display_name=name, bot=bot, activities=acts)
+    uid = hash(name) % 10000
+    return SimpleNamespace(id=uid, display_name=name, bot=bot, activities=acts, mention=f"<@{uid}>")
 
 
 def test_build_snapshot_game_alone():
@@ -29,6 +30,13 @@ def test_build_snapshot_game_alone():
     out = build_snapshot(members, [], [], bot_id=999)
     assert out is not None
     assert "MỘT MÌNH" in out and "An" in out and "Bot" not in out
+
+
+def test_build_snapshot_includes_mention_for_ping():
+    # Snapshot phải kèm '<@id>' để model @ping được đúng người
+    an = _member("An", games=["Valorant"])
+    out = build_snapshot([an], [], [], bot_id=999)
+    assert f"<@{an.id}>" in out
 
 
 def test_build_snapshot_group_game():

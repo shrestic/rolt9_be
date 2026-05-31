@@ -24,14 +24,26 @@ def build_companion_system(persona: str, memory_doc: str = "") -> str:
     parts.append(
         "\nDưới đây là TÌNH HÌNH SERVER lúc này. Nếu có gì đáng để buông MỘT câu ngắn, "
         "duyên, tự nhiên (tiếng Việt) — cà khịa nhẹ hoặc bắt chuyện — thì trả về đúng câu đó. "
+        "Mỗi người có kèm '<@id>': bạn CÓ THỂ @tag họ bằng cách copy NGUYÊN cụm '<@id>' đó vào câu "
+        "— vd thấy ai chơi game một mình thì tag họ + rủ người khác vào gánh "
+        "('Ê <@111> sao chơi một mình thế, <@222> vào gánh nó kìa'). "
+        "Chỉ tag khi hợp lý, đừng tag loạn. "
         "Nếu KHÔNG có gì đáng nói, trả về đúng chữ SKIP. Đừng spam, đừng lặp lại, "
         "không chào hỏi máy móc."
     )
     return "\n".join(parts)
 
 
+def _tag(m) -> str:
+    """'Tên (<@id>)' — cho model VỪA gọi tên thân mật VỪA @ping thật được (copy cụm <@id>)."""
+    name = getattr(m, "display_name", None) or str(m)
+    mention = getattr(m, "mention", None)  # discord.Member.mention -> '<@id>'
+    return f"{name} ({mention})" if mention else name
+
+
 def build_snapshot(members, voice_channels, recent_messages, bot_id) -> str | None:
-    """Mô tả hoạt động hiện tại (game/voice/chat). Trả None nếu không có gì."""
+    """Mô tả hoạt động hiện tại (game/voice/chat). Mỗi người kèm '<@id>' để model @ping
+    đúng người. Trả None nếu không có gì."""
     games: dict[str, list[str]] = {}
     for m in members or []:
         if getattr(m, "bot", False) or getattr(m, "id", None) == bot_id:
@@ -40,7 +52,7 @@ def build_snapshot(members, voice_channels, recent_messages, bot_id) -> str | No
             if getattr(act, "type", None) == discord.ActivityType.playing and getattr(
                 act, "name", None
             ):
-                games.setdefault(act.name, []).append(getattr(m, "display_name", str(m)))
+                games.setdefault(act.name, []).append(_tag(m))
 
     game_lines = []
     for game, players in games.items():
@@ -51,11 +63,7 @@ def build_snapshot(members, voice_channels, recent_messages, bot_id) -> str | No
 
     voice_lines = []
     for ch in voice_channels or []:
-        mem = [
-            getattr(x, "display_name", str(x))
-            for x in getattr(ch, "members", [])
-            if not getattr(x, "bot", False)
-        ]
+        mem = [_tag(x) for x in getattr(ch, "members", []) if not getattr(x, "bot", False)]
         if not mem:
             continue
         if len(mem) == 1:
@@ -70,7 +78,7 @@ def build_snapshot(members, voice_channels, recent_messages, bot_id) -> str | No
             continue
         content = (getattr(msg, "content", "") or "").strip()
         if content:
-            chat_lines.append(f"- {getattr(author, 'display_name', '?')}: {content[:80]}")
+            chat_lines.append(f"- {_tag(author)}: {content[:80]}")
 
     parts = []
     if game_lines:
