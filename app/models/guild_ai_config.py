@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     Numeric,
     String,
@@ -51,6 +52,10 @@ class GuildAIConfig(Base):
     tools_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Cho phép Claw Agent làm HÀNH ĐỘNG server (role/mod/toggle). Opt-in, mặc định tắt.
     actions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Server Companion AI — bot tự quan sát & buông câu (proactive). Opt-in.
+    companion_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    companion_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    companion_cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=45)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
