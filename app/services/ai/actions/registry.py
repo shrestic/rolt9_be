@@ -1,0 +1,324 @@
+"""Claw Agent Actions — stage (validate) + execute (thực thi) hành động server.
+
+Action tool trong tool-loop chỉ STAGE (validate + tạo PendingAction). Cog mới execute:
+hành động an toàn làm ngay, hành động PHÁ (ban/kick/timeout/delete_role) chờ nút ✅.
+Gate per-action theo quyền Discord của người ra lệnh; bot phải đủ quyền + cấp bậc.
+"""
+
+import logging
+from dataclasses import dataclass, field
+from datetime import timedelta
+
+from app.repositories.ai_config import AIConfigRepository
+from app.repositories.currency_config import CurrencyConfigRepository
+from app.repositories.guild import GuildRepository
+from app.repositories.karma_config import KarmaConfigRepository
+from app.repositories.leveling_config import GuildLevelingConfigRepository
+from app.repositories.minigame_config import MinigameConfigRepository
+from app.repositories.welcome_config import WelcomeConfigRepository
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class PendingAction:
+    kind: str
+    destructive: bool
+    description: str
+    params: dict = field(default_factory=dict)
+
+
+# action kind -> tên flag perm Discord người ra lệnh cần có
+ACTION_PERMS = {
+    "create_role": "manage_roles",
+    "assign_role": "manage_roles",
+    "remove_role": "manage_roles",
+    "delete_role": "manage_roles",
+    "toggle_plugin": "manage_guild",
+    "kick": "kick_members",
+    "ban": "ban_members",
+    "timeout": "moderate_members",
+}
+DESTRUCTIVE = {"delete_role", "kick", "ban", "timeout"}
+
+# plugin name -> (RepoClass, field). Mọi repo đều có upsert(guild_id, data).
+PLUGIN_TOGGLES = {
+    "leveling": (GuildLevelingConfigRepository, "enabled"),
+    "currency": (CurrencyConfigRepository, "enabled"),
+    "welcome": (WelcomeConfigRepository, "enabled"),
+    "minigame": (MinigameConfigRepository, "enabled"),
+    "karma": (KarmaConfigRepository, "enabled"),
+    "ai": (AIConfigRepository, "enabled"),
+    "agent": (AIConfigRepository, "agent_enabled"),
+    "tools": (AIConfigRepository, "tools_enabled"),
+}
+
+_PERM_LABEL = {
+    "manage_roles": "Manage Roles",
+    "manage_guild": "Manage Guild",
+    "kick_members": "Kick Members",
+    "ban_members": "Ban Members",
+    "moderate_members": "Moderate Members",
+}
+
+ACTION_SPECS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_role",
+            "description": "Tạo một role mới trong server.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "color": {"type": "string", "description": "Mã hex #rrggbb (tùy chọn)"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "assign_role",
+            "description": "Gán một role cho (các) user được nhắc tới, hoặc cho chính người ra lệnh nếu không nhắc ai.",
+            "parameters": {
+                "type": "object",
+                "properties": {"role_name": {"type": "string"}},
+                "required": ["role_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_role",
+            "description": "Gỡ một role khỏi (các) user được nhắc, hoặc chính người ra lệnh.",
+            "parameters": {
+                "type": "object",
+                "properties": {"role_name": {"type": "string"}},
+                "required": ["role_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_role",
+            "description": "Xóa một role khỏi server (hành động phá, cần xác nhận).",
+            "parameters": {
+                "type": "object",
+                "properties": {"role_name": {"type": "string"}},
+                "required": ["role_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_plugin",
+            "description": "Bật hoặc tắt một plugin của bot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plugin": {"type": "string", "enum": list(PLUGIN_TOGGLES)},
+                    "enabled": {"type": "boolean"},
+                },
+                "required": ["plugin", "enabled"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kick",
+            "description": "Kick (các) user được nhắc khỏi server (hành động phá, cần xác nhận).",
+            "parameters": {
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ban",
+            "description": "Ban (các) user được nhắc khỏi server (hành động phá, cần xác nhận).",
+            "parameters": {
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "timeout",
+            "description": "Timeout (cấm chat tạm) các user được nhắc (hành động phá, cần xác nhận).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "minutes": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["minutes"],
+            },
+        },
+    },
+]
+
+
+def _parse_color(raw):
+    """Hex '#rrggbb' -> int, hoặc None nếu không parse được."""
+    if not raw:
+        return None
+    s = str(raw).strip().lstrip("#")
+    try:
+        return int(s, 16)
+    except ValueError:
+        return None
+
+
+def _find_role_name(role_name: str, role_names: list[str]) -> str | None:
+    low = role_name.strip().lower()
+    for r in role_names:
+        if r.lower() == low:
+            return r
+    return None
+
+
+async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
+    """Validate + gate quyền. Trả PendingAction (chờ cog execute) hoặc chuỗi lỗi cho model."""
+    perm = ACTION_PERMS.get(name)
+    if perm is None:
+        return f"Hành động không hỗ trợ: {name}"
+    if not ctx.commander_perms.get(perm):
+        return f"Bạn cần quyền {_PERM_LABEL.get(perm, perm)} để làm việc này."
+
+    destructive = name in DESTRUCTIVE
+
+    if name == "create_role":
+        rn = str(args.get("name", "")).strip()
+        if not rn or len(rn) > 100:
+            return "Tên role không hợp lệ (1-100 ký tự)."
+        color = _parse_color(args.get("color"))
+        return PendingAction(name, destructive, f"Tạo role **{rn}**", {"name": rn, "color": color})
+
+    if name in ("assign_role", "remove_role", "delete_role"):
+        rn = str(args.get("role_name", "")).strip()
+        match = _find_role_name(rn, ctx.role_names)
+        if match is None:
+            return f"Không tìm thấy role '{rn}' trong server."
+        if name == "delete_role":
+            return PendingAction(name, destructive, f"Xóa role **{match}**", {"role_name": match})
+        targets = list(ctx.target_user_ids) or ([ctx.commander_id] if ctx.commander_id else [])
+        if not targets:
+            return "Không rõ gán/gỡ cho ai."
+        verb = "Gán" if name == "assign_role" else "Gỡ"
+        return PendingAction(
+            name,
+            destructive,
+            f"{verb} role **{match}** cho {len(targets)} người",
+            {"role_name": match, "target_ids": targets},
+        )
+
+    if name == "toggle_plugin":
+        plugin = str(args.get("plugin", "")).strip().lower()
+        if plugin not in PLUGIN_TOGGLES:
+            return f"Plugin không hợp lệ. Hợp lệ: {', '.join(PLUGIN_TOGGLES)}"
+        enabled = bool(args.get("enabled"))
+        return PendingAction(
+            name,
+            destructive,
+            f"{'Bật' if enabled else 'Tắt'} plugin **{plugin}**",
+            {"plugin": plugin, "enabled": enabled},
+        )
+
+    if name in ("kick", "ban", "timeout"):
+        targets = list(ctx.target_user_ids)
+        if not targets:
+            return f"Cần @ người cần {name}."
+        params = {"target_ids": targets, "reason": str(args.get("reason", "") or "")}
+        if name == "timeout":
+            minutes = args.get("minutes")
+            if not isinstance(minutes, int) or minutes <= 0:
+                return "Số phút timeout phải > 0."
+            params["minutes"] = minutes
+            desc = f"Timeout {len(targets)} người {minutes} phút"
+        else:
+            desc = f"{name.capitalize()} {len(targets)} người"
+        return PendingAction(name, destructive, desc, params)
+
+    return f"Hành động không hỗ trợ: {name}"
+
+
+async def execute(pending: PendingAction, *, guild, session) -> str:
+    """Thực thi thật. guild = discord.Guild; session = AsyncSession. Lỗi -> chuỗi báo."""
+    import discord
+
+    p = pending.params
+    try:
+        if pending.kind == "create_role":
+            kwargs = {"name": p["name"]}
+            if p.get("color") is not None:
+                kwargs["colour"] = discord.Colour(p["color"])
+            await guild.create_role(**kwargs)
+            return f"Đã tạo role {p['name']}."
+
+        if pending.kind in ("assign_role", "remove_role", "delete_role"):
+            role = discord.utils.find(
+                lambda r: r.name.lower() == p["role_name"].lower(), guild.roles
+            )
+            if role is None:
+                return f"Role {p['role_name']} không còn nữa."
+            if guild.me.top_role <= role:
+                return f"Role {role.name} đứng trên/ngang role của bot — không thao tác được."
+            if pending.kind == "delete_role":
+                await role.delete()
+                return f"Đã xóa role {role.name}."
+            done = 0
+            for uid in p["target_ids"]:
+                member = guild.get_member(uid)
+                if member is None:
+                    continue
+                if pending.kind == "assign_role":
+                    await member.add_roles(role)
+                else:
+                    await member.remove_roles(role)
+                done += 1
+            verb = "gán" if pending.kind == "assign_role" else "gỡ"
+            return f"Đã {verb} role {role.name} cho {done} người."
+
+        if pending.kind in ("kick", "ban", "timeout"):
+            done = 0
+            for uid in p["target_ids"]:
+                member = guild.get_member(uid)
+                if member is None:
+                    continue
+                if guild.me.top_role <= member.top_role:
+                    return f"{member.display_name} có role cao hơn/ngang bot — không xử được."
+                if pending.kind == "kick":
+                    await member.kick(reason=p.get("reason") or None)
+                elif pending.kind == "ban":
+                    await member.ban(reason=p.get("reason") or None)
+                else:
+                    await member.timeout(
+                        timedelta(minutes=p["minutes"]), reason=p.get("reason") or None
+                    )
+                done += 1
+            return f"Đã {pending.kind} {done} người."
+
+        if pending.kind == "toggle_plugin":
+            repo_cls, fieldname = PLUGIN_TOGGLES[p["plugin"]]
+            g = await GuildRepository(session).get_by_discord_id(guild.id)
+            if g is None:
+                return "Server chưa đăng ký với bot."
+            await repo_cls(session).upsert(g.id, {fieldname: p["enabled"]})
+            return f"Đã {'bật' if p['enabled'] else 'tắt'} plugin {p['plugin']}."
+    except discord.Forbidden:
+        return "Bot không đủ quyền để làm việc này (kiểm tra quyền + cấp bậc role của bot)."
+    except discord.HTTPException:
+        log.warning("action execute HTTPException kind=%s", pending.kind)
+        return "Discord từ chối thao tác, thử lại sau."
+
+    return f"Hành động không hỗ trợ: {pending.kind}"

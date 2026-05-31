@@ -46,3 +46,19 @@ async def test_web_search_no_key(monkeypatch):
     monkeypatch.setattr(ws.settings, "TAVILY_API_KEY", "", raising=False)
     out = await ws.run_web_search("gì đó")
     assert "chưa cấu hình" in out.lower()
+
+
+def test_tool_specs_includes_actions_when_enabled():
+    names = {s["function"]["name"] for s in tool_specs(has_search=False, include_actions=True)}
+    assert {"create_role", "ban", "toggle_plugin"} <= names
+    assert "create_role" not in {
+        s["function"]["name"] for s in tool_specs(has_search=False, include_actions=False)
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_dispatches_action_to_stage():
+    # name là action -> đi nhánh actions.stage; thiếu quyền -> trả chuỗi "cần quyền"
+    ctx = ToolContext(commander_perms={})
+    out = await execute("create_role", {"name": "X"}, ctx)
+    assert "quyền" in out.lower()
