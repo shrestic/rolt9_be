@@ -41,7 +41,7 @@ class GuildAIConfig(Base):
     # Trần chi phí USD/tháng. Gateway chặn khi cost tháng >= giá trị này.
     monthly_budget_usd: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=5.0)
     # Persona server-wide cho /chat. "" = persona thân thiện mặc định (ChatService).
-    persona: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    persona: Mapped[str] = mapped_column(String(2000), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

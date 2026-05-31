@@ -15,7 +15,7 @@ class AISettings(BaseModel):
     provider: str = ""
     model: str = ""
     monthly_budget_usd: Decimal = Field(default=Decimal("5"), ge=0, le=1000)
-    persona: str = Field(default="", max_length=500)
+    persona: str = Field(default="", max_length=2000)
     api_key: str | None = None
 
 
