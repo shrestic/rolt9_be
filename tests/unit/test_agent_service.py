@@ -21,6 +21,7 @@ def test_build_system_includes_persona_and_facts():
     s = build_system("Bạn là mèo máy.", "- tên Phong", "Phong")
     assert "mèo máy" in s
     assert "Phong" in s
+    assert "CÔNG CỤ" in s or "công cụ" in s  # nudge dùng tool
 
 
 async def _svc(

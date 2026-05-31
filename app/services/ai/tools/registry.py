@@ -1,11 +1,14 @@
 """Tool registry — schema + dispatch cho Claw Agent tools."""
 
 import json
+import logging
 from dataclasses import dataclass, field
 
 from app.services.ai.tools.current_time import run_current_time
 from app.services.ai.tools.server_info import run_server_info
 from app.services.ai.tools.web_search import run_web_search
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,6 +79,7 @@ def parse_args(raw: str | None) -> dict:
 
 
 async def execute(name: str, args: dict, ctx: ToolContext) -> str:
+    log.info("agent tool call: name=%s args=%s", name, args)
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
     if name == "server_info":
@@ -88,7 +92,10 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
     if name in ACTION_PERMS:
         res = await stage(name, args, ctx)
         if isinstance(res, str):
+            log.info("agent action stage rejected: name=%s -> %s", name, res)
             return res  # lỗi/từ chối -> báo lại model
         ctx.pending.append(res)
+        log.info("agent action staged: name=%s desc=%s", name, res.description)
         return f"Đã chuẩn bị: {res.description}. Chờ admin xác nhận/thực thi."
+    log.info("agent tool called: name=%s", name)
     return f"Tool không tồn tại: {name}"

@@ -22,6 +22,15 @@ HISTORY_CHAR_CAP = 6000
 FACTS_CHAR_CAP = 1500
 MAX_FACTS = 15
 
+# Nhắc model CHỦ ĐỘNG dùng tool/hành động thay vì chỉ trả lời chay — kéo tỉ lệ
+# gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
+_TOOL_NUDGE = (
+    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, và (nếu được cấp) thực hiện "
+    "hành động trên server — tạo/gán/gỡ/xóa role, kick/ban/timeout thành viên, bật/tắt plugin. "
+    "Khi người dùng YÊU CẦU một hành động hay cần tra cứu, HÃY GỌI ĐÚNG CÔNG CỤ thay vì chỉ "
+    "trả lời bằng lời. Người được nhắc (@) trong tin là mục tiêu của hành động."
+)
+
 _EXTRACT_SYSTEM = (
     "Bạn là bộ lọc trí nhớ. Dưới đây là facts đã biết về user + một lượt trao đổi mới. "
     "Trả về danh sách facts BỀN VỮNG, đáng nhớ về user (tên, sở thích, vai trò, điều họ "
@@ -34,7 +43,7 @@ _EXTRACT_SYSTEM = (
 def build_system(persona: str, facts: str, user_name: str) -> str:
     """Ghép persona + facts nhớ về user thành system prompt cho lượt trả lời."""
     base = persona or DEFAULT_PERSONA
-    parts = [base, f"\nBạn đang nói chuyện với '{user_name}'."]
+    parts = [base, _TOOL_NUDGE, f"\nBạn đang nói chuyện với '{user_name}'."]
     if facts.strip():
         parts.append(f"\nNhững điều bạn nhớ về người này:\n{facts.strip()}")
     return "\n".join(parts)
