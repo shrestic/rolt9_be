@@ -163,3 +163,27 @@ async def test_catalog_endpoint(seed):
     body = r.json()
     assert "anthropic" in body
     assert "claude-haiku-4-5" in body["anthropic"]["models"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_agent_fields(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "monthly_budget_usd": "5",
+            "persona": "",
+            "agent_enabled": True,
+            "agent_channel_id": "123456789",
+            "api_key": "sk-x",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["agent_enabled"] is True
+    assert body["agent_channel_id"] == "123456789"

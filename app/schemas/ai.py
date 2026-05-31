@@ -16,6 +16,8 @@ class AISettings(BaseModel):
     model: str = ""
     monthly_budget_usd: Decimal = Field(default=Decimal("5"), ge=0, le=1000)
     persona: str = Field(default="", max_length=2000)
+    agent_enabled: bool = False
+    agent_channel_id: str | None = None
     api_key: str | None = None
 
 
@@ -27,6 +29,8 @@ class AISettingsOut(BaseModel):
     model: str
     monthly_budget_usd: Decimal
     persona: str
+    agent_enabled: bool
+    agent_channel_id: str | None = None
     has_key: bool
     key_hint: str = ""  # 4 ký tự cuối của key, "" nếu chưa có
     tokens_used_this_month: int = 0

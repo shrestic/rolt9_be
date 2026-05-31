@@ -42,6 +42,7 @@ class AIGateway:
         system: str,
         prompt: str,
         max_tokens: int | None = None,
+        history: list[dict] | None = None,
         now: datetime | None = None,
     ) -> str:
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
@@ -66,6 +67,7 @@ class AIGateway:
             system=system,
             prompt=prompt,
             max_tokens=max_tokens or settings.AI_MAX_TOKENS,
+            history=history,
         )
         await self.usage_repo.add_usage(
             guild.id,

@@ -19,6 +19,7 @@ def test_out_shape_hides_key():
         model="gpt-4o-mini",
         monthly_budget_usd=Decimal("12"),
         persona="",
+        agent_enabled=False,
         has_key=True,
         key_hint="sk-x"[-4:],
         tokens_used_this_month=120,

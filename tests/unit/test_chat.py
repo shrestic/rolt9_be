@@ -27,7 +27,7 @@ class _CapProvider(FakeAIProvider):
         super().__init__(text="ok")
         self.last_system = None
 
-    async def complete(self, *, provider, model, api_key, system, prompt, max_tokens):
+    async def complete(self, *, provider, model, api_key, system, prompt, max_tokens, history=None):
         self.last_system = system
         return await super().complete(
             provider=provider,
@@ -36,6 +36,7 @@ class _CapProvider(FakeAIProvider):
             system=system,
             prompt=prompt,
             max_tokens=max_tokens,
+            history=history,
         )
 
 

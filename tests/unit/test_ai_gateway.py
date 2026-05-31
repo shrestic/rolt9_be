@@ -92,3 +92,35 @@ async def test_over_usd_budget_raises(db_session):
     await db_session.commit()
     with pytest.raises(ValueError):
         await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_complete_passes_history(db_session):
+    class _CapProvider(FakeAIProvider):
+        def __init__(self):
+            super().__init__(text="hi", input_tokens=1, output_tokens=1, cost_usd=0.0)
+            self.last_history = "unset"
+
+        async def complete(
+            self, *, provider, model, api_key, system, prompt, max_tokens, history=None
+        ):
+            self.last_history = history
+            return await super().complete(
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                system=system,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            )
+
+    prov = _CapProvider()
+    _, gw = await _setup(db_session, ai_provider=prov)
+    await gw.complete(
+        guild_discord_id=GID,
+        system="s",
+        prompt="p",
+        now=NOW,
+        history=[{"role": "user", "content": "x"}],
+    )
+    assert prov.last_history == [{"role": "user", "content": "x"}]

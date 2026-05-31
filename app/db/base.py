@@ -1,4 +1,5 @@
 from app.db.base_class import Base  # noqa: F401
+from app.models.agent_message import AgentMessage  # noqa: F401
 from app.models.ai_usage import AIUsage  # noqa: F401
 from app.models.custom_command import CustomCommand  # noqa: F401
 from app.models.guild import Guild  # noqa: F401
@@ -13,6 +14,7 @@ from app.models.guild_pet import GuildPet  # noqa: F401
 from app.models.guild_quest import GuildQuest  # noqa: F401
 from app.models.guild_rank_card_theme import GuildRankCardTheme  # noqa: F401
 from app.models.guild_settings import GuildSettings  # noqa: F401
+from app.models.guild_user_memory import GuildUserMemory  # noqa: F401
 from app.models.guild_welcome_config import GuildWelcomeConfig  # noqa: F401
 from app.models.karma_grant import KarmaGrant  # noqa: F401
 from app.models.level_role_reward import LevelRoleReward  # noqa: F401

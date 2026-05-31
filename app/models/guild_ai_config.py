@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -42,6 +43,10 @@ class GuildAIConfig(Base):
     monthly_budget_usd: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=5.0)
     # Persona server-wide cho /chat. "" = persona thân thiện mặc định (ChatService).
     persona: Mapped[str] = mapped_column(String(2000), nullable=False, default="")
+    # Claw Agent (hội thoại on_message). Toggle riêng, độc lập với `enabled`.
+    agent_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Nếu set → agent chỉ trả lời trong kênh này; NULL = mọi kênh.
+    agent_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
