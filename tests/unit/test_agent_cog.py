@@ -26,7 +26,16 @@ class _Msg:
         self.author = author or _User(2)
         self.mentions = mentions or []
         self.reference = reference
-        self.guild = SimpleNamespace(id=100) if guild else None
+        self.guild = (
+            SimpleNamespace(
+                id=100,
+                member_count=5,
+                roles=[SimpleNamespace(name="@everyone"), SimpleNamespace(name="Mod")],
+                channels=[SimpleNamespace(name="general")],
+            )
+            if guild
+            else None
+        )
         self.channel = SimpleNamespace(id=10)
         self.clean_content = "hello"
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
@@ -88,6 +97,10 @@ async def test_on_message_replies_and_remembers(monkeypatch):
     stub.remember.assert_awaited_once()
     # bot_message_id lấy từ tin đã gửi (555)
     assert stub.remember.call_args.kwargs["bot_message_id"] == 555
+    # cog gom snapshot server (member_count + roles trừ @everyone) truyền vào respond
+    snap = stub.respond.call_args.kwargs["server_snapshot"]
+    assert snap["member_count"] == 5
+    assert snap["roles"] == ["Mod"]
 
 
 @pytest.mark.asyncio

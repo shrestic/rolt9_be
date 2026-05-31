@@ -90,6 +90,12 @@ class AgentCog(commands.Cog):
             if message.reference and message.reference.message_id
             else None
         )
+        g = message.guild
+        server_snapshot = {
+            "member_count": getattr(g, "member_count", 0) or 0,
+            "roles": [r.name for r in getattr(g, "roles", []) if r.name != "@everyone"][:50],
+            "channels": [c.name for c in getattr(g, "channels", [])][:50],
+        }
         async with session_scope() as session:
             svc = _build_service(session)
             try:
@@ -100,6 +106,7 @@ class AgentCog(commands.Cog):
                     user_name=getattr(message.author, "display_name", str(message.author)),
                     message_text=user_text,
                     reference_message_id=ref_id,
+                    server_snapshot=server_snapshot,
                 )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
