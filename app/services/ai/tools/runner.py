@@ -27,7 +27,7 @@ async def run_with_tools(
             guild_discord_id=guild_discord_id, messages=messages, tools=specs, now=now
         )
         if not res.tool_calls:
-            return res.text
+            return res.text or "Xin lỗi, mình chưa trả lời được — thử lại nhé."
         messages.append(res.raw_message)
         for call in res.tool_calls:
             result = await execute(call["name"], parse_args(call["arguments"]), ctx)

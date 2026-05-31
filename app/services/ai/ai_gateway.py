@@ -75,6 +75,8 @@ class AIGateway:
             tokens=result.input_tokens + result.output_tokens,
             cost_usd=result.cost_usd,
         )
+        if not result.text:
+            raise ValueError("Model trả về nội dung rỗng.")
         return result.text
 
     async def complete_raw(

@@ -77,3 +77,18 @@ async def test_runner_forces_answer_at_cap(db_session):
         has_search=False,
     )
     assert out == "câu trả lời cuối"
+
+
+@pytest.mark.asyncio
+async def test_runner_fallback_on_empty(db_session):
+    gw = await _gw(db_session, FakeAIProvider(text="", cost_usd=0.0))
+    out = await run_with_tools(
+        gateway=gw,
+        guild_discord_id=GID,
+        system="s",
+        history=[],
+        user_text="x",
+        ctx=ToolContext(guild_snapshot={}),
+        has_search=False,
+    )
+    assert "thử lại" in out.lower()

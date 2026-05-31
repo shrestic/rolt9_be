@@ -187,15 +187,15 @@ class LiteLLMProvider:
                 raw_message=raw_message,
             )
 
-        # Reasoning models có thể tiêu hết token cho suy luận và trả content=None.
         content = (message.content or "").strip()
-        if not content:
-            if getattr(message, "reasoning_content", None):
-                raise ValueError(
-                    "Model dùng hết token cho phần suy luận mà chưa kịp trả lời — "
-                    "tăng AI_MAX_TOKENS hoặc chọn model không-reasoning."
-                )
-            raise ValueError("Model trả về nội dung rỗng.")
+        # Reasoning model tiêu hết token cho suy luận -> báo lỗi rõ (actionable).
+        if not content and getattr(message, "reasoning_content", None):
+            raise ValueError(
+                "Model dùng hết token cho phần suy luận mà chưa kịp trả lời — "
+                "tăng AI_MAX_TOKENS hoặc chọn model không-reasoning."
+            )
+        # Content rỗng-thường: KHÔNG raise ở đây — trả text="" để caller quyết
+        # (gateway.complete single-shot sẽ raise; vòng tool sẽ fallback nhẹ nhàng).
         return AICompletion(
             text=content,
             input_tokens=usage.prompt_tokens,

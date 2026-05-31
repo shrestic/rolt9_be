@@ -150,3 +150,10 @@ async def test_complete_raw_disabled_raises(db_session):
     _, gw = await _setup(db_session, enabled=False)
     with pytest.raises(ValueError):
         await gw.complete_raw(guild_discord_id=GID, messages=[], now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_complete_raises_on_empty_text(db_session):
+    _, gw = await _setup(db_session, ai_provider=FakeAIProvider(text="", cost_usd=0.0))
+    with pytest.raises(ValueError):
+        await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)
