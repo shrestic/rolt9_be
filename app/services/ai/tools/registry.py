@@ -34,7 +34,10 @@ _REMEMBER_SPEC = {
         "description": (
             "Ghi nhớ BỀN VỮNG một điều về server hoặc một người (biệt danh, tính cách, "
             "cách nói, luật, sở thích) để dùng lâu dài về sau. Gọi khi người dùng bảo "
-            "'nhớ...', 'từ nay gọi X là...', hoặc khi học được điều đáng nhớ."
+            "'nhớ...', 'từ nay gọi X là...', hoặc khi học được điều đáng nhớ. "
+            "Vì ghi chú nằm trong trí nhớ DÙNG CHUNG của server, khi ghi về người đang nói "
+            "(tao/tôi/mình) hãy dùng TÊN THẬT của họ trong note (vd 'Phong muốn được gọi là ...') "
+            "chứ ĐỪNG ghi 'user này'/'người này' — để sau đọc lại còn biết là ai."
         ),
         "parameters": {
             "type": "object",
