@@ -6,11 +6,14 @@ Cog (AgentCog) lo phần Discord (mention/reply, cooldown, gửi tin); service l
 
 import uuid
 
+from app.core.config import settings
 from app.repositories.agent_message import AgentMessageRepository
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.ai_gateway import AIGateway
+from app.services.ai.tools.registry import ToolContext
+from app.services.ai.tools.runner import run_with_tools
 
 DEFAULT_PERSONA = "Bạn là trợ lý thân thiện, trả lời ngắn gọn, tự nhiên bằng tiếng Việt."
 
@@ -68,6 +71,7 @@ class AgentService:
         user_name: str,
         message_text: str,
         reference_message_id: int | None,
+        server_snapshot: dict | None = None,
     ) -> tuple[uuid.UUID, str] | None:
         """Gating + chọn conversation + gọi AI. Trả (conversation_id, text), hoặc None nếu
         agent không nên trả lời (chưa đăng ký / AI off / agent off / sai kênh). Lỗi cấu hình
@@ -92,12 +96,23 @@ class AgentService:
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
         system = build_system(cfg.persona, facts, user_name)
-        text = await self.gateway.complete(
-            guild_discord_id=guild_discord_id,
-            system=system,
-            prompt=message_text,
-            history=history,
-        )
+        if cfg.tools_enabled:
+            text = await run_with_tools(
+                gateway=self.gateway,
+                guild_discord_id=guild_discord_id,
+                system=system,
+                history=history,
+                user_text=message_text,
+                ctx=ToolContext(guild_snapshot=server_snapshot),
+                has_search=bool(settings.TAVILY_API_KEY),
+            )
+        else:
+            text = await self.gateway.complete(
+                guild_discord_id=guild_discord_id,
+                system=system,
+                prompt=message_text,
+                history=history,
+            )
         return conversation_id, text
 
     async def remember(

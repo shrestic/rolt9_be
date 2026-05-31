@@ -31,6 +31,7 @@ async def _svc(
     agent_enabled=True,
     agent_channel_id=None,
     with_key=True,
+    tools_enabled=False,
 ):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
@@ -40,6 +41,7 @@ async def _svc(
             enabled=enabled,
             agent_enabled=agent_enabled,
             agent_channel_id=agent_channel_id,
+            tools_enabled=tools_enabled,
             provider="deepseek",
             model="deepseek-chat",
             api_key_enc=encrypt_str("sk-test") if with_key else None,
@@ -194,3 +196,45 @@ async def test_remember_persists_and_extracts(db_session):
     assert [t["role"] for t in turns] == ["user", "assistant"]
     assert await msg_repo.conversation_of(777) == cid
     assert "Phong" in await UserMemoryRepository(db_session).get_facts(gid, 1)
+
+
+@pytest.mark.asyncio
+async def test_respond_uses_tools_when_enabled(db_session):
+    prov = FakeAIProvider(
+        turns=[
+            {
+                "tool_calls": [
+                    {"id": "c1", "name": "server_info", "arguments": '{"kind":"member_count"}'}
+                ]
+            },
+            {"text": "Server có vài người."},
+        ],
+        cost_usd=0.0,
+    )
+    _, svc = await _svc(db_session, provider=prov, tools_enabled=True)
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="bao nhiêu người",
+        reference_message_id=None,
+        server_snapshot={"member_count": 5, "roles": [], "channels": []},
+    )
+    assert result is not None
+    assert result[1] == "Server có vài người."
+
+
+@pytest.mark.asyncio
+async def test_respond_simple_path_when_tools_off(db_session):
+    _, svc = await _svc(db_session, tools_enabled=False)
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="hi",
+        reference_message_id=None,
+        server_snapshot=None,
+    )
+    assert result is not None and result[1] == "chào"
