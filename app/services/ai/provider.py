@@ -37,6 +37,7 @@ class AIProvider(Protocol):
         system: str,
         prompt: str,
         max_tokens: int,
+        history: list[dict] | None = None,
     ) -> AICompletion: ...
 
 
@@ -66,6 +67,7 @@ class FakeAIProvider:
         system: str,
         prompt: str,
         max_tokens: int,
+        history: list[dict] | None = None,
     ) -> AICompletion:
         return AICompletion(
             text=self._text,
@@ -87,17 +89,19 @@ class LiteLLMProvider:
         system: str,
         prompt: str,
         max_tokens: int,
+        history: list[dict] | None = None,
     ) -> AICompletion:
         import litellm  # lazy — giữ package optional cho test/deploy không key
 
         _register_custom_prices(litellm)
+        messages = [{"role": "system", "content": system}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
         resp = await litellm.acompletion(
             model=f"{provider}/{model}",
             api_key=api_key,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             max_tokens=max_tokens,
         )
         # completion_cost có thể raise/trả 0 với model lạ — bọc lại, fallback 0.0.

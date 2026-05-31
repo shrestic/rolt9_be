@@ -122,3 +122,47 @@ async def test_litellm_provider_cost_failure_falls_back_to_zero(monkeypatch):
         max_tokens=10,
     )
     assert out.cost_usd == 0.0  # lỗi cost -> 0, không crash
+
+
+@pytest.mark.asyncio
+async def test_litellm_provider_includes_history(monkeypatch):
+    import sys
+    import types
+
+    captured = {}
+
+    class _Msg:
+        content = "ok"
+
+    class _Choice:
+        message = _Msg()
+
+    class _Usage:
+        prompt_tokens = 1
+        completion_tokens = 1
+
+    class _Resp:
+        choices = [_Choice()]
+        usage = _Usage()
+
+    async def _acompletion(**kwargs):
+        captured.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        types.SimpleNamespace(acompletion=_acompletion, completion_cost=lambda r: 0.0),
+    )
+    await LiteLLMProvider().complete(
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="k",
+        system="sys",
+        prompt="now",
+        max_tokens=50,
+        history=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}],
+    )
+    roles = [m["role"] for m in captured["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert captured["messages"][-1]["content"] == "now"
