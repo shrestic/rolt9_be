@@ -187,3 +187,25 @@ async def test_put_agent_fields(seed):
     body = r.json()
     assert body["agent_enabled"] is True
     assert body["agent_channel_id"] == "123456789"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_tools_enabled(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "monthly_budget_usd": "5",
+            "persona": "",
+            "agent_enabled": True,
+            "tools_enabled": False,
+            "api_key": "sk-x",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["tools_enabled"] is False

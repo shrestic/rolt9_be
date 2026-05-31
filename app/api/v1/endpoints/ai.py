@@ -56,6 +56,7 @@ async def _out(cfg, guild_id, usage_repo: AIUsageRepository) -> AISettingsOut:
         persona=cfg.persona,
         agent_enabled=cfg.agent_enabled,
         agent_channel_id=(str(cfg.agent_channel_id) if cfg.agent_channel_id is not None else None),
+        tools_enabled=cfg.tools_enabled,
         has_key=cfg.api_key_enc is not None,
         key_hint=_key_hint(cfg.api_key_enc),
         tokens_used_this_month=await usage_repo.tokens_this_period(guild_id, pk),

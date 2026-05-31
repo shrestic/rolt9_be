@@ -18,6 +18,7 @@ class AISettings(BaseModel):
     persona: str = Field(default="", max_length=2000)
     agent_enabled: bool = False
     agent_channel_id: str | None = None
+    tools_enabled: bool = True
     api_key: str | None = None
 
 
@@ -31,6 +32,7 @@ class AISettingsOut(BaseModel):
     persona: str
     agent_enabled: bool
     agent_channel_id: str | None = None
+    tools_enabled: bool
     has_key: bool
     key_hint: str = ""  # 4 ký tự cuối của key, "" nếu chưa có
     tokens_used_this_month: int = 0
