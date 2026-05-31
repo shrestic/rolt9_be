@@ -231,3 +231,29 @@ async def test_put_actions_enabled(seed):
     )
     assert r.status_code == 200, r.text
     assert r.json()["actions_enabled"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_companion_fields(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "monthly_budget_usd": "5",
+            "persona": "",
+            "companion_enabled": True,
+            "companion_channel_id": "987654321",
+            "companion_cooldown_min": 30,
+            "api_key": "sk-x",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["companion_enabled"] is True
+    assert body["companion_channel_id"] == "987654321"
+    assert body["companion_cooldown_min"] == 30

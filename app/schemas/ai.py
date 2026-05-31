@@ -20,6 +20,9 @@ class AISettings(BaseModel):
     agent_channel_id: str | None = None
     tools_enabled: bool = True
     actions_enabled: bool = False
+    companion_enabled: bool = False
+    companion_channel_id: str | None = None
+    companion_cooldown_min: int = Field(default=45, ge=5, le=1440)
     api_key: str | None = None
 
 
@@ -35,6 +38,9 @@ class AISettingsOut(BaseModel):
     agent_channel_id: str | None = None
     tools_enabled: bool
     actions_enabled: bool
+    companion_enabled: bool
+    companion_channel_id: str | None = None
+    companion_cooldown_min: int
     has_key: bool
     key_hint: str = ""  # 4 ký tự cuối của key, "" nếu chưa có
     tokens_used_this_month: int = 0

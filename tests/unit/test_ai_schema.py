@@ -22,6 +22,8 @@ def test_out_shape_hides_key():
         agent_enabled=False,
         tools_enabled=True,
         actions_enabled=False,
+        companion_enabled=False,
+        companion_cooldown_min=45,
         has_key=True,
         key_hint="sk-x"[-4:],
         tokens_used_this_month=120,

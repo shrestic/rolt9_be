@@ -58,6 +58,11 @@ async def _out(cfg, guild_id, usage_repo: AIUsageRepository) -> AISettingsOut:
         agent_channel_id=(str(cfg.agent_channel_id) if cfg.agent_channel_id is not None else None),
         tools_enabled=cfg.tools_enabled,
         actions_enabled=cfg.actions_enabled,
+        companion_enabled=cfg.companion_enabled,
+        companion_channel_id=(
+            str(cfg.companion_channel_id) if cfg.companion_channel_id is not None else None
+        ),
+        companion_cooldown_min=cfg.companion_cooldown_min,
         has_key=cfg.api_key_enc is not None,
         key_hint=_key_hint(cfg.api_key_enc),
         tokens_used_this_month=await usage_repo.tokens_this_period(guild_id, pk),
@@ -89,6 +94,9 @@ async def update_settings(
     data = payload.model_dump(exclude={"api_key"})
     # Snowflake string → int (hoặc None) ở biên DB.
     data["agent_channel_id"] = int(payload.agent_channel_id) if payload.agent_channel_id else None
+    data["companion_channel_id"] = (
+        int(payload.companion_channel_id) if payload.companion_channel_id else None
+    )
     if payload.api_key is not None:
         # "" => xóa key (NULL); chuỗi khác => mã hóa & lưu.
         data["api_key_enc"] = encrypt_str(payload.api_key) if payload.api_key else None
