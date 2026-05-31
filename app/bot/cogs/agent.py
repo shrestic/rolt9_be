@@ -30,10 +30,30 @@ AGENT_COOLDOWN = 5.0  # giây giữa 2 tin của cùng 1 user
 
 
 def is_addressed(message, bot_user) -> bool:
-    """True nếu tin nhắm tới bot: @mention bot, hoặc là 1 reply (có reference)."""
+    """True nếu tin nhắm tới bot:
+    - @mention user bot thật, hoặc reply (có reference);
+    - mention ROLE của bot (role tự sinh trùng tên bot) — qua role_mentions;
+    - tin BẮT ĐẦU bằng tên bot dạng text/render (vd '@rolt9 ...'/'rolt9 ...').
+    """
     if any(getattr(u, "id", None) == bot_user.id for u in message.mentions):
         return True
-    return message.reference is not None
+    if message.reference is not None:
+        return True
+    # Mention role của chính bot (guild.me có role đó).
+    me = getattr(getattr(message, "guild", None), "me", None)
+    role_mentions = getattr(message, "role_mentions", None) or []
+    if me is not None and role_mentions:
+        my_role_ids = {getattr(r, "id", None) for r in getattr(me, "roles", [])}
+        if any(getattr(r, "id", None) in my_role_ids for r in role_mentions):
+            return True
+    # Tên bot ở đầu tin — check cả clean_content (đã render "@rolt9") lẫn content thô.
+    name = (getattr(bot_user, "name", "") or "").lower()
+    if name:
+        for attr in ("clean_content", "content"):
+            text = (getattr(message, attr, "") or "").lstrip().lower()
+            if text.startswith(f"@{name}") or text.startswith(name):
+                return True
+    return False
 
 
 class CooldownTracker:
@@ -110,6 +130,9 @@ class AgentCog(commands.Cog):
                 )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
+                return
+            except Exception:
+                log.exception("agent: respond crashed")
                 return
             if result is None:
                 return

@@ -10,9 +10,10 @@ from app.bot.cogs.agent import AGENT_COOLDOWN, AgentCog, CooldownTracker, is_add
 
 
 class _User:
-    def __init__(self, id, bot=False):
+    def __init__(self, id, bot=False, name="rolt9"):
         self.id = id
         self.bot = bot
+        self.name = name
         self.display_name = f"u{id}"
 
 
@@ -22,22 +23,36 @@ class _Ref:
 
 
 class _Msg:
-    def __init__(self, *, author=None, mentions=None, reference=None, guild=True):
+    def __init__(
+        self,
+        *,
+        author=None,
+        mentions=None,
+        reference=None,
+        guild=True,
+        content="hello",
+        clean_content="hello",
+        role_mentions=None,
+        me_role_ids=(),
+    ):
         self.author = author or _User(2)
         self.mentions = mentions or []
         self.reference = reference
+        self.content = content
+        self.role_mentions = role_mentions or []
         self.guild = (
             SimpleNamespace(
                 id=100,
                 member_count=5,
                 roles=[SimpleNamespace(name="@everyone"), SimpleNamespace(name="Mod")],
                 channels=[SimpleNamespace(name="general")],
+                me=SimpleNamespace(roles=[SimpleNamespace(id=rid) for rid in me_role_ids]),
             )
             if guild
             else None
         )
         self.channel = SimpleNamespace(id=10)
-        self.clean_content = "hello"
+        self.clean_content = clean_content
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
 
 
@@ -53,7 +68,31 @@ def test_is_addressed_by_mention():
 def test_is_addressed_by_reply_present():
     bot = _User(1)
     assert is_addressed(_Msg(reference=_Ref(99)), bot) is True
-    assert is_addressed(_Msg(), bot) is False
+    assert is_addressed(_Msg(content="chào mọi người"), bot) is False
+
+
+def test_is_addressed_by_name_text():
+    bot = _User(1, name="rolt9")
+    # gõ "@rolt9 ..." dạng text (mention không thành) vẫn được nhận
+    assert is_addressed(_Msg(content="@rolt9 mấy giờ rồi?"), bot) is True
+    assert is_addressed(_Msg(content="rolt9 ơi giúp tí"), bot) is True
+    assert is_addressed(_Msg(content="nói chuyện bình thường"), bot) is False
+
+
+def test_is_addressed_by_clean_content_role_render():
+    bot = _User(1, name="rolt9")
+    # Mention ROLE -> content có "<@&..>" nhưng clean_content render thành "@rolt9"
+    msg = _Msg(content="<@&999> mấy giờ", clean_content="@rolt9 mấy giờ")
+    assert is_addressed(msg, bot) is True
+
+
+def test_is_addressed_by_bot_role_mention():
+    bot = _User(1, name="rolt9")
+    role = SimpleNamespace(id=999)
+    msg = _Msg(
+        content="<@&999> hi", clean_content="@SomeRole hi", role_mentions=[role], me_role_ids=(999,)
+    )
+    assert is_addressed(msg, bot) is True
 
 
 def test_cooldown_tracker():
