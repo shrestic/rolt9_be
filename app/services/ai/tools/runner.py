@@ -14,6 +14,7 @@ async def run_with_tools(
     user_text: str,
     ctx: ToolContext,
     has_search: bool,
+    include_actions: bool = False,
     now=None,
 ) -> str:
     messages = [
@@ -21,7 +22,7 @@ async def run_with_tools(
         *history,
         {"role": "user", "content": user_text},
     ]
-    specs = tool_specs(has_search)
+    specs = tool_specs(has_search, include_actions=include_actions)
     for _ in range(MAX_TOOL_STEPS):
         res = await gateway.complete_raw(
             guild_discord_id=guild_discord_id, messages=messages, tools=specs, now=now

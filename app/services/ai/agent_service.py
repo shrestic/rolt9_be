@@ -72,10 +72,13 @@ class AgentService:
         message_text: str,
         reference_message_id: int | None,
         server_snapshot: dict | None = None,
-    ) -> tuple[uuid.UUID, str] | None:
-        """Gating + chọn conversation + gọi AI. Trả (conversation_id, text), hoặc None nếu
-        agent không nên trả lời (chưa đăng ký / AI off / agent off / sai kênh). Lỗi cấu hình
-        AI (thiếu key / hết budget) raise ValueError để cog báo ❌."""
+        commander_perms: dict | None = None,
+        role_names: list[str] | None = None,
+        target_user_ids: list[int] | None = None,
+        commander_id: int | None = None,
+    ) -> tuple[uuid.UUID, str, list] | None:
+        """Gating + chọn conversation + gọi AI. Trả (conversation_id, text, pending_actions),
+        hoặc None nếu agent không nên trả lời. Lỗi cấu hình AI raise ValueError để cog báo ❌."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
             return None
@@ -96,15 +99,30 @@ class AgentService:
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
         system = build_system(cfg.persona, facts, user_name)
-        if cfg.tools_enabled:
+
+        perms = commander_perms or {}
+        can_act = any(perms.values())
+        include_actions = bool(cfg.actions_enabled) and can_act
+        ctx = ToolContext(
+            guild_snapshot=server_snapshot,
+            can_act=can_act,
+            role_names=role_names or [],
+            target_user_ids=target_user_ids or [],
+            commander_id=commander_id,
+            commander_perms=perms,
+            guild_discord_id=guild_discord_id,
+        )
+
+        if cfg.tools_enabled or include_actions:
             text = await run_with_tools(
                 gateway=self.gateway,
                 guild_discord_id=guild_discord_id,
                 system=system,
                 history=history,
                 user_text=message_text,
-                ctx=ToolContext(guild_snapshot=server_snapshot),
-                has_search=bool(settings.TAVILY_API_KEY),
+                ctx=ctx,
+                has_search=cfg.tools_enabled and bool(settings.TAVILY_API_KEY),
+                include_actions=include_actions,
             )
         else:
             text = await self.gateway.complete(
@@ -113,7 +131,7 @@ class AgentService:
                 prompt=message_text,
                 history=history,
             )
-        return conversation_id, text
+        return conversation_id, text, ctx.pending
 
     async def remember(
         self,

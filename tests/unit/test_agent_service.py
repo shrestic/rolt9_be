@@ -32,6 +32,7 @@ async def _svc(
     agent_channel_id=None,
     with_key=True,
     tools_enabled=False,
+    actions_enabled=False,
 ):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
@@ -42,6 +43,7 @@ async def _svc(
             agent_enabled=agent_enabled,
             agent_channel_id=agent_channel_id,
             tools_enabled=tools_enabled,
+            actions_enabled=actions_enabled,
             provider="deepseek",
             model="deepseek-chat",
             api_key_enc=encrypt_str("sk-test") if with_key else None,
@@ -78,9 +80,10 @@ async def test_respond_returns_conversation_and_text(db_session):
         reference_message_id=None,
     )
     assert result is not None
-    conversation_id, text = result
+    conversation_id, text, pending = result
     assert isinstance(conversation_id, uuid.UUID)
     assert text == "chào"
+    assert pending == []
 
 
 @pytest.mark.asyncio
@@ -238,3 +241,51 @@ async def test_respond_simple_path_when_tools_off(db_session):
         server_snapshot=None,
     )
     assert result is not None and result[1] == "chào"
+
+
+@pytest.mark.asyncio
+async def test_respond_stages_action_when_enabled(db_session):
+    # Model gọi toggle_plugin -> stage -> pending có 1 action.
+    prov = FakeAIProvider(
+        turns=[
+            {
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "name": "toggle_plugin",
+                        "arguments": '{"plugin":"welcome","enabled":true}',
+                    }
+                ]
+            },
+            {"text": "Đã chuẩn bị bật welcome."},
+        ],
+        cost_usd=0.0,
+    )
+    _, svc = await _svc(db_session, provider=prov, actions_enabled=True)
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="bật welcome",
+        reference_message_id=None,
+        commander_perms={"manage_guild": True},
+    )
+    assert result is not None
+    _, _, pending = result
+    assert len(pending) == 1 and pending[0].kind == "toggle_plugin"
+
+
+@pytest.mark.asyncio
+async def test_respond_no_actions_when_no_perm(db_session):
+    _, svc = await _svc(db_session, actions_enabled=True)
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="bật welcome",
+        reference_message_id=None,
+        commander_perms={},  # không quyền -> không có action tool -> pending rỗng
+    )
+    assert result is not None and result[2] == []

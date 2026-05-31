@@ -49,6 +49,8 @@ class GuildAIConfig(Base):
     agent_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Cho phép Claw Agent gọi tool (web search + tra cứu). Admin tắt để khỏi tốn search.
     tools_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Cho phép Claw Agent làm HÀNH ĐỘNG server (role/mod/toggle). Opt-in, mặc định tắt.
+    actions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

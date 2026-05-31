@@ -82,9 +82,13 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
         return run_server_info(str(args.get("kind", "")), ctx.guild_snapshot)
     if name == "current_time":
         return run_current_time()
-    # Action tools (sub-project 3): chỉ STAGE (validate), không thực thi ở đây.
+    # Action tools (sub-project 3): chỉ STAGE (validate) + xếp vào ctx.pending; cog execute sau.
     from app.services.ai.actions.registry import ACTION_PERMS, stage  # lazy
 
     if name in ACTION_PERMS:
-        return await stage(name, args, ctx)
+        res = await stage(name, args, ctx)
+        if isinstance(res, str):
+            return res  # lỗi/từ chối -> báo lại model
+        ctx.pending.append(res)
+        return f"Đã chuẩn bị: {res.description}. Chờ admin xác nhận/thực thi."
     return f"Tool không tồn tại: {name}"
