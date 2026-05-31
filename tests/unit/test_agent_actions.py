@@ -155,3 +155,123 @@ async def test_execute_kick_blocked_by_hierarchy():
     out = await execute(p, guild=guild, session=None)
     member.kick.assert_not_awaited()
     assert "cao hơn" in out.lower()
+
+
+class _AsyncIter:
+    """Async-iterator giả cho guild.bans()."""
+
+    def __init__(self, items):
+        self._items = items
+
+    def __aiter__(self):
+        self._it = iter(self._items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+# ---------- unban / untimeout: stage ----------
+
+
+@pytest.mark.asyncio
+async def test_stage_unban_needs_user_or_mention():
+    # Không @ được + không nhập tên/ID -> lỗi
+    assert isinstance(await stage("unban", {}, _ctx(target_user_ids=[])), str)
+    p = await stage("unban", {"user": "BadGuy"}, _ctx(target_user_ids=[]))
+    assert isinstance(p, PendingAction) and p.destructive is False
+    assert p.params["query"] == "BadGuy"
+
+
+@pytest.mark.asyncio
+async def test_stage_untimeout_needs_target():
+    assert isinstance(await stage("untimeout", {}, _ctx(target_user_ids=[])), str)
+    p = await stage("untimeout", {}, _ctx(target_user_ids=[111]))
+    assert isinstance(p, PendingAction) and p.destructive is False
+
+
+def test_unban_untimeout_perms_non_destructive():
+    assert ACTION_PERMS["unban"] == "ban_members"
+    assert ACTION_PERMS["untimeout"] == "moderate_members"
+    assert "unban" not in DESTRUCTIVE and "untimeout" not in DESTRUCTIVE
+
+
+def test_action_specs_include_unban_untimeout():
+    from app.services.ai.actions.registry import ACTION_SPECS
+
+    names = {s["function"]["name"] for s in ACTION_SPECS}
+    assert {"unban", "untimeout"} <= names
+
+
+# ---------- unban / untimeout + batch: execute ----------
+
+
+@pytest.mark.asyncio
+async def test_execute_untimeout_clears_timeout():
+    member = SimpleNamespace(timeout=AsyncMock(), display_name="An", top_role=_Role(1))
+    guild = SimpleNamespace(me=SimpleNamespace(top_role=_Role(10)), get_member=lambda uid: member)
+    p = PendingAction("untimeout", False, "", {"target_ids": [111], "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    member.timeout.assert_awaited_once_with(None, reason=None)  # None = gỡ timeout
+    assert "gỡ timeout 1" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_unban_by_name():
+    banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
+    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    p = PendingAction("unban", False, "", {"target_ids": [], "query": "badguy", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.unban.assert_awaited_once()
+    assert "gỡ ban 1" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_unban_by_id():
+    banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
+    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    p = PendingAction("unban", False, "", {"target_ids": [222], "query": "", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.unban.assert_awaited_once()
+    assert "gỡ ban 1" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_unban_no_match():
+    banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
+    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    p = PendingAction("unban", False, "", {"target_ids": [999], "query": "nope", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.unban.assert_not_awaited()
+    assert "không tìm thấy" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_ban_user_who_left_uses_object():
+    # get_member None (đã rời) -> vẫn ban được theo ID
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)), get_member=lambda uid: None, ban=AsyncMock()
+    )
+    p = PendingAction("ban", True, "", {"target_ids": [111], "reason": "spam"})
+    out = await execute(p, guild=guild, session=None)
+    guild.ban.assert_awaited_once()
+    assert "ban 1" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_kick_batch_continues_past_blocked():
+    # 1 người role cao hơn bot (bỏ qua), 1 người thấp hơn (kick) -> KHÔNG abort cả lô
+    boss = SimpleNamespace(top_role=_Role(10), display_name="Sếp", kick=AsyncMock())
+    noob = SimpleNamespace(top_role=_Role(1), display_name="Noob", kick=AsyncMock())
+    members = {1: boss, 2: noob}
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(5)), get_member=lambda uid: members[uid]
+    )
+    p = PendingAction("kick", True, "", {"target_ids": [1, 2], "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    boss.kick.assert_not_awaited()
+    noob.kick.assert_awaited_once()
+    assert "1 người" in out and "Sếp" in out

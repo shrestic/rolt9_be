@@ -27,9 +27,11 @@ MAX_FACTS = 15
 # gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
 _TOOL_NUDGE = (
     "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, và (nếu được cấp) thực hiện "
-    "hành động trên server — tạo/gán/gỡ/xóa role, kick/ban/timeout thành viên, bật/tắt plugin. "
+    "hành động trên server — tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, "
+    "timeout (mute) và untimeout (unmute/gỡ mute), bật/tắt plugin. "
     "Khi người dùng YÊU CẦU một hành động hay cần tra cứu, HÃY GỌI ĐÚNG CÔNG CỤ thay vì chỉ "
-    "trả lời bằng lời. Người được nhắc (@) trong tin là mục tiêu của hành động."
+    "trả lời bằng lời. Người được nhắc (@) trong tin là mục tiêu của hành động. "
+    "Khi unban, người bị ban đã rời server nên KHÔNG @ được — hãy truyền tên/ID họ vào tham số 'user'."
 )
 
 _EXTRACT_SYSTEM = (

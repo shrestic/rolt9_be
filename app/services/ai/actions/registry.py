@@ -37,8 +37,12 @@ ACTION_PERMS = {
     "toggle_plugin": "manage_guild",
     "kick": "kick_members",
     "ban": "ban_members",
+    "unban": "ban_members",
     "timeout": "moderate_members",
+    "untimeout": "moderate_members",
 }
+# Hành động PHÁ cần nút ✅ xác nhận. unban/untimeout là hành động KHÔI PHỤC
+# (gỡ phạt) nên KHÔNG phá → chạy ngay, không cần xác nhận.
 DESTRUCTIVE = {"delete_role", "kick", "ban", "timeout"}
 
 # plugin name -> (RepoClass, field). Mọi repo đều có upsert(guild_id, data).
@@ -154,7 +158,7 @@ ACTION_SPECS = [
         "type": "function",
         "function": {
             "name": "timeout",
-            "description": "Timeout (cấm chat tạm) các user được nhắc (hành động phá, cần xác nhận).",
+            "description": "Timeout / mute tạm (cấm chat) các user được nhắc (hành động phá, cần xác nhận).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -162,6 +166,34 @@ ACTION_SPECS = [
                     "reason": {"type": "string"},
                 },
                 "required": ["minutes"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "untimeout",
+            "description": "Gỡ timeout / unmute cho (các) user được nhắc — cho họ chat lại ngay.",
+            "parameters": {
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unban",
+            "description": (
+                "Gỡ ban (unban) cho một user. Vì người bị ban đã RỜI server (không @ được), "
+                "hãy truyền 'user' là TÊN hoặc ID của họ; nếu vẫn @ được thì bot dùng người được nhắc."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user": {"type": "string", "description": "Tên hoặc ID người cần gỡ ban"},
+                    "reason": {"type": "string"},
+                },
             },
         },
     },
@@ -249,6 +281,31 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
             desc = f"{name.capitalize()} {len(targets)} người"
         return PendingAction(name, destructive, desc, params)
 
+    if name == "untimeout":
+        # Gỡ mute: cần người còn trong server (mention được).
+        targets = list(ctx.target_user_ids)
+        if not targets:
+            return "Cần @ người cần gỡ timeout/unmute."
+        return PendingAction(
+            name,
+            False,
+            f"Gỡ timeout {len(targets)} người",
+            {"target_ids": targets, "reason": str(args.get("reason", "") or "")},
+        )
+
+    if name == "unban":
+        # Người bị ban đã rời server → ưu tiên tra theo tên/ID ('user'); mention (nếu có) cũng nhận.
+        targets = list(ctx.target_user_ids)
+        query = str(args.get("user", "") or "").strip()
+        if not targets and not query:
+            return "Cần nhập TÊN hoặc ID người cần gỡ ban (họ đã rời server nên không @ được)."
+        return PendingAction(
+            name,
+            False,
+            f"Gỡ ban: {query or f'{len(targets)} người'}",
+            {"target_ids": targets, "query": query, "reason": str(args.get("reason", "") or "")},
+        )
+
     return f"Hành động không hỗ trợ: {name}"
 
 
@@ -291,22 +348,59 @@ async def execute(pending: PendingAction, *, guild, session) -> str:
 
         if pending.kind in ("kick", "ban", "timeout"):
             done = 0
+            blocked: list[str] = []  # người có role ≥ bot — bỏ qua, KHÔNG chặn cả lô
             for uid in p["target_ids"]:
                 member = guild.get_member(uid)
-                if member is None:
+                # Cấp bậc: chỉ chặn khi member còn trong server và role ≥ bot.
+                if member is not None and guild.me.top_role <= member.top_role:
+                    blocked.append(member.display_name)
                     continue
-                if guild.me.top_role <= member.top_role:
-                    return f"{member.display_name} có role cao hơn/ngang bot — không xử được."
-                if pending.kind == "kick":
+                if pending.kind == "ban":
+                    # Ban được CẢ người đã rời server (ban theo ID qua discord.Object).
+                    await guild.ban(
+                        member or discord.Object(id=uid), reason=p.get("reason") or None
+                    )
+                elif member is None:
+                    continue  # kick/timeout cần người còn trong server
+                elif pending.kind == "kick":
                     await member.kick(reason=p.get("reason") or None)
-                elif pending.kind == "ban":
-                    await member.ban(reason=p.get("reason") or None)
                 else:
                     await member.timeout(
                         timedelta(minutes=p["minutes"]), reason=p.get("reason") or None
                     )
                 done += 1
-            return f"Đã {pending.kind} {done} người."
+            msg = f"Đã {pending.kind} {done} người."
+            if blocked:
+                msg += f" Bỏ qua (role cao hơn/ngang bot): {', '.join(blocked)}."
+            return msg
+
+        if pending.kind == "untimeout":
+            done = 0
+            for uid in p["target_ids"]:
+                member = guild.get_member(uid)
+                if member is None:
+                    continue
+                await member.timeout(None, reason=p.get("reason") or None)  # None = gỡ timeout
+                done += 1
+            return f"Đã gỡ timeout {done} người."
+
+        if pending.kind == "unban":
+            done = 0
+            wanted_ids = set(p.get("target_ids") or [])
+            query = (p.get("query") or "").strip().lower().lstrip("@")
+            # Quét danh sách ban, khớp theo ID hoặc theo tên (chứa query).
+            async for entry in guild.bans():
+                u = entry.user
+                if u.id in wanted_ids or (
+                    query and (query == str(u.id) or query in (u.name or "").lower())
+                ):
+                    await guild.unban(u, reason=p.get("reason") or None)
+                    done += 1
+            return (
+                f"Đã gỡ ban {done} người."
+                if done
+                else "Không tìm thấy ai khớp trong danh sách ban."
+            )
 
         if pending.kind == "toggle_plugin":
             repo_cls, fieldname = PLUGIN_TOGGLES[p["plugin"]]
