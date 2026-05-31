@@ -83,6 +83,12 @@ class Rolt9Bot(commands.Bot):
         # Privileged — needed for on_member_join/remove (Welcome plugin). Admin
         # must also enable "Server Members Intent" in the Developer Portal.
         intents.members = True
+        # Voice state (non-privileged) — Companion reads who's in voice channels.
+        intents.voice_states = True
+        # Privileged — Companion reads member activities (who's playing what game).
+        # Admin MUST enable "Presence Intent" in the Developer Portal or the bot
+        # fails to connect (PrivilegedIntentsRequired).
+        intents.presences = True
 
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
