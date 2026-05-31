@@ -1,77 +1,116 @@
-"""LLM provider abstraction — the only place that talks to an AI vendor.
+"""LLM provider abstraction — nơi duy nhất nói chuyện với vendor AI.
 
-`AIProvider` is the interface the rest of the app depends on; `AnthropicAIProvider`
-is the real Claude implementation (it imports the `anthropic` SDK lazily so tests
-and key-less deploys don't need the package), and `FakeAIProvider` is a
-deterministic stand-in for tests (no network). `get_ai_provider()` returns a
-process-wide singleton built from settings.
+v2: dùng LiteLLM để gọi ~100 provider cùng một format (`acompletion`) và lấy chi
+phí USD sẵn (`completion_cost`). Provider STATELESS: key/provider/model truyền theo
+từng lần gọi (per-guild, lấy từ DB), không còn singleton-theo-env như v1.
+
+- `AIProvider`: interface phần còn lại của app phụ thuộc.
+- `LiteLLMProvider`: thật, import litellm lazily (giữ package optional cho test).
+- `FakeAIProvider`: stand-in tất định cho test (không mạng).
+- `get_ai_provider()`: trả LiteLLMProvider dùng chung (stateless -> share an toàn).
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.core.config import settings
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class AICompletion:
-    """One model response + token accounting (for the per-guild budget)."""
+    """Một phản hồi model + token + chi phí USD (cho budget per-guild)."""
 
     text: str
     input_tokens: int
     output_tokens: int
+    cost_usd: float  # từ litellm.completion_cost(); 0.0 nếu không tính được
 
 
 class AIProvider(Protocol):
-    @property
-    def available(self) -> bool:
-        """True when the provider is configured enough to call (e.g. has a key)."""
-        ...
-
-    async def complete(self, *, system: str, prompt: str, max_tokens: int) -> AICompletion: ...
+    async def complete(
+        self,
+        *,
+        provider: str,
+        model: str,
+        api_key: str,
+        system: str,
+        prompt: str,
+        max_tokens: int,
+    ) -> AICompletion: ...
 
 
 class FakeAIProvider:
-    """Deterministic provider for tests — never touches the network."""
+    """Provider tất định cho test — không bao giờ chạm mạng."""
 
-    available = True
+    available = True  # giữ cho back-compat với test cũ; gateway v2 không dùng
 
-    def __init__(self, text: str = "(fake)", input_tokens: int = 10, output_tokens: int = 20):
+    def __init__(
+        self,
+        text: str = "(fake)",
+        input_tokens: int = 10,
+        output_tokens: int = 20,
+        cost_usd: float = 0.001,
+    ):
         self._text = text
         self._in = input_tokens
         self._out = output_tokens
+        self._cost = cost_usd
 
-    async def complete(self, *, system: str, prompt: str, max_tokens: int) -> AICompletion:
-        return AICompletion(text=self._text, input_tokens=self._in, output_tokens=self._out)
-
-
-class AnthropicAIProvider:
-    """Real Claude provider. Imports the anthropic SDK lazily (only when calling)."""
-
-    def __init__(self, api_key: str, model: str):
-        self._key = api_key
-        self._model = model
-
-    @property
-    def available(self) -> bool:
-        return bool(self._key)
-
-    async def complete(self, *, system: str, prompt: str, max_tokens: int) -> AICompletion:
-        import anthropic  # lazy — keep the package optional for tests/key-less deploys
-
-        client = anthropic.AsyncAnthropic(api_key=self._key)
-        msg = await client.messages.create(
-            model=self._model,
-            system=system,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Concatenate the text blocks of the response (ignore any non-text blocks).
-        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    async def complete(
+        self,
+        *,
+        provider: str,
+        model: str,
+        api_key: str,
+        system: str,
+        prompt: str,
+        max_tokens: int,
+    ) -> AICompletion:
         return AICompletion(
-            text=text.strip(),
-            input_tokens=msg.usage.input_tokens,
-            output_tokens=msg.usage.output_tokens,
+            text=self._text,
+            input_tokens=self._in,
+            output_tokens=self._out,
+            cost_usd=self._cost,
+        )
+
+
+class LiteLLMProvider:
+    """Provider thật. Import litellm lazily; key/model truyền per-call (per-guild)."""
+
+    async def complete(
+        self,
+        *,
+        provider: str,
+        model: str,
+        api_key: str,
+        system: str,
+        prompt: str,
+        max_tokens: int,
+    ) -> AICompletion:
+        import litellm  # lazy — giữ package optional cho test/deploy không key
+
+        resp = await litellm.acompletion(
+            model=f"{provider}/{model}",
+            api_key=api_key,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=max_tokens,
+        )
+        # completion_cost có thể raise/trả 0 với model lạ — bọc lại, fallback 0.0.
+        try:
+            cost = float(litellm.completion_cost(resp))
+        except Exception:  # noqa: BLE001 — không để lỗi tính tiền làm hỏng request
+            log.warning("litellm.completion_cost failed for %s/%s", provider, model)
+            cost = 0.0
+        usage = resp.usage
+        return AICompletion(
+            text=resp.choices[0].message.content.strip(),
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+            cost_usd=cost,
         )
 
 
@@ -79,8 +118,11 @@ _provider: AIProvider | None = None
 
 
 def get_ai_provider() -> AIProvider:
-    """Process-wide singleton built from settings (Anthropic; unavailable if no key)."""
+    """Trả LiteLLMProvider dùng chung process-wide (stateless nên share an toàn).
+
+    Giữ tên hàm cũ để 5 cog (roast/summarizer/ask/chat/welcome) không phải đổi.
+    """
     global _provider
     if _provider is None:
-        _provider = AnthropicAIProvider(settings.ANTHROPIC_API_KEY, settings.AI_MODEL)
+        _provider = LiteLLMProvider()
     return _provider

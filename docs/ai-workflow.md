@@ -1,14 +1,16 @@
 # AI Layer — Hướng dẫn & Workflow
 
-Tầng nền AI (Claude) dùng chung + 4 feature: **Roast, Summarize, Q&A (Ask), Personality (Chat)**.
+Tầng nền AI dùng chung + 4 feature: **Roast, Summarize, Q&A (Ask), Personality (Chat)**.
+
+> **v2 (BYO-key đa provider — 2026-05-31):** mỗi server **tự nhập API key** của mình, **chọn provider/model** (Anthropic/OpenAI/Gemini/Groq qua **LiteLLM**), và budget tính bằng **USD/tháng** (không còn token). Migration `b4c5d6e7f8a9`. Xem mục 4. **Sau khi deploy v2, admin phải vào dashboard nhập lại API key + đặt lại budget** (đơn vị đổi token→USD, mặc định $5; AI tắt cho tới khi có key).
 
 ---
 
 ## 1. Tổng quan
 
-- Bot gọi **Claude (Anthropic)** qua một **gateway dùng chung** (`AIGateway`).
-- **Bot trả tiền** (key global `ANTHROPIC_API_KEY`). Mỗi server có **hạn mức token/tháng** để chặn chi phí.
-- 4 feature đều cắm vào gateway: `/roast`, `/summarize`, `/ask`, `/chat`.
+- Bot gọi LLM qua một **gateway dùng chung** (`AIGateway`) → **LiteLLM** (gọi ~100 provider cùng format, tự tính cost USD).
+- **Server tự trả tiền** bằng **API key riêng** (lưu mã hóa Fernet trong DB, không fallback key global). Mỗi server có **trần USD/tháng** để chặn chi phí.
+- 4 feature đều cắm vào gateway: `/roast`, `/summarize`, `/ask`, `/chat` (chữ ký gateway không đổi giữa v1→v2).
 
 ---
 
@@ -17,12 +19,15 @@ Tầng nền AI (Claude) dùng chung + 4 feature: **Roast, Summarize, Q&A (Ask),
 | Trường | Ý nghĩa | Mặc định |
 |---|---|---|
 | **Enable AI** | Bật/tắt toàn bộ AI cho server | off |
-| **Monthly token budget** | Trần token Claude/tháng (UTC). Hết → AI từ chối tới tháng sau | 100.000 |
+| **Provider** | Anthropic / OpenAI / Gemini / Groq (từ catalog) | "" |
+| **Model** | Model thuộc provider đã chọn (vd `claude-haiku-4-5`, `gpt-4o-mini`) | "" |
+| **API key** | Key của server, mã hóa Fernet. GET chỉ trả `has_key` + 4 ký tự cuối; không bao giờ lộ key. Để trống = giữ key cũ, gửi "" = xóa | — |
+| **Budget USD/tháng** | Trần chi phí USD/tháng (UTC). Vượt → AI từ chối tới tháng sau | 5.0 |
 | **Bot persona** | Cá tính cho `/chat` (rỗng = mặc định thân thiện) | "" |
 | **Kho tri thức** | Danh sách FAQ (title + content) cho `/ask` — thêm/xóa ở dashboard | — |
-| *(hiển thị)* | "Đã dùng X / Y token tháng này" | — |
+| *(hiển thị)* | "Tháng này: X token ≈ $Y / $Z budget" | — |
 
-**Vận hành:** cần đặt `ANTHROPIC_API_KEY` trong env của container `api`. Thiếu key → AI báo "chưa cấu hình" (không crash).
+**Vận hành:** thiếu key/provider/model → AI báo "chưa cấu hình" (không crash). `ANTHROPIC_API_KEY` global đã **deprecated** (không còn là đường chính, gateway không fallback). `TOKEN_ENCRYPTION_KEY` phải set để mã hóa key guild.
 
 ---
 
@@ -43,19 +48,21 @@ Tầng nền AI (Claude) dùng chung + 4 feature: **Roast, Summarize, Q&A (Ask),
 
 ```
 Feature (vd /roast) → RoastService → AIGateway.complete(guild, system, prompt)
-   ├─ guild đăng ký? AI enabled? provider.available (có key)? quota tháng còn?
-   ├─ provider.complete(...) → Claude (AnthropicAIProvider, import lazy)
-   └─ ghi token (input+output) vào ai_usage tháng hiện tại
+   ├─ guild đăng ký? AI enabled? có api_key_enc + provider + model? cost USD tháng < budget?
+   ├─ decrypt_str(api_key_enc) → provider.complete(provider, model, api_key, ...) → LiteLLM
+   └─ ghi token (input+output) + cost_usd vào ai_usage tháng hiện tại
 ```
 
-- **`AIProvider`** (provider.py): protocol; `AnthropicAIProvider` (thật, lazy import SDK) + `FakeAIProvider` (test, không gọi mạng). `get_ai_provider()` = singleton từ settings.
-- **`AIGateway`**: chokepoint duy nhất — check **enabled + key + budget** trước khi tốn tiền, gọi provider, ghi token. Mọi feature AI cắm vào đây (decoupled, không gọi nhau).
-- **Cost guard**: `guild_ai_config.monthly_token_budget` + `ai_usage` (token/tháng theo `period_key="YYYY-MM"`, atomic increment). Vượt → ValueError.
-- **Config**: `ANTHROPIC_API_KEY`, `AI_MODEL` (default `claude-haiku-4-5-20251001` — rẻ), `AI_MAX_TOKENS` (default 400).
-- **Bảng**: `guild_ai_config` (enabled, budget), `ai_usage` (token/tháng). Migration `d0e1f2a3b4c5`.
-- **Test**: dùng `FakeAIProvider` → không gọi Claude thật, tất định.
+- **`AIProvider`** (provider.py): protocol stateless — `complete(*, provider, model, api_key, system, prompt, max_tokens)`. `LiteLLMProvider` (thật, lazy import `litellm`, dùng `litellm.acompletion` + `litellm.completion_cost`; cost lỗi → 0.0 + log, không crash) + `FakeAIProvider` (test, không gọi mạng, trả cost giả). `get_ai_provider()` = singleton `LiteLLMProvider()` (stateless nên share an toàn; key/model truyền per-call).
+- **`AIGateway`**: chokepoint duy nhất — check **enabled + (key/provider/model) + budget USD** trước khi tốn tiền, giải mã key, gọi provider, ghi token + cost. Mọi feature AI cắm vào đây (decoupled, không gọi nhau).
+- **Catalog** (`catalog.py`): whitelist `AI_CATALOG` + `is_valid(provider, model)`. Nguồn sự thật duy nhất: validate PUT settings + feed endpoint `/ai/catalog` cho FE.
+- **Cost guard**: `guild_ai_config.monthly_budget_usd` (Numeric) + `ai_usage.cost_usd` (Numeric, atomic increment cùng `tokens`, theo `period_key="YYYY-MM"`). `cost_this_period >= budget` → ValueError.
+- **Key**: `guild_ai_config.api_key_enc` (LargeBinary, Fernet qua `app/core/crypto.py`). NULL = chưa nhập. API không bao giờ trả key (chỉ `has_key` + `key_hint` 4 ký tự cuối).
+- **Config**: `AI_MAX_TOKENS` (default 400) vẫn dùng. `AI_MODEL` chỉ là default tham khảo. `ANTHROPIC_API_KEY` **deprecated** (không fallback). `TOKEN_ENCRYPTION_KEY` bắt buộc.
+- **Bảng**: `guild_ai_config` (enabled, provider, model, api_key_enc, monthly_budget_usd, persona), `ai_usage` (tokens + cost_usd/tháng). Migration v1 `d0e1f2a3b4c5`, v2 BYO-key `b4c5d6e7f8a9`.
+- **Test**: dùng `FakeAIProvider` → không gọi mạng, tất định; `LiteLLMProvider` test bằng mock `sys.modules["litellm"]`.
 
-REST: GET/PUT `/guilds/{id}/ai/settings` (kèm `tokens_used_this_month`), gate `require_managed_guild`.
+REST: GET/PUT `/guilds/{id}/ai/settings` (kèm `has_key`/`key_hint`/`tokens_used_this_month`/`cost_used_this_month`), GET `/ai/catalog` (không cần guild_id), gate `require_managed_guild` (catalog miễn gate + miễn X-Client-ID).
 
 ---
 
@@ -69,6 +76,7 @@ REST: GET/PUT `/guilds/{id}/ai/settings` (kèm `tokens_used_this_month`), gate `
 
 ---
 
-## 6. Giới hạn chấp nhận (v1)
+## 6. Giới hạn chấp nhận (v2)
 
-- Global key (BYO-key per-guild để v2); model cố định qua env; cooldown + budget chống đốt tiền; nội dung do LLM nên system prompt cấm xúc phạm nặng nhưng không tuyệt đối.
+- **BYO-key per-guild** (server tự trả tiền); provider/model từ **catalog tĩnh** (thêm model mới = sửa `catalog.py`); budget USD là hàng rào **mềm** (request cuối có thể lố chút vì cost biết sau khi gọi); cost dựa bảng giá LiteLLM (model lạ → cost 0 + log); key sai/hết hạn → LiteLLM raise, không ghi cost. cooldown + budget chống đốt tiền; nội dung do LLM nên system prompt cấm xúc phạm nặng nhưng không tuyệt đối.
+- **Phi mục tiêu v2:** LiteLLM Proxy riêng, streaming, load-balance nhiều key, lịch sử hội thoại.

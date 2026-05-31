@@ -1,8 +1,10 @@
-"""HTTP endpoints for AI settings + monthly usage readout.
+"""HTTP endpoints cho AI settings (BYO-key v2) + usage token/USD + catalog.
 
-Mounted under `/api/v1/guilds/{guild_id}/ai/...`, gated by `require_managed_guild`.
-GET/PUT return settings plus the current UTC month's token usage so the dashboard
-can show "X / Y tokens used". UoW: repo flushes, request boundary commits.
+Mounted dưới `/api/v1/guilds/{guild_id}/ai/...`, gate `require_managed_guild`.
+GET/PUT KHÔNG BAO GIỜ trả key thật — chỉ `has_key` + `key_hint` (4 ký tự cuối).
+`api_key` trong PUT ghi-một-chiều: None=giữ, ""=xóa, "sk-..."=đặt mới.
+Catalog (`/ai/catalog`, không cần guild_id) feed dropdown cho FE.
+UoW: repo flush, request boundary commit.
 """
 
 import uuid
@@ -10,6 +12,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 
+from app.core.crypto import decrypt_str, encrypt_str
 from app.dependencies.guild import require_managed_guild
 from app.dependencies.services import (
     get_ai_config_repository,
@@ -22,21 +25,39 @@ from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.kb import KbRepository
 from app.schemas.ai import AISettings, AISettingsOut, KbEntryIn, KbEntryOut
 from app.services.ai.ai_gateway import month_key
+from app.services.ai.catalog import AI_CATALOG, is_valid
 
 router = APIRouter()
+# Router riêng cho catalog (không có guild_id) — mount với prefix "/ai" ở api.py.
+catalog_router = APIRouter()
 
 
 def _kb_out(e) -> KbEntryOut:
     return KbEntryOut(id=str(e.id), title=e.title, content=e.content)
 
 
+def _key_hint(api_key_enc: bytes | None) -> str:
+    """4 ký tự cuối của key (để admin nhận ra key nào), "" nếu chưa có/giải mã lỗi."""
+    if api_key_enc is None:
+        return ""
+    try:
+        return decrypt_str(api_key_enc)[-4:]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 async def _out(cfg, guild_id, usage_repo: AIUsageRepository) -> AISettingsOut:
-    used = await usage_repo.tokens_this_period(guild_id, month_key(datetime.now(UTC)))
+    pk = month_key(datetime.now(UTC))
     return AISettingsOut(
         enabled=cfg.enabled,
-        monthly_token_budget=cfg.monthly_token_budget,
+        provider=cfg.provider,
+        model=cfg.model,
+        monthly_budget_usd=cfg.monthly_budget_usd,
         persona=cfg.persona,
-        tokens_used_this_month=used,
+        has_key=cfg.api_key_enc is not None,
+        key_hint=_key_hint(cfg.api_key_enc),
+        tokens_used_this_month=await usage_repo.tokens_this_period(guild_id, pk),
+        cost_used_this_month=await usage_repo.cost_this_period(guild_id, pk),
     )
 
 
@@ -57,8 +78,22 @@ async def update_settings(
     repo: AIConfigRepository = Depends(get_ai_config_repository),
     usage_repo: AIUsageRepository = Depends(get_ai_usage_repository),
 ):
-    cfg = await repo.upsert(guild.id, payload.model_dump())
+    # Validate provider/model qua catalog khi có chọn (cho phép để trống = chưa cấu hình).
+    if (payload.provider or payload.model) and not is_valid(payload.provider, payload.model):
+        raise HTTPException(status_code=422, detail="Provider/model không hỗ trợ.")
+    # Build dict cập nhật, loại api_key ra (xử lý riêng vì ghi-một-chiều).
+    data = payload.model_dump(exclude={"api_key"})
+    if payload.api_key is not None:
+        # "" => xóa key (NULL); chuỗi khác => mã hóa & lưu.
+        data["api_key_enc"] = encrypt_str(payload.api_key) if payload.api_key else None
+    cfg = await repo.upsert(guild.id, data)
     return await _out(cfg, guild.id, usage_repo)
+
+
+@catalog_router.get("/catalog")
+async def get_catalog():
+    """Whitelist provider/model cho FE (không cần guild_id, không cần gate guild)."""
+    return AI_CATALOG
 
 
 @router.get("/{guild_id}/ai/kb", response_model=list[KbEntryOut])

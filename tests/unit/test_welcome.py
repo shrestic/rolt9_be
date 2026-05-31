@@ -7,6 +7,7 @@ import pytest
 
 import app.bot.cogs.welcome as welcome_mod
 from app.bot.cogs.welcome import WelcomeCog
+from app.core.crypto import encrypt_str
 from app.models.guild import Guild
 from app.models.guild_ai_config import GuildAIConfig
 from app.models.guild_welcome_config import GuildWelcomeConfig
@@ -40,7 +41,18 @@ def test_render_template_ignores_unknown_braces():
 async def _svc(db_session, *, ai_available=True, **welcome_kw):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="X", icon_url=None, is_active=True))
-    db_session.add(GuildAIConfig(guild_id=gid, enabled=True, monthly_token_budget=100_000))
+    # v2: "AI khả dụng" nghĩa là config có đủ key/provider/model. ai_available=False
+    # => không có key => gateway raise => welcome service fallback về template.
+    db_session.add(
+        GuildAIConfig(
+            guild_id=gid,
+            enabled=True,
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            api_key_enc=encrypt_str("sk-test") if ai_available else None,
+            monthly_budget_usd=5,
+        )
+    )
     db_session.add(GuildWelcomeConfig(guild_id=gid, **welcome_kw))
     await db_session.commit()
 

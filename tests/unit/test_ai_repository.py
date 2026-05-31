@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 import pytest
 
@@ -19,10 +20,22 @@ async def test_config_defaults(db_session):
     repo = AIConfigRepository(db_session)
     cfg = await repo.get_or_create(gid)
     assert cfg.enabled is False
-    assert cfg.monthly_token_budget == 100_000
-    updated = await repo.upsert(gid, {"enabled": True, "monthly_token_budget": 5000})
+    assert cfg.provider == ""
+    assert cfg.model == ""
+    assert cfg.api_key_enc is None
+    assert Decimal(cfg.monthly_budget_usd) == Decimal("5")
+    updated = await repo.upsert(
+        gid,
+        {
+            "enabled": True,
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "monthly_budget_usd": Decimal("12.5"),
+        },
+    )
     assert updated.enabled is True
-    assert updated.monthly_token_budget == 5000
+    assert updated.provider == "openai"
+    assert Decimal(updated.monthly_budget_usd) == Decimal("12.5")
 
 
 @pytest.mark.asyncio
@@ -31,7 +44,10 @@ async def test_usage_add_and_read(db_session):
     await _seed_guild(db_session, gid)
     repo = AIUsageRepository(db_session)
     assert await repo.tokens_this_period(gid, "2026-05") == 0
-    await repo.add_tokens(gid, "2026-05", 30)
-    await repo.add_tokens(gid, "2026-05", 12)
+    assert Decimal(await repo.cost_this_period(gid, "2026-05")) == Decimal("0")
+    await repo.add_usage(gid, "2026-05", tokens=30, cost_usd=0.01)
+    await repo.add_usage(gid, "2026-05", tokens=12, cost_usd=0.02)
     assert await repo.tokens_this_period(gid, "2026-05") == 42
+    assert Decimal(await repo.cost_this_period(gid, "2026-05")) == Decimal("0.03")
     assert await repo.tokens_this_period(gid, "2026-06") == 0
+    assert Decimal(await repo.cost_this_period(gid, "2026-06")) == Decimal("0")

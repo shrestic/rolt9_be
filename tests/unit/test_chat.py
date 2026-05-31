@@ -7,6 +7,7 @@ import pytest
 
 import app.bot.cogs.chat as chat_mod
 from app.bot.cogs.chat import ChatCog
+from app.core.crypto import encrypt_str
 from app.models.guild import Guild
 from app.models.guild_ai_config import GuildAIConfig
 from app.repositories.ai_config import AIConfigRepository
@@ -26,16 +27,31 @@ class _CapProvider(FakeAIProvider):
         super().__init__(text="ok")
         self.last_system = None
 
-    async def complete(self, *, system, prompt, max_tokens):
+    async def complete(self, *, provider, model, api_key, system, prompt, max_tokens):
         self.last_system = system
-        return await super().complete(system=system, prompt=prompt, max_tokens=max_tokens)
+        return await super().complete(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            system=system,
+            prompt=prompt,
+            max_tokens=max_tokens,
+        )
 
 
 async def _svc(db_session, *, persona="", enabled=True):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
     db_session.add(
-        GuildAIConfig(guild_id=gid, enabled=enabled, monthly_token_budget=100_000, persona=persona)
+        GuildAIConfig(
+            guild_id=gid,
+            enabled=enabled,
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            api_key_enc=encrypt_str("sk-test"),
+            monthly_budget_usd=5,
+            persona=persona,
+        )
     )
     await db_session.commit()
     provider = _CapProvider()

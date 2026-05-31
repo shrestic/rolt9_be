@@ -1,14 +1,15 @@
-"""AIGateway — the single chokepoint every AI feature calls.
+"""AIGateway — cửa duy nhất mọi feature AI gọi qua.
 
-Enforces the cost controls before spending money: the guild must have AI enabled,
-the provider must be configured (API key present), and the guild's token usage
-this UTC month must be under its budget. Then it calls the provider and records
-the tokens spent. Repos flush; the caller's session scope commits.
+Kiểm soát chi phí TRƯỚC khi tiêu tiền: guild phải bật AI, phải có API key +
+provider + model (BYO-key, KHÔNG fallback key global), và chi phí USD tháng UTC
+hiện tại phải dưới budget. Sau đó giải mã key, gọi provider, rồi ghi token + cost.
+Repo flush; session-scope của caller commit.
 """
 
 from datetime import UTC, datetime
 
 from app.core.config import settings
+from app.core.crypto import decrypt_str
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
@@ -16,7 +17,7 @@ from app.services.ai.provider import AIProvider
 
 
 def month_key(now: datetime) -> str:
-    """UTC year-month key, e.g. '2026-05' — the budget reset period."""
+    """Khóa năm-tháng UTC, vd '2026-05' — chu kỳ reset budget."""
     return now.strftime("%Y-%m")
 
 
@@ -49,15 +50,27 @@ class AIGateway:
         cfg = await self.config_repo.get(guild.id)
         if cfg is None or not cfg.enabled:
             raise ValueError("AI chưa được bật trên server này.")
-        if not self.provider.available:
-            raise ValueError("AI chưa được cấu hình (thiếu API key).")
-        now = now or datetime.now(UTC)
-        pk = month_key(now)
-        used = await self.usage_repo.tokens_this_period(guild.id, pk)
-        if used >= cfg.monthly_token_budget:
-            raise ValueError("Hết quota AI của tháng này rồi — thử lại tháng sau nhé.")
+        # BYO-key: thiếu key/provider/model => AI coi như chưa cấu hình (no global fallback).
+        if cfg.api_key_enc is None or not cfg.provider or not cfg.model:
+            raise ValueError("AI chưa được cấu hình — vào dashboard nhập API key và chọn model.")
+        # Hàng rào chi phí theo USD.
+        pk = month_key(now or datetime.now(UTC))
+        spent = await self.usage_repo.cost_this_period(guild.id, pk)
+        if spent >= cfg.monthly_budget_usd:
+            raise ValueError("Hết ngân sách AI tháng này rồi — tăng budget hoặc đợi tháng sau.")
+        api_key = decrypt_str(cfg.api_key_enc)
         result = await self.provider.complete(
-            system=system, prompt=prompt, max_tokens=max_tokens or settings.AI_MAX_TOKENS
+            provider=cfg.provider,
+            model=cfg.model,
+            api_key=api_key,
+            system=system,
+            prompt=prompt,
+            max_tokens=max_tokens or settings.AI_MAX_TOKENS,
         )
-        await self.usage_repo.add_tokens(guild.id, pk, result.input_tokens + result.output_tokens)
+        await self.usage_repo.add_usage(
+            guild.id,
+            pk,
+            tokens=result.input_tokens + result.output_tokens,
+            cost_usd=result.cost_usd,
+        )
         return result.text

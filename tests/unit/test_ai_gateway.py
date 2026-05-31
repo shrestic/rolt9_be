@@ -1,8 +1,10 @@
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
+from app.core.crypto import encrypt_str
 from app.models.guild import Guild
 from app.models.guild_ai_config import GuildAIConfig
 from app.repositories.ai_config import AIConfigRepository
@@ -19,26 +21,47 @@ def test_month_key():
     assert month_key(NOW) == "2026-05"
 
 
-async def _setup(db_session, *, enabled=True, budget=100_000, provider=None):
+async def _setup(
+    db_session,
+    *,
+    enabled=True,
+    budget="5",
+    provider="anthropic",
+    model="claude-haiku-4-5",
+    with_key=True,
+    ai_provider=None,
+):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
-    db_session.add(GuildAIConfig(guild_id=gid, enabled=enabled, monthly_token_budget=budget))
+    db_session.add(
+        GuildAIConfig(
+            guild_id=gid,
+            enabled=enabled,
+            provider=provider,
+            model=model,
+            api_key_enc=encrypt_str("sk-secret") if with_key else None,
+            monthly_budget_usd=Decimal(budget),
+        )
+    )
     await db_session.commit()
     gw = AIGateway(
         guild_repo=GuildRepository(db_session),
         config_repo=AIConfigRepository(db_session),
         usage_repo=AIUsageRepository(db_session),
-        provider=provider or FakeAIProvider(text="hi", input_tokens=5, output_tokens=7),
+        provider=ai_provider
+        or FakeAIProvider(text="hi", input_tokens=5, output_tokens=7, cost_usd=0.01),
     )
     return gid, gw
 
 
 @pytest.mark.asyncio
-async def test_complete_happy_records_tokens(db_session):
+async def test_complete_happy_records_tokens_and_cost(db_session):
     gid, gw = await _setup(db_session)
     text = await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)
     assert text == "hi"
-    assert await AIUsageRepository(db_session).tokens_this_period(gid, "2026-05") == 12
+    repo = AIUsageRepository(db_session)
+    assert await repo.tokens_this_period(gid, "2026-05") == 12
+    assert Decimal(await repo.cost_this_period(gid, "2026-05")) == Decimal("0.01")
 
 
 @pytest.mark.asyncio
@@ -49,19 +72,23 @@ async def test_disabled_raises(db_session):
 
 
 @pytest.mark.asyncio
-async def test_unconfigured_provider_raises(db_session):
-    class _NoKey(FakeAIProvider):
-        available = False
-
-    _, gw = await _setup(db_session, provider=_NoKey())
+async def test_no_key_raises(db_session):
+    _, gw = await _setup(db_session, with_key=False)
     with pytest.raises(ValueError):
         await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)
 
 
 @pytest.mark.asyncio
-async def test_over_budget_raises(db_session):
-    gid, gw = await _setup(db_session, budget=10)
-    await AIUsageRepository(db_session).add_tokens(gid, "2026-05", 10)
+async def test_no_provider_or_model_raises(db_session):
+    _, gw = await _setup(db_session, provider="", model="")
+    with pytest.raises(ValueError):
+        await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_over_usd_budget_raises(db_session):
+    gid, gw = await _setup(db_session, budget="0.05")
+    await AIUsageRepository(db_session).add_usage(gid, "2026-05", tokens=0, cost_usd=0.05)
     await db_session.commit()
     with pytest.raises(ValueError):
         await gw.complete(guild_discord_id=GID, system="s", prompt="p", now=NOW)

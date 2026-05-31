@@ -1,8 +1,8 @@
-"""The `ai_usage` table — Claude tokens a guild has spent in a given UTC month.
+"""Usage AI của guild trong một tháng UTC: token (hiển thị) + cost USD (chặn budget).
 
-One row per (guild, month). `tokens` is bumped atomically after each gateway call;
-the gateway reads the current month's total to enforce `monthly_token_budget`.
-A new month simply means a new `period_key`, so usage resets with no cleanup.
+Một row mỗi (guild, month). `tokens` và `cost_usd` được cộng atomic sau mỗi lần
+gọi gateway; gateway đọc cost tháng hiện tại để so với budget. Sang tháng mới =
+`period_key` mới nên usage tự reset, không cần dọn dẹp.
 """
 
 import uuid
@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     func,
@@ -28,6 +29,7 @@ class AIUsage(Base):
     __table_args__ = (
         UniqueConstraint("guild_id", "period_key", name="uq_ai_usage_period"),
         CheckConstraint("tokens >= 0", name="ck_ai_usage_tokens_nonneg"),
+        CheckConstraint("cost_usd >= 0", name="ck_ai_usage_cost_nonneg"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -36,6 +38,7 @@ class AIUsage(Base):
     )
     period_key: Mapped[str] = mapped_column(String(7), nullable=False)  # "YYYY-MM"
     tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

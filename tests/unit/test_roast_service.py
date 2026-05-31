@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 
+from app.core.crypto import encrypt_str
 from app.models.guild import Guild
 from app.models.guild_ai_config import GuildAIConfig
 from app.repositories.ai_config import AIConfigRepository
@@ -17,7 +18,16 @@ GID = 2025
 async def _setup(db_session):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="g", icon_url=None, is_active=True))
-    db_session.add(GuildAIConfig(guild_id=gid, enabled=True, monthly_token_budget=100_000))
+    db_session.add(
+        GuildAIConfig(
+            guild_id=gid,
+            enabled=True,
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            api_key_enc=encrypt_str("sk-test"),
+            monthly_budget_usd=5,
+        )
+    )
     await db_session.commit()
     gw = AIGateway(
         guild_repo=GuildRepository(db_session),

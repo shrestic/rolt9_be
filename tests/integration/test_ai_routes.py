@@ -69,17 +69,97 @@ async def test_get_settings_defaults(seed):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["enabled"] is False
-    assert body["monthly_token_budget"] == 100_000
+    assert body["provider"] == ""
+    assert body["has_key"] is False
+    assert body["key_hint"] == ""
     assert body["tokens_used_this_month"] == 0
+    assert float(body["cost_used_this_month"]) == 0.0
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_put_settings_round_trips(seed):
+async def test_put_sets_key_and_hides_it(seed):
     client, _ = await seed()
     _mock_owned()
-    r = client.put(_url(), json={"enabled": True, "monthly_token_budget": 5000})
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "monthly_budget_usd": "12.5",
+            "persona": "",
+            "api_key": "sk-supersecret",
+        },
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["enabled"] is True
-    assert body["monthly_token_budget"] == 5000
+    assert body["provider"] == "openai"
+    assert body["has_key"] is True
+    assert body["key_hint"] == "cret"  # 4 ký tự cuối
+    assert "api_key" not in body  # không lộ key
+    assert float(body["monthly_budget_usd"]) == 12.5
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_invalid_provider_model_is_422(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "anthropic",
+            "model": "gpt-4o",
+            "monthly_budget_usd": "5",
+            "persona": "",
+        },
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_put_empty_key_clears_it(seed):
+    client, _ = await seed()
+    _mock_owned()
+    # đặt key trước
+    client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "monthly_budget_usd": "5",
+            "persona": "",
+            "api_key": "sk-abc1234",
+        },
+    )
+    # gửi "" để xóa
+    r = client.put(
+        _url(),
+        json={
+            "enabled": True,
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "monthly_budget_usd": "5",
+            "persona": "",
+            "api_key": "",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["has_key"] is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_catalog_endpoint(seed):
+    client, _ = await seed()
+    _mock_owned()
+    r = client.get(f"{settings.API_V1_STR}/ai/catalog")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "anthropic" in body
+    assert "claude-haiku-4-5" in body["anthropic"]["models"]

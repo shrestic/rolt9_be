@@ -53,6 +53,10 @@ class ClientIdMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api/v1/guilds/") or request.url.path == "/api/v1/guilds":
             return await call_next(request)
 
+        # Skip client ID check for /ai routes (cookie-based dashboard, e.g. /ai/catalog)
+        if request.url.path.startswith("/api/v1/ai/") or request.url.path == "/api/v1/ai":
+            return await call_next(request)
+
         # if path starts with /images, /css, /js, /favicon.ico, skip client ID check
         if (
             request.url.path.startswith("/images")
