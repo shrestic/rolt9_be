@@ -22,8 +22,27 @@ class ToolContext:
     commander_id: int | None = None
     commander_perms: dict = field(default_factory=dict)
     guild_discord_id: int | None = None
+    # Server memory doc (OpenClaw-style) — tool `remember` ghi vào đây.
+    memory_repo_doc: object | None = None
+    guild_pk: object | None = None
 
 
+_REMEMBER_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "remember",
+        "description": (
+            "Ghi nhớ BỀN VỮNG một điều về server hoặc một người (biệt danh, tính cách, "
+            "cách nói, luật, sở thích) để dùng lâu dài về sau. Gọi khi người dùng bảo "
+            "'nhớ...', 'từ nay gọi X là...', hoặc khi học được điều đáng nhớ."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"note": {"type": "string", "description": "Điều cần nhớ, ngắn gọn"}},
+            "required": ["note"],
+        },
+    },
+}
 _WEB_SEARCH_SPEC = {
     "type": "function",
     "function": {
@@ -61,7 +80,7 @@ _CURRENT_TIME_SPEC = {
 
 
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
-    specs = [_SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
+    specs = [_REMEMBER_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
     if has_search:
         specs = [_WEB_SEARCH_SPEC, *specs]
     if include_actions:
@@ -80,6 +99,12 @@ def parse_args(raw: str | None) -> dict:
 
 async def execute(name: str, args: dict, ctx: ToolContext) -> str:
     log.info("agent tool call: name=%s args=%s", name, args)
+    if name == "remember":
+        note = str(args.get("note", ""))
+        if ctx.memory_repo_doc is not None and ctx.guild_pk is not None and note.strip():
+            await ctx.memory_repo_doc.append_note(ctx.guild_pk, note)
+            return "Đã ghi nhớ."
+        return "Chưa ghi nhớ được."
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
     if name == "server_info":

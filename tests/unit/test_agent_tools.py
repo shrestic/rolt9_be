@@ -62,3 +62,33 @@ async def test_execute_dispatches_action_to_stage():
     ctx = ToolContext(commander_perms={})
     out = await execute("create_role", {"name": "X"}, ctx)
     assert "quyền" in out.lower()
+
+
+def test_tool_specs_always_has_remember():
+    assert "remember" in {s["function"]["name"] for s in tool_specs(has_search=False)}
+    assert "remember" in {
+        s["function"]["name"] for s in tool_specs(has_search=True, include_actions=True)
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_remember_writes_doc(db_session):
+    import uuid as _uuid
+
+    from app.models.guild import Guild
+    from app.repositories.memory_doc import MemoryDocRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    ctx = ToolContext(memory_repo_doc=MemoryDocRepository(db_session), guild_pk=gid)
+    out = await execute("remember", {"note": "gọi An là thằng loz"}, ctx)
+    await db_session.commit()
+    assert "ghi nhớ" in out.lower()
+    assert "An" in await MemoryDocRepository(db_session).get_doc(gid)
+
+
+@pytest.mark.asyncio
+async def test_execute_remember_no_ctx():
+    out = await execute("remember", {"note": "x"}, ToolContext())
+    assert "chưa ghi" in out.lower()
