@@ -40,6 +40,16 @@ _TOOL_NUDGE = (
     "cứ gọi tool, hệ thống sẽ TỰ hiện nút ✅/❌ cho admin xác nhận."
 )
 
+# Quy tắc độ dài — đặt CUỐI system prompt (vị trí model bám nhất) và nói rõ ưu tiên
+# hơn cá tính, nếu không persona bựa sẽ lấn át làm bot trả lời lan man, nhảm.
+_STYLE_GUIDE = (
+    "QUY TẮC TRẢ LỜI (quan trọng hơn cá tính, BẮT BUỘC tuân theo):\n"
+    "- Mặc định trả lời TỐI ĐA 1-2 câu, cụt lủn, đúng trọng tâm — như nhắn tin chứ không phải viết văn.\n"
+    "- CẤM mở bài/dẫn dắt lan man, CẤM lặp ý, CẤM 'kể lể' dài dòng vô ích.\n"
+    "- Cà khịa/chửi thì 1 câu sắc gọn là đủ, đừng kéo thành cả bài.\n"
+    "- Chỉ viết dài hơn khi người ta thực sự hỏi điều cần giải thích chi tiết (hướng dẫn, lý do)."
+)
+
 _EXTRACT_SYSTEM = (
     "Bạn là bộ lọc trí nhớ. Dưới đây là facts đã biết về user + một lượt trao đổi mới. "
     "Trả về danh sách facts BỀN VỮNG, đáng nhớ về user (tên, sở thích, vai trò, điều họ "
@@ -69,6 +79,8 @@ def build_system(
     if channel_context.strip():
         # Tin gần đây trong kênh để bám sát cuộc trò chuyện đang diễn ra.
         parts.append(f"\nVài tin nhắn gần đây trong kênh:\n{channel_context.strip()}")
+    # Quy tắc độ dài để CUỐI cùng -> model bám sát nhất, chống lan man.
+    parts.append(f"\n{_STYLE_GUIDE}")
     return "\n".join(parts)
 
 
