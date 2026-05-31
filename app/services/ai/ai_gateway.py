@@ -76,3 +76,46 @@ class AIGateway:
             cost_usd=result.cost_usd,
         )
         return result.text
+
+    async def complete_raw(
+        self,
+        *,
+        guild_discord_id: int,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        max_tokens: int | None = None,
+        now: datetime | None = None,
+    ):
+        """Một bước của vòng tool-calling: cùng guard (enabled/key/budget) + ghi usage,
+        nhưng nhận `messages` (gồm cả tool results) + `tools`, trả AICompletion thô
+        (text hoặc tool_calls). Loop sống ở ToolRunner."""
+        guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
+        if guild is None:
+            raise ValueError("Server chưa đăng ký với bot.")
+        cfg = await self.config_repo.get(guild.id)
+        if cfg is None or not cfg.enabled:
+            raise ValueError("AI chưa được bật trên server này.")
+        if cfg.api_key_enc is None or not cfg.provider or not cfg.model:
+            raise ValueError("AI chưa được cấu hình — vào dashboard nhập API key và chọn model.")
+        pk = month_key(now or datetime.now(UTC))
+        spent = await self.usage_repo.cost_this_period(guild.id, pk)
+        if spent >= cfg.monthly_budget_usd:
+            raise ValueError("Hết ngân sách AI tháng này rồi — tăng budget hoặc đợi tháng sau.")
+        api_key = decrypt_str(cfg.api_key_enc)
+        result = await self.provider.complete(
+            provider=cfg.provider,
+            model=cfg.model,
+            api_key=api_key,
+            system="",
+            prompt="",
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens or settings.AI_MAX_TOKENS,
+        )
+        await self.usage_repo.add_usage(
+            guild.id,
+            pk,
+            tokens=result.input_tokens + result.output_tokens,
+            cost_usd=result.cost_usd,
+        )
+        return result

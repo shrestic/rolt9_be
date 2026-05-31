@@ -124,3 +124,29 @@ async def test_complete_passes_history(db_session):
         history=[{"role": "user", "content": "x"}],
     )
     assert prov.last_history == [{"role": "user", "content": "x"}]
+
+
+@pytest.mark.asyncio
+async def test_complete_raw_returns_tool_calls_and_records_usage(db_session):
+    prov = FakeAIProvider(
+        turns=[{"tool_calls": [{"id": "c1", "name": "current_time", "arguments": "{}"}]}],
+        input_tokens=3,
+        output_tokens=4,
+        cost_usd=0.01,
+    )
+    gid, gw = await _setup(db_session, ai_provider=prov)
+    res = await gw.complete_raw(
+        guild_discord_id=GID,
+        messages=[{"role": "user", "content": "giờ?"}],
+        tools=[{"type": "function"}],
+        now=NOW,
+    )
+    assert res.tool_calls[0]["name"] == "current_time"
+    assert await AIUsageRepository(db_session).tokens_this_period(gid, "2026-05") == 7
+
+
+@pytest.mark.asyncio
+async def test_complete_raw_disabled_raises(db_session):
+    _, gw = await _setup(db_session, enabled=False)
+    with pytest.raises(ValueError):
+        await gw.complete_raw(guild_discord_id=GID, messages=[], now=NOW)
