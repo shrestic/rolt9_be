@@ -146,6 +146,10 @@ class LiteLLMProvider:
             "api_key": api_key,
             "messages": messages,
             "max_tokens": max_tokens,
+            # Tải cao -> DeepSeek hay 429/timeout tạm; retry để đỡ văng ❌ ra người dùng.
+            "num_retries": 2,
+            # Cap mỗi call để 1 call treo không giữ DB connection mãi (cạn pool khi đông).
+            "timeout": 90,
         }
         if tools:
             kwargs["tools"] = tools
