@@ -219,8 +219,11 @@ _UNSUBSCRIBE_SPEC = {
         "name": "unsubscribe",
         "description": (
             "Ngừng / huỷ đăng ký nhận tin định kỳ. Gọi khi user nói 'đừng cập nhật ... nữa', "
-            "'thôi không theo dõi ... nữa', 'huỷ đăng ký ...'. 'query' = từ khoá chủ đề để tìm đúng "
-            "cái; nhiều cái khớp thì tool trả về danh sách để hỏi lại. 'all'=true khi muốn huỷ HẾT."
+            "'thôi không theo dõi ... nữa', 'huỷ đăng ký ...', 'cắt tin ...', 'bỏ theo dõi ...', "
+            "'tắt tin ...', 'ngừng ...'. Khi user nêu RÕ chủ đề muốn ngừng, GỌI THẲNG unsubscribe với "
+            "'query'=chủ đề đó (vd 'cắt tin chứng khoán' -> query='chứng khoán'), ĐỪNG gọi "
+            "list_subscriptions trước. Nhiều cái khớp thì tool tự trả danh sách để hỏi lại. "
+            "'all'=true khi user muốn huỷ HẾT."
         ),
         "parameters": {
             "type": "object",
