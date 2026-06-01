@@ -71,9 +71,17 @@ class SubscriptionCog(commands.Cog):
                 await repo.mark_ran(sub.id, now_vn.date())  # luôn mark -> mỗi ngày 1 lần
 
     async def _run(self, sub, session) -> None:
-        """Tra tin mới về sub.topic, nhờ AI tóm tắt, đăng vào kênh. Lỗi -> im lặng (mai thử lại)."""
+        """Tới giờ: kiểu `message` -> chỉ PING câu nhắc (không web/AI); kiểu `topic` -> tra tin +
+        AI tóm tắt rồi đăng. Lỗi -> im lặng (mai thử lại)."""
         channel = self.bot.get_channel(sub.channel_id)
         if channel is None:
+            return
+        # NHẮC CÁ NHÂN lặp lại: ping thẳng câu đó cho người đăng ký, KHÔNG tra web.
+        if getattr(sub, "message", None):
+            try:
+                await channel.send(f"⏰ <@{sub.creator_id}> {sub.message}"[:2000])
+            except (DiscordError, discord.DiscordException):
+                log.warning("subscription %s: gửi thất bại", sub.id)
             return
         cfg = await AIConfigRepository(session).get(sub.guild_id)
         if cfg is None or not cfg.enabled:

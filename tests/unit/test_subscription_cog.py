@@ -79,3 +79,24 @@ async def test_run_skips_when_websearch_fails(monkeypatch):
     monkeypatch.setattr(sub_mod, "run_web_search", AsyncMock(return_value="Tra web thất bại."))
     await cog._run(sub, MagicMock())
     ch.send.assert_not_awaited()  # web hỏng -> không đăng
+
+
+@pytest.mark.asyncio
+async def test_run_message_mode_pings_without_websearch(monkeypatch):
+    # Đăng ký kiểu NHẮC CÁ NHÂN (message): tới giờ chỉ PING creator, KHÔNG gọi web_search/AI.
+    ch = SimpleNamespace(send=AsyncMock(), guild=SimpleNamespace(id=123))
+    bot = MagicMock()
+    bot.get_channel = lambda cid: ch
+    cog = SubscriptionCog(bot, MagicMock())
+    sub = SimpleNamespace(
+        id=1, channel_id=10, guild_id="pk", topic=None, message="Đi về thôi!", creator_id=42
+    )
+    web = AsyncMock()
+    monkeypatch.setattr(sub_mod, "run_web_search", web)
+
+    await cog._run(sub, MagicMock())
+
+    web.assert_not_awaited()  # KHÔNG tra web cho nhắc cá nhân
+    ch.send.assert_awaited_once()
+    sent = ch.send.call_args.args[0]
+    assert "<@42>" in sent and "Đi về thôi!" in sent  # ping đúng người + đúng câu

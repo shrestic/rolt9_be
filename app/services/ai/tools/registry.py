@@ -232,20 +232,32 @@ _SUBSCRIBE_SPEC = {
     "function": {
         "name": "subscribe",
         "description": (
-            "Đăng ký nhận tin ĐỊNH KỲ HẰNG NGÀY về một chủ đề (vd 'tin chứng khoán trong nước', "
-            "'giá vàng', 'thời tiết Hà Nội'). Gọi khi user nói 'mỗi ngày cập nhật...', "
-            "'hằng ngày báo cho tao...', 'theo dõi giúp...'. Bot sẽ tự tra tin mới + tóm tắt mỗi ngày."
+            "Đăng ký việc LẶP HẰNG NGÀY ở một giờ cố định. Gọi khi user nói 'mỗi ngày...', "
+            "'hằng ngày...', 'sáng/tối nào cũng...', 'theo dõi giúp...'. Có 2 KIỂU — chọn ĐÚNG 1: "
+            "(1) 'topic' = chủ đề cần TRA TIN MỚI + tóm tắt (vd 'giá vàng', 'tin chứng khoán', "
+            "'thời tiết Hà Nội') — bot web search mỗi ngày. CÁC CÁCH NÓI cũng là topic: 'cắt tin X "
+            "cho tao', 'cắt cho tao tin X', 'điểm tin X', 'theo dõi X giùm', 'update X' (khi LẶP hằng ngày); "
+            "(2) 'message' = câu NHẮC CÁ NHÂN lặp lại, KHÔNG tra web (vd 'mỗi 5h30 hú tao đi về' "
+            "-> message='Đi về thôi!', 'mỗi 8h uống thuốc' -> message='Uống thuốc đi'). "
+            "TUYỆT ĐỐI đừng nhét lời nhắc cá nhân vào 'topic' (sẽ tra web ra tin rác). Nhắc 1 LẦN thì "
+            "dùng 'remind' chứ không phải tool này."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "topic": {"type": "string", "description": "Chủ đề cần cập nhật hằng ngày"},
+                "topic": {
+                    "type": "string",
+                    "description": "Chủ đề cần TRA TIN hằng ngày (web search). Bỏ trống nếu dùng message.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Câu nhắc cá nhân lặp lại (KHÔNG tra web). Bỏ trống nếu dùng topic.",
+                },
                 "time": {
                     "type": "string",
                     "description": "Giờ đăng mỗi ngày 'HH:MM' giờ VN (mặc định 08:00 nếu không nói)",
                 },
             },
-            "required": ["topic"],
         },
     },
 }
@@ -254,12 +266,12 @@ _UNSUBSCRIBE_SPEC = {
     "function": {
         "name": "unsubscribe",
         "description": (
-            "Ngừng / huỷ đăng ký nhận tin định kỳ. Gọi khi user nói 'đừng cập nhật ... nữa', "
-            "'thôi không theo dõi ... nữa', 'huỷ đăng ký ...', 'cắt tin ...', 'bỏ theo dõi ...', "
-            "'tắt tin ...', 'ngừng ...'. Khi user nêu RÕ chủ đề muốn ngừng, GỌI THẲNG unsubscribe với "
-            "'query'=chủ đề đó (vd 'cắt tin chứng khoán' -> query='chứng khoán'), ĐỪNG gọi "
-            "list_subscriptions trước. Nhiều cái khớp thì tool tự trả danh sách để hỏi lại. "
-            "'all'=true khi user muốn huỷ HẾT."
+            "HUỶ/NGỪNG một đăng ký định kỳ ĐANG CHẠY. CHỈ gọi khi có ý DỪNG rõ ràng — thường kèm "
+            "từ phủ định: 'đừng ... nữa', 'thôi ... nữa', 'ngừng ...', 'huỷ đăng ký ...', 'bỏ theo dõi', "
+            "'tắt tin ... nữa', 'khỏi báo ... nữa'. Nêu RÕ chủ đề thì GỌI THẲNG với 'query'=chủ đề đó "
+            "(vd 'thôi báo chứng khoán nữa' -> query='chứng khoán'); nhiều cái khớp thì tool tự liệt kê hỏi lại. "
+            "'all'=true khi huỷ HẾT. LƯU Ý: 'cắt tin X cho tao (mỗi ngày)' KHÔNG phải huỷ — đó là ĐĂNG KÝ, "
+            "dùng subscribe. Chỉ coi là huỷ khi có từ dừng/phủ định ở trên."
         ),
         "parameters": {
             "type": "object",
@@ -518,9 +530,12 @@ async def _subscribe(args: dict, ctx: ToolContext) -> str:
     """Tạo đăng ký nhận tin hằng ngày. Nếu giờ hẹn đã qua trong hôm nay -> bắt đầu từ NGÀY MAI."""
     if ctx.subscription_repo is None or ctx.guild_pk is None or ctx.channel_id is None:
         return "Chưa đăng ký được (thiếu ngữ cảnh)."
-    topic = str(args.get("topic", "")).strip()
-    if not topic:
-        return "Cần nêu chủ đề muốn cập nhật (vd 'tin chứng khoán trong nước')."
+    topic = str(args.get("topic", "")).strip() or None
+    message = str(args.get("message", "")).strip() or None
+    if not topic and not message:
+        return "Cần nêu chủ đề tra tin (topic) HOẶC câu nhắc lặp lại (message)."
+    if topic and message:  # 2 kiểu loại trừ nhau -> ưu tiên message (nhắc cá nhân rõ ý hơn)
+        topic = None
     hour, minute = _parse_hhmm(str(args.get("time", "")))
     now_vn = datetime.now(VN_TZ)
     # Giờ hẹn đã trôi qua hôm nay -> đánh dấu đã chạy hôm nay để lần đầu là NGÀY MAI (đỡ bắn ngay).
@@ -530,15 +545,22 @@ async def _subscribe(args: dict, ctx: ToolContext) -> str:
         channel_id=ctx.channel_id,
         creator_id=ctx.commander_id or 0,
         topic=topic,
+        message=message,
         hour=hour,
         minute=minute,
         last_run_on=last_run_on,
     )
-    return f"Đã đăng ký: mỗi ngày {hour:02d}:{minute:02d} cập nhật '{topic}'."
+    what = f"cập nhật '{topic}'" if topic else f"hú: '{message}'"
+    return f"Đã đăng ký: mỗi ngày {hour:02d}:{minute:02d} {what}."
 
 
 async def _my_subs(ctx: ToolContext) -> list:
     return await ctx.subscription_repo.active_for_creator(ctx.guild_pk, ctx.commander_id or 0)
+
+
+def _sub_label(s) -> str:
+    """Nhãn 1 đăng ký để hiển thị/khớp: chủ đề (kiểu tin) HOẶC câu nhắc (kiểu cá nhân)."""
+    return (getattr(s, "topic", None) or getattr(s, "message", None) or "(trống)").strip()
 
 
 async def _list_subscriptions(ctx: ToolContext) -> str:
@@ -548,9 +570,9 @@ async def _list_subscriptions(ctx: ToolContext) -> str:
     if not mine:
         return "Bạn chưa đăng ký nhận tin định kỳ nào."
     lines = "\n".join(
-        f"{i + 1}. {s.hour:02d}:{s.minute:02d} — {s.topic}" for i, s in enumerate(mine)
+        f"{i + 1}. {s.hour:02d}:{s.minute:02d} — {_sub_label(s)}" for i, s in enumerate(mine)
     )
-    return f"Đăng ký nhận tin của bạn:\n{lines}"
+    return f"Đăng ký định kỳ của bạn:\n{lines}"
 
 
 async def _unsubscribe(args: dict, ctx: ToolContext) -> str:
@@ -565,15 +587,15 @@ async def _unsubscribe(args: dict, ctx: ToolContext) -> str:
             await ctx.subscription_repo.cancel(s.id, ctx.guild_pk)
         return f"Đã huỷ tất cả {len(mine)} đăng ký."
     query = str(args.get("query", "")).strip().lower()
-    matched = [s for s in mine if query in (s.topic or "").lower()] if query else mine
+    matched = [s for s in mine if query in _sub_label(s).lower()] if query else mine
     if not matched:
-        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in mine)
+        lines = "\n".join(f"- {_sub_label(s)} ({s.hour:02d}:{s.minute:02d})" for s in mine)
         return f"Không thấy đăng ký nào khớp '{query}'. Bạn đang có:\n{lines}"
     if len(matched) > 1:
-        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in matched)
-        return f"Có {len(matched)} đăng ký khớp, nói rõ chủ đề nào nhé:\n{lines}"
+        lines = "\n".join(f"- {_sub_label(s)} ({s.hour:02d}:{s.minute:02d})" for s in matched)
+        return f"Có {len(matched)} đăng ký khớp, nói rõ cái nào nhé:\n{lines}"
     await ctx.subscription_repo.cancel(matched[0].id, ctx.guild_pk)
-    return f"Đã huỷ đăng ký: {matched[0].topic}"
+    return f"Đã huỷ đăng ký: {_sub_label(matched[0])}"
 
 
 async def _edit_subscription(args: dict, ctx: ToolContext) -> str:
@@ -585,18 +607,24 @@ async def _edit_subscription(args: dict, ctx: ToolContext) -> str:
     if not mine:
         return "Bạn không có đăng ký nào đang bật."
     query = str(args.get("query", "")).strip().lower()
-    matched = [s for s in mine if query in (s.topic or "").lower()] if query else mine
+    matched = [s for s in mine if query in _sub_label(s).lower()] if query else mine
     if not matched:
-        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in mine)
+        lines = "\n".join(f"- {_sub_label(s)} ({s.hour:02d}:{s.minute:02d})" for s in mine)
         return f"Không thấy đăng ký nào khớp '{query}'. Bạn đang có:\n{lines}"
     if len(matched) > 1:
-        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in matched)
-        return f"Có {len(matched)} đăng ký khớp, nói rõ chủ đề nào nhé:\n{lines}"
+        lines = "\n".join(f"- {_sub_label(s)} ({s.hour:02d}:{s.minute:02d})" for s in matched)
+        return f"Có {len(matched)} đăng ký khớp, nói rõ cái nào nhé:\n{lines}"
     new_time = str(args.get("time", "")).strip()
     new_topic = str(args.get("topic", "")).strip()
     if not new_time and not new_topic:
-        return "Cần nêu giờ mới hoặc chủ đề mới để sửa."
-    kwargs: dict = {"topic": new_topic or None}
+        return "Cần nêu giờ mới hoặc nội dung mới để sửa."
+    kwargs: dict = {}
+    if new_topic:
+        # Sửa nội dung vào ĐÚNG kiểu của đăng ký: tin -> topic, nhắc cá nhân -> message.
+        if matched[0].topic is not None:
+            kwargs["topic"] = new_topic
+        else:
+            kwargs["message"] = new_topic
     if new_time:
         hour, minute = _parse_hhmm(new_time)
         kwargs["hour"], kwargs["minute"] = hour, minute
@@ -608,9 +636,7 @@ async def _edit_subscription(args: dict, ctx: ToolContext) -> str:
     updated = await ctx.subscription_repo.update(matched[0].id, ctx.guild_pk, **kwargs)
     if updated is None:
         return "Không sửa được đăng ký đó."
-    return (
-        f"Đã cập nhật: mỗi ngày {updated.hour:02d}:{updated.minute:02d} cập nhật '{updated.topic}'."
-    )
+    return f"Đã cập nhật: mỗi ngày {updated.hour:02d}:{updated.minute:02d} — {_sub_label(updated)}."
 
 
 def _stage_poll(args: dict, ctx: ToolContext) -> str:

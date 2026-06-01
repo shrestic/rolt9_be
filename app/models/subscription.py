@@ -25,7 +25,11 @@ class Subscription(Base):
     )
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     creator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    # Mỗi đăng ký là 1 trong 2 chế độ:
+    #  - topic   != None: tới giờ TRA WEB + AI tóm tắt (bản tin định kỳ, vd 'giá vàng').
+    #  - message != None: tới giờ chỉ PING câu đó (nhắc cá nhân lặp lại, vd 'đi về').
+    topic: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
     hour: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-23, giờ VN đăng mỗi ngày
     minute: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)

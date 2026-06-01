@@ -21,7 +21,8 @@ class SubscriptionRepository:
         guild_id: uuid.UUID,
         channel_id: int,
         creator_id: int,
-        topic: str,
+        topic: str | None = None,
+        message: str | None = None,
         hour: int,
         minute: int,
         last_run_on: datetime.date | None = None,
@@ -31,6 +32,7 @@ class SubscriptionRepository:
             channel_id=channel_id,
             creator_id=creator_id,
             topic=topic,
+            message=message,
             hour=hour,
             minute=minute,
             last_run_on=last_run_on,
@@ -80,10 +82,11 @@ class SubscriptionRepository:
         hour: int | None = None,
         minute: int | None = None,
         topic: str | None = None,
+        message: str | None = None,
         last_run_on=_UNSET,
     ) -> Subscription | None:
-        """Sửa giờ và/hoặc chủ đề 1 đăng ký. Chỉ đổi field được truyền. `last_run_on` dùng sentinel
-        nên truyền None là RESET (để lịch mới có hiệu lực). Trả row đã sửa."""
+        """Sửa giờ và/hoặc nội dung (topic kiểu tin / message kiểu nhắc) 1 đăng ký. Chỉ đổi field
+        được truyền. `last_run_on` dùng sentinel nên truyền None là RESET (lịch mới hiệu lực). Trả row."""
         row = await self.session.get(Subscription, sub_id)
         if row is None or row.guild_id != guild_id:
             return None
@@ -93,6 +96,8 @@ class SubscriptionRepository:
             row.minute = minute
         if topic is not None:
             row.topic = topic
+        if message is not None:
+            row.message = message
         if last_run_on is not _UNSET:
             row.last_run_on = last_run_on
         await self.session.flush()
