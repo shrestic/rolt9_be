@@ -39,5 +39,5 @@ class AskService:
             guild_discord_id=guild_discord_id,
             system=ASK_SYSTEM,
             prompt=prompt,
-            max_tokens=4096,  # room cho model reasoning (v4) + câu trả lời; prompt bound độ dài
+            # Không set max_tokens -> kế thừa AI_MAX_TOKENS (200k) cho reasoning model; độ dài câu trả lời do prompt bound.
         )

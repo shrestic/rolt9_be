@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     # o-series…) vì chúng tiêu token cho phần suy luận trước khi trả lời.
     ANTHROPIC_API_KEY: str = Field(default="")
     AI_MODEL: str = "claude-haiku-4-5-20251001"
-    AI_MAX_TOKENS: int = 16384
+    # 200k: trần OUTPUT rộng để reasoning model (deepseek v4 pro/flash) KHÔNG đốt sạch token
+    # vào phần suy luận rồi trả rỗng ("Model dùng hết token cho phần suy luận"). max_tokens chỉ
+    # là TRẦN — model xong là dừng, đặt cao không tốn thêm tiền nếu nó trả lời ngắn.
+    AI_MAX_TOKENS: int = 200000
     # Claw Agent tools: web search qua Tavily (key global, bot trả). Rỗng = tắt web_search.
     TAVILY_API_KEY: str = Field(default="")
 

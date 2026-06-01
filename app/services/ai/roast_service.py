@@ -24,5 +24,5 @@ class RoastService:
             guild_discord_id=guild_discord_id,
             system=ROAST_SYSTEM,
             prompt=prompt,
-            max_tokens=2048,  # đủ room cho model reasoning (v4); câu roast vẫn ngắn nhờ prompt
+            # Không set max_tokens -> kế thừa AI_MAX_TOKENS (200k) cho reasoning model; câu roast vẫn ngắn nhờ prompt.
         )
