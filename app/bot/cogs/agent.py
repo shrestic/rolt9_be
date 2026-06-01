@@ -5,6 +5,7 @@ Phản hồi khi bot được @mention (cuộc mới) hoặc khi user reply vào
 kênh). Cooldown/user chống spam. Cần intents.message_content (đã bật).
 """
 
+import asyncio
 import logging
 import time
 
@@ -32,6 +33,16 @@ from app.services.ai.provider import get_ai_provider
 log = logging.getLogger(__name__)
 
 AGENT_COOLDOWN = 5.0  # giây giữa 2 tin của cùng 1 user
+# --- Hàng đợi xử lý (nhiều người mention CÙNG LÚC) ---------------------------------
+# Trước đây tin tới khi bot đang bận bị BỎ (⏳). Giờ xếp hàng cho một pool worker chạy
+# tuần tự -> không drop tin hợp lệ của người khác, mà vẫn chặn được spam.
+AGENT_WORKERS = 3  # số lượt agent chạy SONG SONG tối đa (cap bão LLM-call -> giữ DB pool + chi phí)
+AGENT_QUEUE_MAX = (
+    64  # sức chứa hàng đợi; vượt = cả server quá tải -> drop (⏳) thay vì phình vô hạn
+)
+AGENT_PER_USER_MAX = (
+    2  # 1 người chỉ được xếp tối đa 2 lượt (đang chờ + đang chạy) -> chống 1 người ôm hàng
+)
 CHANNEL_CONTEXT_LIMIT = 12  # số tin gần đây trong kênh nạp cho bot để bám sát hội thoại
 _PERM_FLAGS = ("manage_guild", "manage_roles", "ban_members", "kick_members", "moderate_members")
 
@@ -167,8 +178,54 @@ class AgentCog(commands.Cog):
         self.bot = bot
         self.discord_io = discord_io
         self.cooldown = CooldownTracker(AGENT_COOLDOWN)
-        # (guild_id, user_id) đang được xử lý — chặn tin mới của CÙNG người khi tin trước chưa xong.
-        self._in_flight: set[tuple[int, int]] = set()
+        # Hàng đợi tin nhắm-bot + pool worker: nhiều người mention CÙNG LÚC sẽ XẾP HÀNG chạy
+        # tuần tự (AGENT_WORKERS lượt song song) thay vì drop hoặc đẻ vô số luồng LLM.
+        self._queue: asyncio.Queue[discord.Message] = asyncio.Queue(maxsize=AGENT_QUEUE_MAX)
+        self._workers: list[asyncio.Task] = []
+        # Số lượt mỗi (guild,user) đang chờ/đang chạy -> chặn 1 người nhồi đầy hàng đợi.
+        self._pending: dict[tuple[int, int], int] = {}
+
+    def _ensure_workers(self) -> None:
+        """Bảo đảm pool worker đang chạy (idempotent).
+
+        Gọi từ cog_load lúc nạp cog, và phòng hờ ngay đầu on_message — dùng
+        asyncio.create_task (loop đang chạy) nên chạy được cả ở runtime lẫn test.
+        """
+        if self._workers:
+            return
+        self._workers = [asyncio.create_task(self._worker(i)) for i in range(AGENT_WORKERS)]
+
+    async def cog_load(self) -> None:
+        """Khởi động pool worker khi cog được nạp (lúc này đã có event loop)."""
+        self._ensure_workers()
+
+    async def cog_unload(self) -> None:
+        """Huỷ pool worker khi gỡ/reload cog -> không để task mồ côi chạy nền."""
+        for t in self._workers:
+            t.cancel()
+        self._workers = []
+
+    async def _worker(self, n: int) -> None:
+        """Vòng lặp: lấy 1 tin khỏi hàng đợi -> xử lý -> lặp.
+
+        Mỗi worker xử lý 1 lượt agent tại một thời điểm; tổng song song = AGENT_WORKERS.
+        Một tin lỗi KHÔNG được giết worker (phải tiếp tục phục vụ người khác trong hàng).
+        """
+        while True:
+            message = await self._queue.get()
+            key = (int(message.guild.id), message.author.id)
+            try:
+                await self._process(message)
+            except Exception:  # noqa: BLE001 — nuốt lỗi 1 tin để worker sống tiếp
+                log.exception("agent worker %d: _process crashed", n)
+            finally:
+                # Trả 1 suất pending cho người này + báo hàng đợi xong 1 item.
+                remaining = self._pending.get(key, 1) - 1
+                if remaining > 0:
+                    self._pending[key] = remaining
+                else:
+                    self._pending.pop(key, None)
+                self._queue.task_done()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -177,28 +234,38 @@ class AgentCog(commands.Cog):
         if self.bot.user is None or not is_addressed(message, self.bot.user):
             return
 
+        self._ensure_workers()
         now = time.monotonic()
-        # SLOWMODE khi mention bot (chỉ chặn tin nhắm bot, không đụng chat thường): mỗi (guild,user)
-        # chỉ kích bot 1 lần / AGENT_COOLDOWN giây, VÀ không kích lại khi tin TRƯỚC của họ còn ĐANG
-        # xử lý (reply lâu hơn cooldown -> đỡ chồng nhiều luồng).
         key = (int(message.guild.id), message.author.id)
-        if not self.cooldown.ready(*key, now=now) or key in self._in_flight:
-            reason = "đang-xử-lý" if key in self._in_flight else "cooldown"
-            log.info(
-                "agent throttle (%s) user=%s guild=%s", reason, message.author.id, message.guild.id
-            )
-            # Báo throttle bằng reaction ⏳ (nhẹ, KHÔNG đẻ thêm tin nhắn để khỏi bot tự spam lại).
-            try:
-                await message.add_reaction("⏳")
-            except (DiscordError, discord.DiscordException):
-                pass
+        # 3 cửa chống quá tải, xét THEO THỨ TỰ; rớt cửa nào cũng báo ⏳ + log lý do:
+        #   1) cooldown : cùng 1 người chỉ kích bot 1 lần / AGENT_COOLDOWN giây (chống spam liên tục).
+        #   2) per-user : 1 người chỉ được xếp tối đa AGENT_PER_USER_MAX lượt (chống ôm hàng đợi).
+        #   3) full     : hàng đợi đầy (cả server quá tải) -> drop để khỏi phình vô hạn.
+        # Qua hết -> XẾP HÀNG; một worker sẽ xử lý tuần tự (không drop tin của người khác).
+        if not self.cooldown.ready(*key, now=now):
+            await self._throttle(message, "cooldown")
             return
-        self.cooldown.mark(*key, now=now)
-        self._in_flight.add(key)
+        if self._pending.get(key, 0) >= AGENT_PER_USER_MAX:
+            await self._throttle(message, "quá-nhiều-lượt")
+            return
         try:
-            await self._process(message)
-        finally:
-            self._in_flight.discard(key)
+            self._queue.put_nowait(message)
+        except asyncio.QueueFull:
+            await self._throttle(message, "hàng-đợi-đầy")
+            return
+        # Vào hàng thành công -> tính cooldown + tăng bộ đếm pending của người này.
+        self.cooldown.mark(*key, now=now)
+        self._pending[key] = self._pending.get(key, 0) + 1
+
+    async def _throttle(self, message: discord.Message, reason: str) -> None:
+        """Báo bị tiết chế bằng reaction ⏳ (nhẹ, KHÔNG đẻ tin nhắn để bot khỏi tự spam) + log lý do."""
+        log.info(
+            "agent throttle (%s) user=%s guild=%s", reason, message.author.id, message.guild.id
+        )
+        try:
+            await message.add_reaction("⏳")
+        except (DiscordError, discord.DiscordException):
+            pass
 
     async def _process(self, message: discord.Message) -> None:
         """Xử lý 1 tin nhắm tới bot (sau khi đã qua slowmode + khoá đang-xử-lý)."""

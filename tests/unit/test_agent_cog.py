@@ -163,6 +163,12 @@ def _cog():
     return AgentCog(bot, MagicMock())
 
 
+async def _drain(cog):
+    """Đợi pool worker xử lý xong toàn bộ hàng đợi (on_message giờ chỉ XẾP HÀNG,
+    worker xử lý bất đồng bộ) — gọi trước khi assert kết quả respond/reply."""
+    await cog._queue.join()
+
+
 @pytest.mark.asyncio
 async def test_on_message_replies_and_remembers(monkeypatch):
     cid = uuid.uuid4()
@@ -173,6 +179,7 @@ async def test_on_message_replies_and_remembers(monkeypatch):
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
+    await _drain(cog)
     msg.reply.assert_awaited_once()
     stub.respond.assert_awaited_once()
     stub.remember.assert_awaited_once()
@@ -213,6 +220,7 @@ async def test_on_message_none_result_no_reply(monkeypatch):
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
+    await _drain(cog)
     msg.reply.assert_not_awaited()
     stub.remember.assert_not_awaited()
 
@@ -225,6 +233,7 @@ async def test_on_message_value_error_replies_error(monkeypatch):
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
+    await _drain(cog)
     msg.reply.assert_awaited_once()
     assert "❌" in msg.reply.call_args.args[0]
 
@@ -240,19 +249,21 @@ async def test_on_message_marks_cooldown_before_processing(monkeypatch):
     u = _User(2)
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # ngay sau -> cooldown chặn
+    await _drain(cog)
     assert stub.respond.await_count == 1  # lần 2 bị chặn dù lần 1 không trả lời
 
 
 @pytest.mark.asyncio
-async def test_on_message_inflight_blocks_while_processing(monkeypatch):
-    # Đang xử lý tin của user -> tin MỚI của họ bị bỏ (dù đã hết cooldown). Tắt cooldown để test riêng.
+async def test_on_message_per_user_cap_drops_overflow(monkeypatch):
+    # 1 người chỉ được xếp tối đa AGENT_PER_USER_MAX lượt (đang chờ + đang chạy). Lượt thứ 3
+    # bị bỏ (⏳) NGAY, không nhồi đầy hàng đợi. Tắt cooldown để cô lập đúng cửa per-user.
     import asyncio
 
     gate = asyncio.Event()
     cid = uuid.uuid4()
 
     async def slow_respond(**kw):
-        await gate.wait()  # giữ tin 1 "đang xử lý"
+        await gate.wait()  # giữ các lượt đầu "đang chạy" để chiếm slot pending
         return (cid, "ok", [])
 
     stub = MagicMock()
@@ -260,14 +271,16 @@ async def test_on_message_inflight_blocks_while_processing(monkeypatch):
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
-    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> chỉ còn khoá in_flight
+    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> chỉ còn cửa per-user
     u = _User(2)
-    t1 = asyncio.create_task(cog.on_message(_Msg(author=u, mentions=[_User(1)])))
-    await asyncio.sleep(0.01)  # để t1 vào _in_flight
-    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # tin 2 -> bị khoá in_flight chặn
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # lượt 1 -> pending=1
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # lượt 2 -> pending=2 (đầy slot)
+    msg3 = _Msg(author=u, mentions=[_User(1)])
+    await cog.on_message(msg3)  # lượt 3 -> pending đã 2 -> bị bỏ
     gate.set()
-    await t1
-    assert stub.respond.await_count == 1  # tin 2 không được xử lý vì tin 1 đang chạy
+    await _drain(cog)
+    assert stub.respond.await_count == 2  # chỉ 2 lượt đầu được xử lý
+    msg3.add_reaction.assert_awaited_once_with("⏳")  # lượt 3 bị tiết chế
 
 
 @pytest.mark.asyncio
@@ -282,8 +295,113 @@ async def test_on_message_cooldown_blocks_second(monkeypatch):
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
     msg2 = _Msg(author=u, mentions=[_User(1)])  # ngay lập tức -> cooldown chặn
     await cog.on_message(msg2)
+    await _drain(cog)
     assert stub.respond.await_count == 1
     msg2.add_reaction.assert_awaited_once_with("⏳")  # báo bị throttle bằng reaction ⏳
+
+
+@pytest.mark.asyncio
+async def test_on_message_many_distinct_users_all_processed_no_throttle(monkeypatch):
+    # KỊCH BẢN LO NGẠI: nhiều người KHÁC NHAU cùng mention bot trong thời gian ngắn.
+    # Throttle là PER-USER (cooldown + per-user cap theo (guild,user)) -> người khác nhau
+    # KHÔNG chặn nhau; tất cả được XẾP HÀNG và xử lý hết, không ai bị ⏳.
+    cid = uuid.uuid4()
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=(cid, "ok", []))
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    cog = _cog()
+    # 10 người khác nhau (id 100..109), mỗi người 1 lệnh — nhiều hơn 3 worker để buộc xếp hàng.
+    msgs = [_Msg(author=_User(100 + i), mentions=[_User(1)]) for i in range(10)]
+    for m in msgs:
+        await cog.on_message(m)
+    await _drain(cog)
+    assert stub.respond.await_count == 10  # cả 10 đều được xử lý (xếp hàng, không drop)
+    for m in msgs:
+        m.add_reaction.assert_not_awaited()  # KHÔNG ai bị tiết chế ⏳
+
+
+@pytest.mark.asyncio
+async def test_on_message_concurrent_bans_all_call_tool(monkeypatch):
+    # Nhiều người khác nhau cùng bảo "ban" trong thời gian ngắn -> CẢ NHÓM đều gọi được tool
+    # (mỗi lượt stage 1 action phá -> gửi nút xác nhận). Không ai bị bỏ vì throttle.
+    cid = uuid.uuid4()
+    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    run_mock = AsyncMock()
+    monkeypatch.setattr(agent_mod, "run_action", run_mock)
+    cog = _cog()
+    msgs = [_Msg(author=_User(200 + i), mentions=[_User(1)]) for i in range(6)]
+    for m in msgs:
+        await cog.on_message(m)
+    await _drain(cog)
+    assert stub.respond.await_count == 6  # cả 6 lượt agent chạy (gọi tool ban)
+    assert sum(m.channel.send.await_count for m in msgs) == 6  # mỗi người 1 nút xác nhận
+    run_mock.assert_not_awaited()  # phá -> chờ ✅, chưa execute
+    for m in msgs:
+        m.add_reaction.assert_not_awaited()  # không ai bị ⏳
+
+
+@pytest.mark.asyncio
+async def test_on_message_same_user_spam_bans_throttled(monkeypatch):
+    # NGƯỢC LẠI: CÙNG 1 người spam "ban" liên tục -> cooldown chỉ cho 1 lượt qua,
+    # các lượt sau bị ⏳ (đây là hành vi chống spam MONG MUỐN, không phải bug).
+    cid = uuid.uuid4()
+    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    monkeypatch.setattr(agent_mod, "run_action", AsyncMock())
+    cog = _cog()
+    u = _User(2)
+    spam = [_Msg(author=u, mentions=[_User(1)]) for _ in range(5)]
+    for m in spam:
+        await cog.on_message(m)  # bắn liền tay trong cùng cửa sổ cooldown
+    await _drain(cog)
+    assert stub.respond.await_count == 1  # chỉ lượt đầu của họ được xử lý
+    throttled = sum(m.add_reaction.await_count for m in spam[1:])
+    assert throttled == 4  # 4 lượt spam sau đều bị ⏳
+
+
+@pytest.mark.asyncio
+async def test_on_message_overload_sheds_load_no_loss_no_crash(monkeypatch):
+    # KỊCH BẢN XẤU NHẤT: cả server spam liên tục không nghỉ, nhiều hơn sức chứa hàng đợi.
+    # Bảo đảm 3 tính chất: (1) KHÔNG sập/treo; (2) KHÔNG mất tin — mỗi tin HOẶC được xử lý
+    # HOẶC bị ⏳; (3) tin lọt vào hàng đợi VẪN được xử lý (respond/reply chạy đủ).
+    import asyncio
+
+    from app.bot.cogs.agent import AGENT_QUEUE_MAX, AGENT_WORKERS
+
+    gate = asyncio.Event()
+    cid = uuid.uuid4()
+
+    async def slow(**kw):
+        await gate.wait()  # giữ worker bận để hàng đợi dồn lại -> ép chạm trần
+        return (cid, "trả lời", [])
+
+    stub = MagicMock()
+    stub.respond = AsyncMock(side_effect=slow)
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    cog = _cog()
+    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> cô lập đúng cửa "hàng đợi đầy"
+    # Mỗi người KHÁC NHAU (bỏ qua cooldown + per-user) để dồn được tối đa vào hàng đợi toàn cục.
+    total = AGENT_WORKERS + AGENT_QUEUE_MAX + 8  # dư 8 người -> chắc chắn tràn
+    msgs = [_Msg(author=_User(1000 + i), mentions=[_User(1)]) for i in range(total)]
+    for m in msgs:
+        await cog.on_message(m)  # (1) bắn dồn không nghỉ — không được raise/treo
+    gate.set()
+    await _drain(cog)
+
+    dropped = sum(1 for m in msgs if m.add_reaction.await_count > 0)  # bị ⏳
+    processed = sum(1 for m in msgs if m.reply.await_count > 0)  # đã trả lời (gọi respond xong)
+    assert dropped >= 1  # (1+3) có shed khi quá tải -> hàng đợi KHÔNG phình vô hạn
+    assert dropped + processed == total  # (2) KHÔNG mất tin: mỗi tin hoặc xử lý hoặc ⏳
+    assert processed >= AGENT_QUEUE_MAX  # (3) phần lớn vẫn được xử lý đầy đủ (gọi respond)
 
 
 # ---------- actions (perms + pending handling) ----------
@@ -321,6 +439,7 @@ async def test_on_message_executes_safe_action(monkeypatch):
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
+    await _drain(cog)
     run_mock.assert_awaited_once()  # action an toàn -> chạy ngay
     # Báo theo KẾT QUẢ THẬT, KHÔNG gửi prose "ok" của model (tránh khai khống)
     reply_text = msg.reply.call_args.args[0]
@@ -342,6 +461,7 @@ async def test_on_message_destructive_sends_confirm(monkeypatch):
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
+    await _drain(cog)
     msg.channel.send.assert_awaited_once()  # gửi nút xác nhận
     run_mock.assert_not_awaited()  # CHƯA execute (chờ ✅)
 
