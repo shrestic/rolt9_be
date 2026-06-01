@@ -218,41 +218,60 @@ class AgentCog(commands.Cog):
 
             conversation_id, text, pending = result
             self.cooldown.mark(int(message.guild.id), message.author.id, now=now)
-            sent = await self._safe_reply(message, text)
-            if sent is None:
-                return
-            await svc.remember(
-                guild_discord_id=int(message.guild.id),
-                conversation_id=conversation_id,
-                user_discord_id=int(message.author.id),
-                user_text=user_text,
-                assistant_text=text,
-                bot_message_id=int(sent.id),
-                channel_id=int(message.channel.id),
-            )
-            # Hành động: an toàn làm luôn; phá -> gửi nút xác nhận.
-            # create_role chạy TRƯỚC để "tạo role X rồi gán X cho @ai" trong 1 câu chạy được
-            # (assign tìm role vừa tạo). sorted ổn định nên các action khác giữ nguyên thứ tự.
-            for p in sorted(pending, key=lambda a: 0 if a.kind == "create_role" else 1):
-                if p.destructive:
-                    await self._send_confirm(message, p)
-                else:
-                    res = await run_action(
-                        p, guild=message.guild, session=session, channel=message.channel
-                    )
-                    log.info("agent action executed: kind=%s -> %s", p.kind, res)
-                    # Poll tự là output rồi -> khỏi spam thêm "✅"; action khác thì báo.
-                    if p.kind != "create_poll":
-                        await self._safe_reply(message, f"✅ {res}")
 
-    async def _send_confirm(self, message, pending) -> None:
+            if pending:
+                # LƯỢT HÀNH ĐỘNG: chạy tool TRƯỚC rồi mới báo theo KẾT QUẢ THẬT — KHÔNG gửi lời
+                # model (model hay "báo khống đã làm" trước khi tool chạy). Hành động phá -> nút
+                # ✅/❌ (chỉ chạy KHI bấm). create_role chạy trước để "tạo role X rồi gán X" chạy được.
+                outcomes: list[str] = []
+                last_sent = None
+                for p in sorted(pending, key=lambda a: 0 if a.kind == "create_role" else 1):
+                    if p.destructive:
+                        last_sent = await self._send_confirm(message, p) or last_sent
+                        outcomes.append(f"(chờ admin xác nhận) {p.description}")
+                    else:
+                        res = await run_action(
+                            p, guild=message.guild, session=session, channel=message.channel
+                        )
+                        log.info("agent action executed: kind=%s -> %s", p.kind, res)
+                        if p.kind != "create_poll":  # poll tự là output rồi
+                            last_sent = await self._safe_reply(message, f"✅ {res}") or last_sent
+                        outcomes.append(res)
+                # Lưu lượt theo KẾT QUẢ thật (không lưu prose khống của model).
+                await svc.remember(
+                    guild_discord_id=int(message.guild.id),
+                    conversation_id=conversation_id,
+                    user_discord_id=int(message.author.id),
+                    user_text=user_text,
+                    assistant_text=" | ".join(outcomes) or "(đã xử lý)",
+                    bot_message_id=int(last_sent.id) if last_sent else 0,
+                    channel_id=int(message.channel.id),
+                )
+            else:
+                # LƯỢT CHAT (không hành động): gửi lời model bình thường.
+                sent = await self._safe_reply(message, text)
+                if sent is None:
+                    return
+                await svc.remember(
+                    guild_discord_id=int(message.guild.id),
+                    conversation_id=conversation_id,
+                    user_discord_id=int(message.author.id),
+                    user_text=user_text,
+                    assistant_text=text,
+                    bot_message_id=int(sent.id),
+                    channel_id=int(message.channel.id),
+                )
+
+    async def _send_confirm(self, message, pending):
+        """Gửi nút ✅/❌ cho hành động phá. Trả message đã gửi (hoặc None nếu lỗi)."""
         try:
-            await message.channel.send(
+            return await message.channel.send(
                 f"🤖 Xác nhận hành động: **{pending.description}**?",
                 view=ActionConfirmView(pending),
             )
         except (DiscordError, discord.DiscordException):
             log.warning("agent: failed to send confirm in channel %s", message.channel.id)
+            return None
 
     async def _safe_reply(self, message, content: str):
         try:

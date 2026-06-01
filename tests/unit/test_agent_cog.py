@@ -261,8 +261,14 @@ async def test_on_message_executes_safe_action(monkeypatch):
     run_mock = AsyncMock(return_value="Đã bật welcome.")
     monkeypatch.setattr(agent_mod, "run_action", run_mock)
     cog = _cog()
-    await cog.on_message(_Msg(author=_User(2), mentions=[_User(1)]))
+    msg = _Msg(author=_User(2), mentions=[_User(1)])
+    await cog.on_message(msg)
     run_mock.assert_awaited_once()  # action an toàn -> chạy ngay
+    # Báo theo KẾT QUẢ THẬT, KHÔNG gửi prose "ok" của model (tránh khai khống)
+    reply_text = msg.reply.call_args.args[0]
+    assert "✅" in reply_text and "welcome" in reply_text.lower()
+    # remember lưu kết quả thật, không lưu "ok"
+    assert stub.remember.call_args.kwargs["assistant_text"] != "ok"
 
 
 @pytest.mark.asyncio
