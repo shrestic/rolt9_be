@@ -183,6 +183,10 @@ class AgentCog(commands.Cog):
         # xử lý (reply lâu hơn cooldown -> đỡ chồng nhiều luồng).
         key = (int(message.guild.id), message.author.id)
         if not self.cooldown.ready(*key, now=now) or key in self._in_flight:
+            reason = "đang-xử-lý" if key in self._in_flight else "cooldown"
+            log.info(
+                "agent throttle (%s) user=%s guild=%s", reason, message.author.id, message.guild.id
+            )
             # Báo throttle bằng reaction ⏳ (nhẹ, KHÔNG đẻ thêm tin nhắn để khỏi bot tự spam lại).
             try:
                 await message.add_reaction("⏳")
