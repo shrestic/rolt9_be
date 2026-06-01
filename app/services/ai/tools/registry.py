@@ -186,9 +186,11 @@ _EDIT_REMINDER_SPEC = {
         "name": "edit_reminder",
         "description": (
             "Sửa lời nhắc đã đặt: đổi GIỜ và/hoặc NỘI DUNG. Gọi khi user nói 'dời nhắc ... sang ...', "
-            "'đổi giờ nhắc ...', 'sửa nhắc ...'. 'query' = từ khoá tìm đúng cái (theo nội dung HOẶC giờ "
-            "cũ); nhiều cái khớp -> tool trả danh sách để hỏi lại. 'when' = giờ MỚI 'YYYY-MM-DD HH:MM' "
-            "(giờ VN), 'message' = nội dung MỚI. Phải có ít nhất một trong when/message."
+            "'đổi giờ nhắc ...', 'sửa nhắc ... thành ...', 'chuyển nhắc ... sang ...'. Khi user đã nêu RÕ "
+            "lời nhắc nào + giá trị mới, GỌI THẲNG tool này (query=từ khoá cũ, when/message=giá trị mới), "
+            "ĐỪNG gọi list_reminders trước. 'query' tìm theo nội dung HOẶC giờ cũ; nhiều cái khớp thì tool "
+            "tự trả danh sách để hỏi lại. 'when'='YYYY-MM-DD HH:MM' (giờ VN), 'message'=nội dung mới. "
+            "Cần ít nhất một trong when/message."
         ),
         "parameters": {
             "type": "object",
@@ -261,9 +263,10 @@ _EDIT_SUBSCRIPTION_SPEC = {
         "name": "edit_subscription",
         "description": (
             "Sửa đăng ký nhận tin: đổi GIỜ đăng và/hoặc CHỦ ĐỀ. Gọi khi user nói 'đổi giờ cập nhật ... "
-            "sang ...', 'sửa đăng ký ...', 'chuyển tin ... sang giờ ...'. 'query' = từ khoá chủ đề để "
-            "tìm; nhiều cái khớp -> hỏi lại. 'time' = giờ MỚI 'HH:MM' (giờ VN), 'topic' = chủ đề MỚI. "
-            "Phải có ít nhất một trong time/topic."
+            "sang ...', 'sửa đăng ký ...', 'chuyển tin ... sang giờ ...', 'đổi tin ... thành ...'. Khi "
+            "user đã nêu RÕ đăng ký nào + giá trị mới, GỌI THẲNG tool này (query=chủ đề cũ, time/topic=giá "
+            "trị mới), ĐỪNG gọi list_subscriptions trước. Nhiều cái khớp thì tool tự trả danh sách hỏi "
+            "lại. 'time'='HH:MM' (giờ VN), 'topic'=chủ đề mới. Cần ít nhất một trong time/topic."
         ),
         "parameters": {
             "type": "object",
