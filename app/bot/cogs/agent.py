@@ -186,6 +186,12 @@ class AgentCog(commands.Cog):
         }
         bot_id = self.bot.user.id if self.bot.user else None
         target_user_ids = [u.id for u in message.mentions if u.id != bot_id]
+        # 'Tên = <@id>' cho người được @ -> để bot ghi nhớ KÈM id và tag lại đúng người sau này.
+        mention_map = "; ".join(
+            f"{getattr(u, 'display_name', None) or u.name} = <@{u.id}>"
+            for u in message.mentions
+            if u.id != bot_id
+        )
         commander_perms = perms_dict(message.author.guild_permissions)
         channel_context = await collect_channel_context(message.channel, before=message)
         async with session_scope() as session:
@@ -206,6 +212,7 @@ class AgentCog(commands.Cog):
                         target_user_ids=target_user_ids,
                         commander_id=int(message.author.id),
                         channel_context=channel_context,
+                        mention_map=mention_map,
                     )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")

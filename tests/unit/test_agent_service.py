@@ -415,3 +415,9 @@ async def test_respond_no_actions_when_no_perm(db_session):
         commander_perms={},  # không quyền -> không có action tool -> pending rỗng
     )
     assert result is not None and result[2] == []
+
+
+def test_build_system_includes_mention_map():
+    # mention_map đưa 'tên = <@id>' vào prompt để bot tag thật + ghi nhớ kèm id
+    s = build_system("Bạn là mèo.", "", "Phong", mention_map="Khôi = <@123>")
+    assert "<@123>" in s and "Khôi" in s and "tag" in s.lower()

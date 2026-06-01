@@ -46,7 +46,9 @@ _REMEMBER_SPEC = {
             "'nhớ...', 'từ nay gọi X là...', hoặc khi học được điều đáng nhớ. "
             "Vì ghi chú nằm trong trí nhớ DÙNG CHUNG của server, khi ghi về người đang nói "
             "(tao/tôi/mình) hãy dùng TÊN THẬT của họ trong note (vd 'Phong muốn được gọi là ...') "
-            "chứ ĐỪNG ghi 'user này'/'người này' — để sau đọc lại còn biết là ai."
+            "chứ ĐỪNG ghi 'user này'/'người này'. QUAN TRỌNG: nếu ghi về người được @ trong tin "
+            "(có '<@id>' ở mục 'Người được @'), HÃY ghi KÈM '<@id>' của họ — vd "
+            "'<@123> (Khôi) có biệt danh loz Khôi' — để sau này tag/gọi đúng người, không chỉ là chữ trơn."
         ),
         "parameters": {
             "type": "object",

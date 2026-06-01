@@ -54,7 +54,10 @@ _TOOL_NUDGE = (
     "TỐI QUAN TRỌNG — CẤM NÓI KHỐNG: TUYỆT ĐỐI không được nói 'đã gỡ/đã mute/đã ban/đã kick/đã gán/"
     "đã tha/đã xong...' nếu trong lượt này bạn CHƯA thực sự gọi tool tương ứng. Muốn làm gì thì PHẢI "
     "gọi tool đó trước; chưa gọi thì đừng báo thành công. Câu mềm như 'tha cho nó', 'cho nó thoát', "
-    "'thả nó ra' = YÊU CẦU HÀNH ĐỘNG -> gọi tool (vd untimeout/unban), không phải chỉ tám."
+    "'thả nó ra' = YÊU CẦU HÀNH ĐỘNG -> gọi tool (vd untimeout/unban), không phải chỉ tám. "
+    "TAG NGƯỜI: khi NHẮC TỚI một người mà bạn biết '<@id>' của họ (ở mục 'Người được @' hoặc trong "
+    "'TRÍ NHỚ SERVER'), HÃY viết nguyên cụm '<@id>' để tag thật — ĐỪNG viết tên/biệt danh trơn "
+    "(vd biết loz Khôi = <@123> thì viết '<@123>', không viết 'loz Khôi')."
 )
 
 # Quy tắc độ dài — đặt CUỐI system prompt (vị trí model bám nhất) và nói rõ ưu tiên
@@ -85,17 +88,26 @@ def build_system(
     memory_doc: str = "",
     channel_context: str = "",
     now_text: str = "",
+    mention_map: str = "",
 ) -> str:
     """Ghép persona + trí nhớ server (memory_doc) + facts về user + ngữ cảnh kênh
     thành system prompt. memory_doc là lore chung toàn server (biệt danh, luật, …) áp
     cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại.
-    now_text = giờ VN hiện tại để model tính thời điểm khi đặt nhắc (tool remind)."""
+    now_text = giờ VN hiện tại để model tính thời điểm khi đặt nhắc (tool remind).
+    mention_map = ánh xạ 'tên -> <@id>' của người được @ trong tin, để model TAG thật + ghi nhớ kèm id."""
     base = persona or DEFAULT_PERSONA
     parts = [base, _TOOL_NUDGE, f"\nBạn đang nói chuyện với '{user_name}'."]
     if now_text:
         parts.append(f"\nBây giờ (giờ VN): {now_text}.")
+    if mention_map.strip():
+        # Tên -> <@id>: để khi GHI NHỚ hoặc NHẮC TỚI một người, model tag thật bằng <@id>
+        # (vd nhớ '<@123> biệt danh loz Khôi'), sau này gọi đúng người chứ không phải chữ trơn.
+        parts.append(
+            f"\nNgười được @ trong tin (DÙNG NGUYÊN cụm <@id> này để tag/ghi nhớ họ): {mention_map.strip()}"
+        )
     if memory_doc.strip():
         # Lore toàn server — luôn tuân theo (vd: "từ nay gọi An là X").
+        # Nếu trong này có dạng <@số>, khi nhắc tới người đó hãy DÙNG <@số> để tag thật.
         parts.append(f"\nTRÍ NHỚ SERVER (luôn áp dụng):\n{memory_doc.strip()}")
     if facts.strip():
         parts.append(f"\nNhững điều bạn nhớ về người này:\n{facts.strip()}")
@@ -150,6 +162,7 @@ class AgentService:
         target_user_ids: list[int] | None = None,
         commander_id: int | None = None,
         channel_context: str = "",
+        mention_map: str = "",
     ) -> tuple[uuid.UUID, str, list] | None:
         """Gating + chọn conversation + gọi AI. Trả (conversation_id, text, pending_actions),
         hoặc None nếu agent không nên trả lời. Lỗi cấu hình AI raise ValueError để cog báo ❌."""
@@ -188,7 +201,9 @@ class AgentService:
         )
         # Giờ VN hiện tại để model tính thời điểm khi đặt nhắc ("ngày mai 5h30" -> tuyệt đối).
         now_text = datetime.now(_VN_TZ).strftime("%Y-%m-%d %H:%M (%A)")
-        system = build_system(cfg.persona, facts, user_name, memory_doc, channel_context, now_text)
+        system = build_system(
+            cfg.persona, facts, user_name, memory_doc, channel_context, now_text, mention_map
+        )
 
         perms = commander_perms or {}
         can_act = any(perms.values())
