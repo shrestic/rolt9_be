@@ -128,9 +128,19 @@ def confirm_perm_ok(kind: str, perms: dict) -> bool:
 class ActionConfirmView(discord.ui.View):
     """Nút ✅/❌ cho hành động PHÁ (ban/kick/timeout/delete_role)."""
 
-    def __init__(self, pending):
+    def __init__(self, pending, *, on_resolve=None):
         super().__init__(timeout=120)
         self.pending = pending
+        # Gọi khi nút được bấm (✅/❌) -> để cog gỡ khỏi sổ theo dõi 'nút đang chờ',
+        # tránh bị 1 lệnh sau ghi đè nhầm lên tin đã xử lý xong.
+        self._on_resolve = on_resolve
+
+    def _resolve(self) -> None:
+        if self._on_resolve is not None:
+            try:
+                self._on_resolve()
+            except Exception:  # noqa: BLE001 — dọn sổ lỗi không được chặn luồng
+                pass
 
     @discord.ui.button(label="✅ Xác nhận", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -142,11 +152,13 @@ class ActionConfirmView(discord.ui.View):
         async with session_scope() as session:
             res = await run_action(self.pending, guild=interaction.guild, session=session)
         await interaction.response.edit_message(content=f"✅ {res}", view=None)
+        self._resolve()
         self.stop()
 
     @discord.ui.button(label="❌ Hủy", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(content="Đã hủy.", view=None)
+        self._resolve()
         self.stop()
 
 
@@ -234,6 +246,9 @@ class AgentCog(commands.Cog):
         self._workers: list[asyncio.Task] = []
         # Số lượt mỗi (guild,user) đang chờ/đang chạy -> chặn 1 người nhồi đầy hàng đợi.
         self._pending: dict[tuple[int, int], int] = {}
+        # Nút ✅/❌ đang chờ bấm, theo (kênh, loại action, mục tiêu) -> lệnh phá mới CÙNG loại+người
+        # sẽ vô hiệu nút cũ (đỡ bấm nhầm giá trị cũ, vd đổi timeout 5p->10p).
+        self._pending_confirms: dict[tuple, discord.Message] = {}
 
     def _ensure_workers(self) -> None:
         """Bảo đảm pool worker đang chạy (idempotent).
@@ -423,16 +438,39 @@ class AgentCog(commands.Cog):
                     channel_id=int(message.channel.id),
                 )
 
+    @staticmethod
+    def _confirm_key(channel_id: int, pending) -> tuple:
+        """Khoá định danh 1 nút xác nhận theo (kênh, loại action, mục tiêu) — để lệnh phá MỚI
+        cùng loại + cùng người vô hiệu nút cũ (vd đổi timeout 5p->10p cho cùng 1 người)."""
+        params = getattr(pending, "params", {}) or {}
+        tids = params.get("target_ids") or []
+        target = (
+            tuple(sorted(str(x) for x in tids)) if tids else str(params.get("query", "")).lower()
+        )
+        return (int(channel_id), pending.kind, target)
+
     async def _send_confirm(self, message, pending):
-        """Gửi nút ✅/❌ cho hành động phá. Trả message đã gửi (hoặc None nếu lỗi)."""
+        """Gửi nút ✅/❌ cho hành động phá. Nếu đang có nút CŨ cùng (kênh,loại,người) chưa bấm
+        -> vô hiệu nó trước (tránh bấm nhầm giá trị cũ). Trả message đã gửi (hoặc None nếu lỗi)."""
+        key = self._confirm_key(message.channel.id, pending)
+        old = self._pending_confirms.pop(key, None)
+        if old is not None:
+            try:
+                await old.edit(content="⚠️ Đã thay bằng lệnh mới bên dưới.", view=None)
+            except (DiscordError, discord.DiscordException):
+                pass
         try:
-            return await message.channel.send(
+            sent = await message.channel.send(
                 f"🤖 Xác nhận hành động: **{pending.description}**?",
-                view=ActionConfirmView(pending),
+                view=ActionConfirmView(
+                    pending, on_resolve=lambda: self._pending_confirms.pop(key, None)
+                ),
             )
         except (DiscordError, discord.DiscordException):
             log.warning("agent: failed to send confirm in channel %s", message.channel.id)
             return None
+        self._pending_confirms[key] = sent
+        return sent
 
     async def _safe_reply(self, message, content: str):
         try:

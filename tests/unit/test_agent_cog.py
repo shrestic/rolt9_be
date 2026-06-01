@@ -547,6 +547,62 @@ async def test_on_message_executes_safe_action(monkeypatch):
     assert stub.remember.call_args.kwargs["assistant_text"] != "ok"
 
 
+async def _confirm_channel():
+    """Kênh giả: mỗi send() trả 1 'message' riêng có .edit (để kiểm tra nút cũ bị vô hiệu)."""
+    sent = []
+
+    async def send(content, view=None):
+        m = SimpleNamespace(id=len(sent) + 1, edit=AsyncMock(), view=view)
+        sent.append(m)
+        return m
+
+    return SimpleNamespace(id=10, send=send), sent
+
+
+@pytest.mark.asyncio
+async def test_send_confirm_supersedes_old_same_target():
+    # Đổi lệnh phá cùng loại + cùng người (vd timeout 5p->10p) -> nút CŨ bị vô hiệu.
+    cog = _cog()
+    channel, sent = await _confirm_channel()
+    msg = SimpleNamespace(channel=channel)
+    p5 = PendingAction("timeout", True, "Timeout 1 người 5 phút", {"target_ids": [9], "minutes": 5})
+    p10 = PendingAction(
+        "timeout", True, "Timeout 1 người 10 phút", {"target_ids": [9], "minutes": 10}
+    )
+    await cog._send_confirm(msg, p5)
+    await cog._send_confirm(msg, p10)
+    sent[0].edit.assert_awaited_once()  # nút 5p bị sửa thành "đã thay"
+    assert "thay" in sent[0].edit.call_args.kwargs.get("content", "").lower()
+    sent[1].edit.assert_not_awaited()  # nút 10p còn nguyên
+
+
+@pytest.mark.asyncio
+async def test_send_confirm_keeps_old_for_different_target():
+    # Khác người -> KHÔNG đụng nút cũ (timeout A rồi timeout B = 2 nút độc lập).
+    cog = _cog()
+    channel, sent = await _confirm_channel()
+    msg = SimpleNamespace(channel=channel)
+    pa = PendingAction("timeout", True, "Timeout A", {"target_ids": [1], "minutes": 5})
+    pb = PendingAction("timeout", True, "Timeout B", {"target_ids": [2], "minutes": 5})
+    await cog._send_confirm(msg, pa)
+    await cog._send_confirm(msg, pb)
+    sent[0].edit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_confirm_resolve_clears_tracking():
+    # Bấm ✅/❌ -> gỡ khỏi sổ theo dõi, để lệnh sau KHÔNG ghi đè lên tin đã xử lý.
+    cog = _cog()
+    channel, sent = await _confirm_channel()
+    msg = SimpleNamespace(channel=channel)
+    p = PendingAction("timeout", True, "Timeout 1 người 5 phút", {"target_ids": [9], "minutes": 5})
+    await cog._send_confirm(msg, p)
+    key = cog._confirm_key(10, p)
+    assert key in cog._pending_confirms
+    sent[0].view._resolve()  # mô phỏng BẤM nút -> view gọi on_resolve -> gỡ khỏi sổ
+    assert key not in cog._pending_confirms
+
+
 @pytest.mark.asyncio
 async def test_on_message_destructive_sends_confirm(monkeypatch):
     cid = uuid.uuid4()
