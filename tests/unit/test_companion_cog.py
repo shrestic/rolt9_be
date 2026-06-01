@@ -236,6 +236,39 @@ async def test_on_presence_update_fires_only_on_new_game(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_presence_update_announces_game_once_per_session(monkeypatch):
+    # Đang chơi 1 game -> chỉ báo 1 LẦN. Presence flap (cùng game) lần sau KHÔNG báo lại.
+    cog = _cog(_cfg())
+    cog._handle_presence_event = AsyncMock()
+    g = SimpleNamespace(id=100)
+    before = _pmember(g)  # chưa chơi
+    after = _pmember(g, game="Valorant")  # vừa mở Valorant
+    await cog.on_presence_update(before, after)
+    cog._handle_presence_event.assert_awaited_once()  # báo lần 1
+    # presence flap: vẫn đang Valorant, 'before' rớt game 1 nhịp rồi 'after' lại có -> KHÔNG báo lại
+    cog._handle_presence_event.reset_mock()
+    await cog.on_presence_update(_pmember(g), after)
+    cog._handle_presence_event.assert_not_awaited()  # cùng game đang chơi -> im
+
+
+@pytest.mark.asyncio
+async def test_on_presence_update_reannounces_after_game_ends(monkeypatch):
+    # Tắt game rồi mở lại = phiên mới -> ĐƯỢC báo lại.
+    cog = _cog(_cfg())
+    cog._handle_presence_event = AsyncMock()
+    g = SimpleNamespace(id=100)
+    after = _pmember(g, game="Valorant")
+    await cog.on_presence_update(_pmember(g), after)
+    cog._handle_presence_event.assert_awaited_once()
+    # tắt Valorant: presence update sang 'không chơi gì' -> set 'đã báo' được dọn
+    cog._handle_presence_event.reset_mock()
+    await cog.on_presence_update(after, _pmember(g))  # ended (không fire vì không có game mới)
+    # mở Valorant lại -> phiên mới -> báo lại
+    await cog.on_presence_update(_pmember(g), _pmember(g, game="Valorant"))
+    cog._handle_presence_event.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_on_presence_update_ignores_bots(monkeypatch):
     cog = _cog(_cfg())
     cog._handle_presence_event = AsyncMock()

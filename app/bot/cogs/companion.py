@@ -22,6 +22,7 @@ from app.services.ai.companion_service import (
     CompanionService,
     build_event_snapshot,
     build_snapshot,
+    current_activity_labels,
     newly_started_activities,
 )
 from app.services.ai.provider import get_ai_provider
@@ -51,6 +52,9 @@ class CompanionCog(commands.Cog):
         # tasks.loop chạy lượt ĐẦU ngay khi online (không đợi đủ interval) -> mỗi lần restart
         # bot tự nói liền dù chưa tới chu kỳ. Cờ này bỏ qua lượt tick đầu sau mỗi lần khởi động.
         self._warmed_up = False
+        # (guild_id, user_id) -> set game ĐÃ báo trong phiên chơi hiện tại. Mỗi game chỉ báo 1 lần;
+        # game tắt thì xoá khỏi set để phiên sau báo lại. Tránh lải nhải cùng 1 game đang chơi.
+        self._announced_games: dict[tuple[int, int], set[str]] = {}
 
     async def cog_load(self) -> None:
         self.companion_tick.start()
@@ -179,21 +183,34 @@ class CompanionCog(commands.Cog):
         presence update khác) + vẫn qua cooldown nên không spam."""
         if after is None or getattr(after, "bot", False):
             return
-        activities = newly_started_activities(before, after)
-        if not activities:
-            return
         guild = getattr(after, "guild", None)
         if guild is None:
             return
+        # Dedupe theo phiên chơi: mỗi (người, game) chỉ báo 1 LẦN. Cập nhật set 'đã báo' theo game
+        # ĐANG chơi NGAY CẢ khi update này không có game mới (vd game vừa tắt) -> game tắt thì quên,
+        # phiên sau báo lại. Tránh lải nhải khi presence flap / đổi rich-presence liên tục.
+        key = (int(guild.id), int(after.id))
+        playing_now = set(current_activity_labels(after))
+        announced = self._announced_games.setdefault(key, set())
+        announced &= playing_now  # bỏ game đã tắt khỏi 'đã báo'
+        activities = newly_started_activities(before, after)
+        if not activities:
+            if not announced:
+                self._announced_games.pop(key, None)  # dọn rác bộ nhớ khi không còn game nào
+            return
+        fresh = [a for a in activities if a not in announced]
+        if not fresh:
+            return  # game này đã báo trong phiên chơi hiện tại rồi
+        announced.update(fresh)
         log.info(
             "companion presence: %s vừa %s (guild %s)",
             getattr(after, "display_name", "?"),
-            activities,
+            fresh,
             guild.id,
         )
         now = datetime.now(UTC)
         try:
-            await self._handle_presence_event(guild, after, activities, now=now)
+            await self._handle_presence_event(guild, after, fresh, now=now)
         except Exception:  # noqa: BLE001 — lỗi 1 sự kiện không được làm chết listener
             log.exception(
                 "companion: presence event failed for guild %s", getattr(guild, "id", "?")

@@ -131,6 +131,12 @@ def newly_started_activities(before, after) -> list[str]:
     return sorted(_activity_label(t, name) for t, name in new)
 
 
+def current_activity_labels(member) -> list[str]:
+    """Nhãn MỌI hoạt động ĐANG diễn ra của member (vd ['chơi Valorant']). Dùng để dedupe
+    'game này đã báo trong phiên chơi hiện tại chưa' + quên khi game đã tắt."""
+    return sorted(_activity_label(t, name) for t, name in _interesting_activities(member))
+
+
 def build_event_snapshot(member, activities, members, voice_channels, bot_id) -> str:
     """Snapshot cho sự kiện 'vừa bắt đầu hoạt động': nêu rõ ai vừa làm gì (kèm <@id> để @ping),
     rồi gắn bối cảnh hiện tại (ai đang chơi/nghe/ngồi voice) để model tự quyết có nên rủ rê/cà khịa."""
