@@ -404,3 +404,56 @@ def test_create_role_sorts_before_assign():
     ]
     ordered = sorted(pend, key=lambda a: 0 if a.kind == "create_role" else 1)
     assert [p.kind for p in ordered] == ["create_role", "assign_role"]
+
+
+# ---------- kick/ban/timeout: tìm theo TÊN khi không @ mention được ----------
+
+
+@pytest.mark.asyncio
+async def test_stage_kick_accepts_name_query():
+    # gõ "@samnguyen" dạng text (không mention thật) -> stage được nhờ 'user'
+    p = await stage("kick", {"user": "samnguyen"}, _ctx(target_user_ids=[]))
+    assert isinstance(p, PendingAction) and p.params["query"] == "samnguyen"
+
+
+@pytest.mark.asyncio
+async def test_execute_kick_resolves_name_when_no_mention():
+    noob = SimpleNamespace(
+        id=5, bot=False, name="samnguyen", display_name="Sam", top_role=_Role(1), kick=AsyncMock()
+    )
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)),
+        members=[noob],
+        get_member=lambda uid: noob if uid == 5 else None,
+    )
+    p = PendingAction("kick", True, "", {"target_ids": [], "query": "samnguyen", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    noob.kick.assert_awaited_once()
+    assert "kick 1" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_kick_ambiguous_name_asks():
+    a = SimpleNamespace(
+        id=1, bot=False, name="sam1", display_name="Sam A", top_role=_Role(1), kick=AsyncMock()
+    )
+    b = SimpleNamespace(
+        id=2, bot=False, name="sam2", display_name="Sam B", top_role=_Role(1), kick=AsyncMock()
+    )
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)), members=[a, b], get_member=lambda uid: None
+    )
+    p = PendingAction("kick", True, "", {"target_ids": [], "query": "sam", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    a.kick.assert_not_awaited()
+    assert "rõ giùm" in out.lower() and "2 người" in out
+
+
+@pytest.mark.asyncio
+async def test_execute_kick_name_not_found():
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)), members=[], get_member=lambda uid: None
+    )
+    p = PendingAction("kick", True, "", {"target_ids": [], "query": "nobody", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    assert "không tìm thấy" in out.lower()

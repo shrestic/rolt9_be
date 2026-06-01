@@ -136,10 +136,16 @@ ACTION_SPECS = [
         "type": "function",
         "function": {
             "name": "kick",
-            "description": "Kick (các) user được nhắc khỏi server (hành động phá, cần xác nhận).",
+            "description": (
+                "Kick (các) user khỏi server (hành động phá, cần xác nhận). Mục tiêu là người "
+                "được @ trong tin; nếu user gõ TÊN mà KHÔNG mention thật được thì truyền 'user'=tên/ID."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"reason": {"type": "string"}},
+                "properties": {
+                    "user": {"type": "string", "description": "Tên/ID khi không @ mention được"},
+                    "reason": {"type": "string"},
+                },
             },
         },
     },
@@ -147,10 +153,16 @@ ACTION_SPECS = [
         "type": "function",
         "function": {
             "name": "ban",
-            "description": "Ban (các) user được nhắc khỏi server (hành động phá, cần xác nhận).",
+            "description": (
+                "Ban (các) user khỏi server (hành động phá, cần xác nhận). Mục tiêu là người "
+                "được @ trong tin; nếu user gõ TÊN mà KHÔNG mention thật được thì truyền 'user'=tên/ID."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"reason": {"type": "string"}},
+                "properties": {
+                    "user": {"type": "string", "description": "Tên/ID khi không @ mention được"},
+                    "reason": {"type": "string"},
+                },
             },
         },
     },
@@ -158,11 +170,15 @@ ACTION_SPECS = [
         "type": "function",
         "function": {
             "name": "timeout",
-            "description": "Timeout / mute tạm (cấm chat) các user được nhắc (hành động phá, cần xác nhận).",
+            "description": (
+                "Timeout / mute tạm (cấm chat) user (hành động phá, cần xác nhận). Mục tiêu là người "
+                "được @; nếu user gõ TÊN mà KHÔNG mention thật được thì truyền 'user'=tên/ID."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "minutes": {"type": "integer"},
+                    "user": {"type": "string", "description": "Tên/ID khi không @ mention được"},
                     "reason": {"type": "string"},
                 },
                 "required": ["minutes"],
@@ -280,17 +296,24 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
 
     if name in ("kick", "ban", "timeout"):
         targets = list(ctx.target_user_ids)
-        if not targets:
-            return f"Cần @ người cần {name}."
-        params = {"target_ids": targets, "reason": str(args.get("reason", "") or "")}
+        # Cho phép nêu TÊN/ID khi user gõ '@tên' dạng text (không mention thật) -> execute tự tìm member.
+        query = str(args.get("user", "") or "").strip()
+        if not targets and not query:
+            return f"Cần @ người cần {name} (hoặc nêu tên/ID nếu không @ được)."
+        params = {
+            "target_ids": targets,
+            "query": query,
+            "reason": str(args.get("reason", "") or ""),
+        }
+        who = f"{len(targets)} người" if targets else f"'{query}'"
         if name == "timeout":
             minutes = args.get("minutes")
             if not isinstance(minutes, int) or minutes <= 0:
                 return "Số phút timeout phải > 0."
             params["minutes"] = minutes
-            desc = f"Timeout {len(targets)} người {minutes} phút"
+            desc = f"Timeout {who} {minutes} phút"
         else:
-            desc = f"{name.capitalize()} {len(targets)} người"
+            desc = f"{name.capitalize()} {who}"
         return PendingAction(name, destructive, desc, params)
 
     if name == "untimeout":
@@ -388,9 +411,33 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
             return f"Đã {verb} role {role.name} cho {done} người."
 
         if pending.kind in ("kick", "ban", "timeout"):
+            target_ids = list(p.get("target_ids") or [])
+            # Không có mention thật -> tìm member theo TÊN/ID (vd user gõ "@samnguyen" dạng text).
+            query = (p.get("query") or "").strip().lower()
+            if not target_ids and query:
+                cands = [
+                    m
+                    for m in getattr(guild, "members", [])
+                    if not getattr(m, "bot", False)
+                    and (
+                        query == str(m.id)
+                        or query in (m.name or "").lower()
+                        or query in (getattr(m, "display_name", "") or "").lower()
+                    )
+                ]
+                if not cands:
+                    return (
+                        f"Không tìm thấy ai tên '{query}' trong server — thử @ mention trực tiếp."
+                    )
+                if len(cands) > 1:
+                    names = ", ".join(getattr(m, "display_name", str(m.id)) for m in cands[:5])
+                    return f"Có {len(cands)} người khớp '{query}' ({names}). @ rõ giùm cho chắc."
+                target_ids = [cands[0].id]
+            if not target_ids:
+                return f"Không rõ {pending.kind} ai."
             done = 0
             blocked: list[str] = []  # người có role ≥ bot — bỏ qua, KHÔNG chặn cả lô
-            for uid in p["target_ids"]:
+            for uid in target_ids:
                 member = guild.get_member(uid)
                 # Cấp bậc: chỉ chặn khi member còn trong server và role ≥ bot.
                 if member is not None and guild.me.top_role <= member.top_role:
