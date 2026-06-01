@@ -344,3 +344,48 @@ async def test_execute_unsubscribe_and_list(db_session):
     assert "đã huỷ" in out.lower()
     remaining = await repo.active_for_creator(gid, 42)
     assert len(remaining) == 1 and remaining[0].topic == "chứng khoán"
+
+
+def test_tool_specs_has_edit_tools():
+    names = {s["function"]["name"] for s in tool_specs(has_search=False)}
+    assert {"edit_reminder", "edit_subscription"} <= names
+
+
+@pytest.mark.asyncio
+async def test_execute_edit_reminder_changes_time(db_session):
+    gid, repo = await _mk_reminders(db_session)  # "chơi game tối nay" + "họp nhóm sáng"
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("edit_reminder", {"query": "họp", "when": "2099-06-01 09:00"}, ctx)
+    await db_session.commit()
+    assert "cập nhật" in out.lower()
+    hop = next(r for r in await repo.pending_for_guild(gid) if "họp" in r.message)
+    assert hop.remind_at.year == 2099  # giờ đã đổi sang tương lai xa
+
+
+@pytest.mark.asyncio
+async def test_execute_edit_reminder_ambiguous_lists(db_session):
+    gid, repo = await _mk_reminders(db_session)
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("edit_reminder", {"query": "", "when": "2099-06-01 09:00"}, ctx)
+    assert "nói rõ" in out.lower()  # 2 cái khớp -> hỏi lại, không sửa bừa
+
+
+@pytest.mark.asyncio
+async def test_execute_edit_subscription_time_and_topic(db_session):
+    from app.repositories.subscription import SubscriptionRepository
+
+    gid = await _guild_for_subs(db_session)
+    repo = SubscriptionRepository(db_session)
+    await repo.create(
+        guild_id=gid, channel_id=1, creator_id=42, topic="chứng khoán", hour=8, minute=0
+    )
+    await db_session.commit()
+    ctx = ToolContext(subscription_repo=repo, guild_pk=gid, commander_id=42)
+
+    await execute("edit_subscription", {"query": "chứng khoán", "time": "7:00"}, ctx)
+    await db_session.commit()
+    assert (await repo.active_for_creator(gid, 42))[0].hour == 7
+
+    await execute("edit_subscription", {"query": "chứng khoán", "topic": "giá vàng SJC"}, ctx)
+    await db_session.commit()
+    assert (await repo.active_for_creator(gid, 42))[0].topic == "giá vàng SJC"

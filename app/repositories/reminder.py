@@ -72,3 +72,22 @@ class ReminderRepository:
             await self.session.flush()
             return True
         return False
+
+    async def update_reminder(
+        self,
+        reminder_id: int,
+        guild_id: uuid.UUID,
+        *,
+        remind_at: datetime | None = None,
+        message: str | None = None,
+    ) -> Reminder | None:
+        """Sửa giờ và/hoặc nội dung 1 lời nhắc còn chờ. Chỉ đổi field được truyền. Trả row đã sửa."""
+        row = await self.session.get(Reminder, reminder_id)
+        if row is None or row.guild_id != guild_id or row.fired:
+            return None
+        if remind_at is not None:
+            row.remind_at = remind_at
+        if message is not None:
+            row.message = message
+        await self.session.flush()
+        return row

@@ -180,6 +180,27 @@ _CANCEL_REMINDER_SPEC = {
         },
     },
 }
+_EDIT_REMINDER_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "edit_reminder",
+        "description": (
+            "Sửa lời nhắc đã đặt: đổi GIỜ và/hoặc NỘI DUNG. Gọi khi user nói 'dời nhắc ... sang ...', "
+            "'đổi giờ nhắc ...', 'sửa nhắc ...'. 'query' = từ khoá tìm đúng cái (theo nội dung HOẶC giờ "
+            "cũ); nhiều cái khớp -> tool trả danh sách để hỏi lại. 'when' = giờ MỚI 'YYYY-MM-DD HH:MM' "
+            "(giờ VN), 'message' = nội dung MỚI. Phải có ít nhất một trong when/message."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Từ khoá tìm lời nhắc cần sửa"},
+                "when": {"type": "string", "description": "Giờ mới 'YYYY-MM-DD HH:MM' (giờ VN)"},
+                "message": {"type": "string", "description": "Nội dung mới"},
+            },
+            "required": ["query"],
+        },
+    },
+}
 _DELETE_POLL_SPEC = {
     "type": "function",
     "function": {
@@ -234,6 +255,27 @@ _UNSUBSCRIBE_SPEC = {
         },
     },
 }
+_EDIT_SUBSCRIPTION_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "edit_subscription",
+        "description": (
+            "Sửa đăng ký nhận tin: đổi GIỜ đăng và/hoặc CHỦ ĐỀ. Gọi khi user nói 'đổi giờ cập nhật ... "
+            "sang ...', 'sửa đăng ký ...', 'chuyển tin ... sang giờ ...'. 'query' = từ khoá chủ đề để "
+            "tìm; nhiều cái khớp -> hỏi lại. 'time' = giờ MỚI 'HH:MM' (giờ VN), 'topic' = chủ đề MỚI. "
+            "Phải có ít nhất một trong time/topic."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Từ khoá chủ đề tìm đăng ký cần sửa"},
+                "time": {"type": "string", "description": "Giờ mới 'HH:MM' giờ VN"},
+                "topic": {"type": "string", "description": "Chủ đề mới"},
+            },
+            "required": ["query"],
+        },
+    },
+}
 _LIST_SUBSCRIPTIONS_SPEC = {
     "type": "function",
     "function": {
@@ -253,10 +295,12 @@ def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
         _REMIND_SPEC,
         _LIST_REMINDERS_SPEC,
         _CANCEL_REMINDER_SPEC,
+        _EDIT_REMINDER_SPEC,
         _CREATE_POLL_SPEC,
         _DELETE_POLL_SPEC,
         _SUBSCRIBE_SPEC,
         _UNSUBSCRIBE_SPEC,
+        _EDIT_SUBSCRIPTION_SPEC,
         _LIST_SUBSCRIPTIONS_SPEC,
         _SERVER_INFO_SPEC,
         _CURRENT_TIME_SPEC,
@@ -378,6 +422,40 @@ async def _cancel_reminder(args: dict, ctx: ToolContext) -> str:
     return f"Đã huỷ nhắc: {_fmt_reminder(matched[0])}"
 
 
+async def _edit_reminder(args: dict, ctx: ToolContext) -> str:
+    """Sửa giờ/nội dung 1 lời nhắc của người ra lệnh. Nhiều cái khớp -> liệt kê hỏi lại."""
+    if ctx.reminder_repo is None or ctx.guild_pk is None:
+        return "Chưa sửa được (thiếu ngữ cảnh)."
+    mine = await _my_pending(ctx)
+    if not mine:
+        return "Bạn không có lời nhắc nào đang chờ."
+    query = str(args.get("query", "")).strip().lower()
+    matched = [r for r in mine if query in _reminder_haystack(r)] if query else mine
+    if not matched:
+        lines = "\n".join(f"- {_fmt_reminder(r)}" for r in mine)
+        return f"Không thấy nhắc nào khớp '{query}'. Bạn đang có:\n{lines}"
+    if len(matched) > 1:
+        lines = "\n".join(f"- {_fmt_reminder(r)}" for r in matched)
+        return f"Có {len(matched)} nhắc khớp, nói rõ hơn nhé:\n{lines}"
+    new_when = str(args.get("when", "")).strip()
+    new_msg = str(args.get("message", "")).strip()
+    if not new_when and not new_msg:
+        return "Cần nêu giờ mới hoặc nội dung mới để sửa."
+    remind_at = None
+    if new_when:
+        remind_at = _parse_vn_to_utc(new_when)
+        if remind_at is None:
+            return "Giờ mới không hiểu — cho dạng 'YYYY-MM-DD HH:MM' (giờ VN) nhé."
+        if remind_at <= datetime.now(UTC):
+            return "Giờ mới đã qua rồi, chọn lúc trong tương lai đi."
+    updated = await ctx.reminder_repo.update_reminder(
+        matched[0].id, ctx.guild_pk, remind_at=remind_at, message=(new_msg or None)
+    )
+    if updated is None:
+        return "Không sửa được lời nhắc đó."
+    return f"Đã cập nhật nhắc: {_fmt_reminder(updated)}"
+
+
 async def _create_reminder(args: dict, ctx: ToolContext) -> str:
     """Ghi 1 lời nhắc vào DB (qua ctx.reminder_repo). Model đã tính 'when' theo giờ VN."""
     if ctx.reminder_repo is None or ctx.guild_pk is None or ctx.channel_id is None:
@@ -477,6 +555,43 @@ async def _unsubscribe(args: dict, ctx: ToolContext) -> str:
     return f"Đã huỷ đăng ký: {matched[0].topic}"
 
 
+async def _edit_subscription(args: dict, ctx: ToolContext) -> str:
+    """Sửa giờ/chủ đề 1 đăng ký của người ra lệnh. Nhiều cái khớp -> liệt kê hỏi lại.
+    Đổi giờ -> reset last_run_on để lịch mới có hiệu lực (đỡ chờ tới mai)."""
+    if ctx.subscription_repo is None or ctx.guild_pk is None:
+        return "Chưa sửa được (thiếu ngữ cảnh)."
+    mine = await _my_subs(ctx)
+    if not mine:
+        return "Bạn không có đăng ký nào đang bật."
+    query = str(args.get("query", "")).strip().lower()
+    matched = [s for s in mine if query in (s.topic or "").lower()] if query else mine
+    if not matched:
+        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in mine)
+        return f"Không thấy đăng ký nào khớp '{query}'. Bạn đang có:\n{lines}"
+    if len(matched) > 1:
+        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in matched)
+        return f"Có {len(matched)} đăng ký khớp, nói rõ chủ đề nào nhé:\n{lines}"
+    new_time = str(args.get("time", "")).strip()
+    new_topic = str(args.get("topic", "")).strip()
+    if not new_time and not new_topic:
+        return "Cần nêu giờ mới hoặc chủ đề mới để sửa."
+    kwargs: dict = {"topic": new_topic or None}
+    if new_time:
+        hour, minute = _parse_hhmm(new_time)
+        kwargs["hour"], kwargs["minute"] = hour, minute
+        now_vn = datetime.now(VN_TZ)
+        # Đổi giờ -> reset last_run_on: giờ mới còn tới hôm nay thì chạy hôm nay, đã qua thì mai.
+        kwargs["last_run_on"] = (
+            None if (hour, minute) > (now_vn.hour, now_vn.minute) else now_vn.date()
+        )
+    updated = await ctx.subscription_repo.update(matched[0].id, ctx.guild_pk, **kwargs)
+    if updated is None:
+        return "Không sửa được đăng ký đó."
+    return (
+        f"Đã cập nhật: mỗi ngày {updated.hour:02d}:{updated.minute:02d} cập nhật '{updated.topic}'."
+    )
+
+
 def _stage_poll(args: dict, ctx: ToolContext) -> str:
     """Validate args poll rồi xếp vào ctx.pending để cog gửi poll Discord thật vào kênh."""
     from app.services.ai.actions.registry import PendingAction  # lazy: tránh vòng import
@@ -519,6 +634,8 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
         return await _list_reminders(ctx)
     if name == "cancel_reminder":
         return await _cancel_reminder(args, ctx)
+    if name == "edit_reminder":
+        return await _edit_reminder(args, ctx)
     if name == "create_poll":
         return _stage_poll(args, ctx)
     if name == "delete_poll":
@@ -530,6 +647,8 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
         return await _subscribe(args, ctx)
     if name == "unsubscribe":
         return await _unsubscribe(args, ctx)
+    if name == "edit_subscription":
+        return await _edit_subscription(args, ctx)
     if name == "list_subscriptions":
         return await _list_subscriptions(ctx)
     if name == "web_search":

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.subscription import Subscription
 
+_UNSET = object()  # phân biệt 'không sửa' với 'sửa thành None' (vd reset last_run_on)
+
 
 class SubscriptionRepository:
     def __init__(self, session: AsyncSession):
@@ -69,3 +71,29 @@ class SubscriptionRepository:
             await self.session.flush()
             return True
         return False
+
+    async def update(
+        self,
+        sub_id: int,
+        guild_id: uuid.UUID,
+        *,
+        hour: int | None = None,
+        minute: int | None = None,
+        topic: str | None = None,
+        last_run_on=_UNSET,
+    ) -> Subscription | None:
+        """Sửa giờ và/hoặc chủ đề 1 đăng ký. Chỉ đổi field được truyền. `last_run_on` dùng sentinel
+        nên truyền None là RESET (để lịch mới có hiệu lực). Trả row đã sửa."""
+        row = await self.session.get(Subscription, sub_id)
+        if row is None or row.guild_id != guild_id:
+            return None
+        if hour is not None:
+            row.hour = hour
+        if minute is not None:
+            row.minute = minute
+        if topic is not None:
+            row.topic = topic
+        if last_run_on is not _UNSET:
+            row.last_run_on = last_run_on
+        await self.session.flush()
+        return row

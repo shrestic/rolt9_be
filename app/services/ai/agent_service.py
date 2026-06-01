@@ -37,8 +37,8 @@ CONVERSATION_WINDOW = timedelta(minutes=20)
 # Nhắc model CHỦ ĐỘNG dùng tool/hành động thay vì chỉ trả lời chay — kéo tỉ lệ
 # gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
 _TOOL_NUDGE = (
-    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, đặt nhắc (báo thức) / xem / huỷ nhắc, "
-    "đăng ký nhận tin định kỳ hằng ngày / ngừng đăng ký, tạo poll bình chọn & xoá poll, "
+    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, đặt nhắc (báo thức) / xem / sửa / huỷ nhắc, "
+    "đăng ký nhận tin định kỳ hằng ngày / sửa / ngừng đăng ký, tạo poll bình chọn & xoá poll, "
     "và (nếu được cấp) thực hiện hành động trên server — "
     "tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, timeout (mute) và untimeout (unmute/gỡ mute), "
     "bật/tắt plugin. "
