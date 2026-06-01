@@ -238,11 +238,19 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
 
     if name in ("assign_role", "remove_role", "delete_role"):
         rn = str(args.get("role_name", "")).strip()
+        if not rn:
+            return "Thiếu tên role."
         match = _find_role_name(rn, ctx.role_names)
-        if match is None:
+        # assign_role CHO PHÉP role chưa tồn tại: có thể được create_role tạo CÙNG LƯỢT
+        # (cog chạy create trước assign). Kiểm tra tồn tại thật để ở execute. remove/delete
+        # cần role có sẵn -> vẫn từ chối sớm cho rõ.
+        if match is None and name != "assign_role":
             return f"Không tìm thấy role '{rn}' trong server."
+        role_label = match or rn
         if name == "delete_role":
-            return PendingAction(name, destructive, f"Xóa role **{match}**", {"role_name": match})
+            return PendingAction(
+                name, destructive, f"Xóa role **{role_label}**", {"role_name": role_label}
+            )
         targets = list(ctx.target_user_ids) or ([ctx.commander_id] if ctx.commander_id else [])
         if not targets:
             return "Không rõ gán/gỡ cho ai."
@@ -250,8 +258,8 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
         return PendingAction(
             name,
             destructive,
-            f"{verb} role **{match}** cho {len(targets)} người",
-            {"role_name": match, "target_ids": targets},
+            f"{verb} role **{role_label}** cho {len(targets)} người",
+            {"role_name": role_label, "target_ids": targets},
         )
 
     if name == "toggle_plugin":

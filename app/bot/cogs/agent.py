@@ -224,7 +224,9 @@ class AgentCog(commands.Cog):
                 channel_id=int(message.channel.id),
             )
             # Hành động: an toàn làm luôn; phá -> gửi nút xác nhận.
-            for p in pending:
+            # create_role chạy TRƯỚC để "tạo role X rồi gán X cho @ai" trong 1 câu chạy được
+            # (assign tìm role vừa tạo). sorted ổn định nên các action khác giữ nguyên thứ tự.
+            for p in sorted(pending, key=lambda a: 0 if a.kind == "create_role" else 1):
                 if p.destructive:
                     await self._send_confirm(message, p)
                 else:

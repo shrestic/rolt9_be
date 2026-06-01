@@ -55,8 +55,18 @@ async def test_stage_create_role_ok():
 
 
 @pytest.mark.asyncio
-async def test_stage_assign_role_unknown():
-    assert isinstance(await stage("assign_role", {"role_name": "Khong Co"}, _ctx()), str)
+async def test_stage_assign_unknown_role_defers_to_execute():
+    # assign role CHƯA tồn tại -> KHÔNG từ chối sớm (có thể do create_role tạo cùng lượt);
+    # stage với tên thô, để execute kiểm tra lúc chạy.
+    p = await stage("assign_role", {"role_name": "Mới Toanh"}, _ctx())
+    assert isinstance(p, PendingAction) and p.params["role_name"] == "Mới Toanh"
+
+
+@pytest.mark.asyncio
+async def test_stage_remove_unknown_role_still_rejects():
+    # remove/delete vẫn cần role có sẵn -> từ chối sớm cho rõ
+    assert isinstance(await stage("remove_role", {"role_name": "Khong Co"}, _ctx()), str)
+    assert isinstance(await stage("delete_role", {"role_name": "Khong Co"}, _ctx()), str)
 
 
 @pytest.mark.asyncio
@@ -362,3 +372,13 @@ async def test_execute_kick_batch_continues_past_blocked():
     boss.kick.assert_not_awaited()
     noob.kick.assert_awaited_once()
     assert "1 người" in out and "Sếp" in out
+
+
+def test_create_role_sorts_before_assign():
+    # cog xếp create_role chạy trước -> 'tạo role X rồi gán X' trong 1 câu chạy được
+    pend = [
+        PendingAction("assign_role", False, "", {"role_name": "X", "target_ids": [1]}),
+        PendingAction("create_role", False, "", {"name": "X", "color": None}),
+    ]
+    ordered = sorted(pend, key=lambda a: 0 if a.kind == "create_role" else 1)
+    assert [p.kind for p in ordered] == ["create_role", "assign_role"]
