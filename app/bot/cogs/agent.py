@@ -382,7 +382,11 @@ class AgentCog(commands.Cog):
                 for p in sorted(pending, key=lambda a: 0 if a.kind == "create_role" else 1):
                     if p.destructive:
                         last_sent = await self._send_confirm(message, p) or last_sent
-                        outcomes.append(f"(chờ admin xác nhận) {p.description}")
+                        # Lưu marker HỆ THỐNG nói RÕ là CHƯA thực hiện -> lượt sau model (a) không nhại
+                        # cụm '(chờ admin xác nhận)' như prose, (b) không tưởng hành động đã xong.
+                        outcomes.append(
+                            f"[hệ thống: mới gửi nút ✅/❌, CHƯA thực hiện] {p.description}"
+                        )
                     else:
                         res = await run_action(
                             p, guild=message.guild, session=session, channel=message.channel
