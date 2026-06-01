@@ -426,21 +426,39 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
             return f"Đã gỡ timeout {done} người."
 
         if pending.kind == "unban":
-            done = 0
             wanted_ids = set(p.get("target_ids") or [])
             query = (p.get("query") or "").strip().lower().lstrip("@")
-            # Quét danh sách ban, khớp theo ID hoặc theo tên (chứa query).
-            async for entry in guild.bans():
-                u = entry.user
-                if u.id in wanted_ids or (
-                    query and (query == str(u.id) or query in (u.name or "").lower())
-                ):
+            qnorm = query.replace("-", "").replace("_", "").replace(" ", "")
+            bans = [e async for e in guild.bans(limit=1000)]
+
+            def _hit(u) -> bool:
+                if u.id in wanted_ids:
+                    return True
+                if not query:
+                    return False
+                if query == str(u.id):
+                    return True
+                # Gộp username + global_name + str(user), so khớp lỏng (bỏ -/_/space)
+                names = " ".join(
+                    x for x in (u.name, getattr(u, "global_name", None), str(u)) if x
+                ).lower()
+                if query in names:
+                    return True
+                names_norm = names.replace("-", "").replace("_", "").replace(" ", "")
+                return bool(qnorm) and qnorm in names_norm
+
+            matched = [e.user for e in bans if _hit(e.user)]
+            if matched:
+                for u in matched:
                     await guild.unban(u, reason=p.get("reason") or None)
-                    done += 1
+                return "Đã gỡ ban: " + ", ".join(u.name or str(u.id) for u in matched)
+            if not bans:
+                return "Danh sách ban đang trống — không có ai để gỡ."
+            # Không khớp -> LIỆT KÊ ban list kèm ID (tài khoản đã xoá tên khó gõ, gỡ theo ID).
+            lines = "\n".join(f"- {e.user.name or '(no name)'} — ID {e.user.id}" for e in bans[:20])
             return (
-                f"Đã gỡ ban {done} người."
-                if done
-                else "Không tìm thấy ai khớp trong danh sách ban."
+                f"Không thấy ai khớp '{query}'. Trong danh sách ban đang có:\n{lines}\n"
+                "Gõ lại đúng tên hoặc ID (vd 'gỡ ban 123456') nhé."
             )
 
         if pending.kind == "toggle_plugin":

@@ -319,31 +319,53 @@ async def test_execute_untimeout_clears_timeout():
 @pytest.mark.asyncio
 async def test_execute_unban_by_name():
     banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
-    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    guild = SimpleNamespace(bans=lambda limit=None: _AsyncIter([banned]), unban=AsyncMock())
     p = PendingAction("unban", False, "", {"target_ids": [], "query": "badguy", "reason": ""})
     out = await execute(p, guild=guild, session=None)
     guild.unban.assert_awaited_once()
-    assert "gỡ ban 1" in out.lower()
+    assert "gỡ ban" in out.lower() and "BadGuy" in out
 
 
 @pytest.mark.asyncio
 async def test_execute_unban_by_id():
     banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
-    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    guild = SimpleNamespace(bans=lambda limit=None: _AsyncIter([banned]), unban=AsyncMock())
     p = PendingAction("unban", False, "", {"target_ids": [222], "query": "", "reason": ""})
     out = await execute(p, guild=guild, session=None)
     guild.unban.assert_awaited_once()
-    assert "gỡ ban 1" in out.lower()
+    assert "gỡ ban" in out.lower()
 
 
 @pytest.mark.asyncio
-async def test_execute_unban_no_match():
+async def test_execute_unban_normalized_name_match():
+    # tên có dấu gạch/space vẫn khớp query (vd "deleted-user" ~ "deleted user")
+    banned = SimpleNamespace(user=SimpleNamespace(id=7, name="Deleted User"))
+    guild = SimpleNamespace(bans=lambda limit=None: _AsyncIter([banned]), unban=AsyncMock())
+    p = PendingAction("unban", False, "", {"target_ids": [], "query": "deleted-user", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.unban.assert_awaited_once()
+    assert "gỡ ban" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_unban_no_match_lists_bans_with_ids():
+    # không khớp -> liệt kê ban list kèm ID để gỡ theo ID (tài khoản xoá tên khó gõ)
     banned = SimpleNamespace(user=SimpleNamespace(id=222, name="BadGuy"))
-    guild = SimpleNamespace(bans=lambda: _AsyncIter([banned]), unban=AsyncMock())
+    guild = SimpleNamespace(bans=lambda limit=None: _AsyncIter([banned]), unban=AsyncMock())
     p = PendingAction("unban", False, "", {"target_ids": [999], "query": "nope", "reason": ""})
     out = await execute(p, guild=guild, session=None)
     guild.unban.assert_not_awaited()
-    assert "không tìm thấy" in out.lower()
+    assert "không thấy" in out.lower()
+    assert "BadGuy" in out and "222" in out  # liệt kê tên + ID
+
+
+@pytest.mark.asyncio
+async def test_execute_unban_empty_ban_list():
+    guild = SimpleNamespace(bans=lambda limit=None: _AsyncIter([]), unban=AsyncMock())
+    p = PendingAction("unban", False, "", {"target_ids": [], "query": "ai đó", "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.unban.assert_not_awaited()
+    assert "trống" in out.lower()
 
 
 @pytest.mark.asyncio
