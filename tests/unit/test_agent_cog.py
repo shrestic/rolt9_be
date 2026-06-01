@@ -338,6 +338,20 @@ async def test_on_message_value_error_replies_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_message_unexpected_error_still_replies_not_silent(monkeypatch):
+    # Lỗi bất ngờ (tool/model crash) -> VẪN báo 1 câu, KHÔNG im luôn (trước đây chỉ log rồi return).
+    stub = MagicMock()
+    stub.respond = AsyncMock(side_effect=RuntimeError("tool nổ"))
+    _patch(monkeypatch, stub)
+    cog = _cog()
+    msg = _Msg(author=_User(2), mentions=[_User(1)])
+    await cog.on_message(msg)
+    await _drain(cog)
+    msg.reply.assert_awaited_once()
+    assert "❌" in msg.reply.call_args.args[0]
+
+
+@pytest.mark.asyncio
 async def test_on_message_marks_cooldown_before_processing(monkeypatch):
     # Mark cooldown NGAY (trước respond): dù respond trả None / chậm, tin thứ 2 vẫn bị chặn.
     stub = MagicMock()

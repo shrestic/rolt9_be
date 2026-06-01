@@ -149,9 +149,19 @@ class ActionConfirmView(discord.ui.View):
                 "Bạn không đủ quyền cho hành động này.", ephemeral=True
             )
             return
-        async with session_scope() as session:
-            res = await run_action(self.pending, guild=interaction.guild, session=session)
-        await interaction.response.edit_message(content=f"✅ {res}", view=None)
+        # Bọc run_action: lỗi (DB/Discord/…) thì BÁO LỖI ngay trên nút, KHÔNG để interaction
+        # treo im (trước đây exception ở đây = bấm ✅ xong không có gì xảy ra, người dùng tưởng hỏng).
+        try:
+            async with session_scope() as session:
+                res = await run_action(self.pending, guild=interaction.guild, session=session)
+            content = f"✅ {res}"
+        except Exception:  # noqa: BLE001 — mọi lỗi đều phải hiện ra cho người bấm, không nuốt
+            log.exception("agent confirm: run_action crashed (kind=%s)", self.pending.kind)
+            content = "❌ Lỗi khi thực thi hành động này — thử lại sau nhé."
+        try:
+            await interaction.response.edit_message(content=content, view=None)
+        except (DiscordError, discord.DiscordException):
+            pass
         self._resolve()
         self.stop()
 
@@ -380,7 +390,12 @@ class AgentCog(commands.Cog):
                 await self._safe_reply(message, f"❌ {e}")
                 return
             except Exception:
+                # Lỗi bất ngờ (tool/model crash) -> VẪN báo 1 câu cho người dùng, đừng im luôn
+                # (trước đây chỉ log rồi return -> bot lặng thinh, tưởng nuốt lệnh).
                 log.exception("agent: respond crashed")
+                await self._safe_reply(
+                    message, "❌ Mình bị lỗi khi xử lý cái này — thử lại giúp nhé."
+                )
                 return
             if result is None:
                 return
