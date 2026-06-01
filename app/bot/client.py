@@ -34,6 +34,7 @@ from app.bot.cogs.pet import PetCog
 from app.bot.cogs.quests import QuestsCog
 from app.bot.cogs.reminder import ReminderCog
 from app.bot.cogs.roast import RoastCog
+from app.bot.cogs.subscription import SubscriptionCog
 from app.bot.cogs.summarizer import SummarizerCog
 from app.bot.cogs.welcome import WelcomeCog
 from app.bot.cogs.xp_decay import XpDecayCog
@@ -125,6 +126,7 @@ class Rolt9Bot(commands.Bot):
         await self.add_cog(AgentCog(self, self.discord_io))
         await self.add_cog(CompanionCog(self, self.discord_io))
         await self.add_cog(ReminderCog(self, self.discord_io))
+        await self.add_cog(SubscriptionCog(self, self.discord_io))
         await self.add_cog(AgentMaintenanceCog(self))
         # Push the slash-command tree to Discord. The bot only sees /ban etc.
         # in clients after this sync completes.

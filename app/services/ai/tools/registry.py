@@ -32,6 +32,8 @@ class ToolContext:
     # Reminder (báo thức) — tool `remind` ghi vào đây; channel_id = kênh sẽ nhắc.
     reminder_repo: object | None = None
     channel_id: int | None = None
+    # Subscription (đăng ký nhận tin định kỳ) — tool `subscribe`/`unsubscribe`/`list_subscriptions`.
+    subscription_repo: object | None = None
 
 
 _REMEMBER_SPEC = {
@@ -189,6 +191,57 @@ _DELETE_POLL_SPEC = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
+_SUBSCRIBE_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "subscribe",
+        "description": (
+            "Đăng ký nhận tin ĐỊNH KỲ HẰNG NGÀY về một chủ đề (vd 'tin chứng khoán trong nước', "
+            "'giá vàng', 'thời tiết Hà Nội'). Gọi khi user nói 'mỗi ngày cập nhật...', "
+            "'hằng ngày báo cho tao...', 'theo dõi giúp...'. Bot sẽ tự tra tin mới + tóm tắt mỗi ngày."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Chủ đề cần cập nhật hằng ngày"},
+                "time": {
+                    "type": "string",
+                    "description": "Giờ đăng mỗi ngày 'HH:MM' giờ VN (mặc định 08:00 nếu không nói)",
+                },
+            },
+            "required": ["topic"],
+        },
+    },
+}
+_UNSUBSCRIBE_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "unsubscribe",
+        "description": (
+            "Ngừng / huỷ đăng ký nhận tin định kỳ. Gọi khi user nói 'đừng cập nhật ... nữa', "
+            "'thôi không theo dõi ... nữa', 'huỷ đăng ký ...'. 'query' = từ khoá chủ đề để tìm đúng "
+            "cái; nhiều cái khớp thì tool trả về danh sách để hỏi lại. 'all'=true khi muốn huỷ HẾT."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Từ khoá chủ đề (tuỳ chọn)"},
+                "all": {"type": "boolean", "description": "true = huỷ TẤT CẢ đăng ký của người đó"},
+            },
+        },
+    },
+}
+_LIST_SUBSCRIPTIONS_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "list_subscriptions",
+        "description": (
+            "Liệt kê các đăng ký nhận tin định kỳ ĐANG BẬT của người ra lệnh (chủ đề + giờ). "
+            "Gọi khi user hỏi 'tao đang theo dõi gì', hoặc khi muốn huỷ mà chưa rõ cái nào."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
 
 
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
@@ -199,6 +252,9 @@ def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
         _CANCEL_REMINDER_SPEC,
         _CREATE_POLL_SPEC,
         _DELETE_POLL_SPEC,
+        _SUBSCRIBE_SPEC,
+        _UNSUBSCRIBE_SPEC,
+        _LIST_SUBSCRIPTIONS_SPEC,
         _SERVER_INFO_SPEC,
         _CURRENT_TIME_SPEC,
     ]
@@ -344,6 +400,80 @@ async def _create_reminder(args: dict, ctx: ToolContext) -> str:
     return f"Đã đặt nhắc lúc {when_raw} (giờ VN): {message}"
 
 
+def _parse_hhmm(raw: str, default: tuple = (8, 0)) -> tuple:
+    """'HH:MM' / '8h' / '8h30' (giờ VN) -> (hour, minute). Không parse được -> default (08:00)."""
+    raw = (raw or "").strip().lower().replace("giờ", "h")
+    for fmt in ("%H:%M", "%Hh%M", "%Hh", "%H"):
+        try:
+            t = datetime.strptime(raw, fmt)
+            return t.hour, t.minute
+        except ValueError:
+            continue
+    return default
+
+
+async def _subscribe(args: dict, ctx: ToolContext) -> str:
+    """Tạo đăng ký nhận tin hằng ngày. Nếu giờ hẹn đã qua trong hôm nay -> bắt đầu từ NGÀY MAI."""
+    if ctx.subscription_repo is None or ctx.guild_pk is None or ctx.channel_id is None:
+        return "Chưa đăng ký được (thiếu ngữ cảnh)."
+    topic = str(args.get("topic", "")).strip()
+    if not topic:
+        return "Cần nêu chủ đề muốn cập nhật (vd 'tin chứng khoán trong nước')."
+    hour, minute = _parse_hhmm(str(args.get("time", "")))
+    now_vn = datetime.now(VN_TZ)
+    # Giờ hẹn đã trôi qua hôm nay -> đánh dấu đã chạy hôm nay để lần đầu là NGÀY MAI (đỡ bắn ngay).
+    last_run_on = now_vn.date() if (hour, minute) <= (now_vn.hour, now_vn.minute) else None
+    await ctx.subscription_repo.create(
+        guild_id=ctx.guild_pk,
+        channel_id=ctx.channel_id,
+        creator_id=ctx.commander_id or 0,
+        topic=topic,
+        hour=hour,
+        minute=minute,
+        last_run_on=last_run_on,
+    )
+    return f"Đã đăng ký: mỗi ngày {hour:02d}:{minute:02d} cập nhật '{topic}'."
+
+
+async def _my_subs(ctx: ToolContext) -> list:
+    return await ctx.subscription_repo.active_for_creator(ctx.guild_pk, ctx.commander_id or 0)
+
+
+async def _list_subscriptions(ctx: ToolContext) -> str:
+    if ctx.subscription_repo is None or ctx.guild_pk is None:
+        return "Chưa xem được (thiếu ngữ cảnh)."
+    mine = await _my_subs(ctx)
+    if not mine:
+        return "Bạn chưa đăng ký nhận tin định kỳ nào."
+    lines = "\n".join(
+        f"{i + 1}. {s.hour:02d}:{s.minute:02d} — {s.topic}" for i, s in enumerate(mine)
+    )
+    return f"Đăng ký nhận tin của bạn:\n{lines}"
+
+
+async def _unsubscribe(args: dict, ctx: ToolContext) -> str:
+    """Huỷ đăng ký CỦA CHÍNH người ra lệnh. Nhiều cái khớp -> liệt kê hỏi lại; all=true -> huỷ hết."""
+    if ctx.subscription_repo is None or ctx.guild_pk is None:
+        return "Chưa huỷ được (thiếu ngữ cảnh)."
+    mine = await _my_subs(ctx)
+    if not mine:
+        return "Bạn không có đăng ký nào đang bật."
+    if bool(args.get("all")):
+        for s in mine:
+            await ctx.subscription_repo.cancel(s.id, ctx.guild_pk)
+        return f"Đã huỷ tất cả {len(mine)} đăng ký."
+    query = str(args.get("query", "")).strip().lower()
+    matched = [s for s in mine if query in (s.topic or "").lower()] if query else mine
+    if not matched:
+        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in mine)
+        return f"Không thấy đăng ký nào khớp '{query}'. Bạn đang có:\n{lines}"
+    if len(matched) > 1:
+        lines = "\n".join(f"- {s.topic} ({s.hour:02d}:{s.minute:02d})" for s in matched)
+        return f"Có {len(matched)} đăng ký khớp, nói rõ chủ đề nào nhé:\n{lines}"
+    await ctx.subscription_repo.cancel(matched[0].id, ctx.guild_pk)
+    return f"Đã huỷ đăng ký: {matched[0].topic}"
+
+
 def _stage_poll(args: dict, ctx: ToolContext) -> str:
     """Validate args poll rồi xếp vào ctx.pending để cog gửi poll Discord thật vào kênh."""
     from app.services.ai.actions.registry import PendingAction  # lazy: tránh vòng import
@@ -393,6 +523,12 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
 
         ctx.pending.append(PendingAction("delete_poll", False, "Xoá poll gần nhất", {}))
         return "Đã xoá poll gần nhất."
+    if name == "subscribe":
+        return await _subscribe(args, ctx)
+    if name == "unsubscribe":
+        return await _unsubscribe(args, ctx)
+    if name == "list_subscriptions":
+        return await _list_subscriptions(ctx)
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
     if name == "server_info":

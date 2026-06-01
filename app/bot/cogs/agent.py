@@ -21,6 +21,7 @@ from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.reminder import ReminderRepository
+from app.repositories.subscription import SubscriptionRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.actions.registry import ACTION_PERMS
 from app.services.ai.actions.registry import execute as run_action
@@ -144,6 +145,7 @@ def _build_service(session) -> AgentService:
         memory_repo=UserMemoryRepository(session),
         memory_doc_repo=MemoryDocRepository(session),
         reminder_repo=ReminderRepository(session),
+        subscription_repo=SubscriptionRepository(session),
         gateway=gateway,
     )
 
@@ -219,6 +221,7 @@ class AgentCog(commands.Cog):
                 user_text=user_text,
                 assistant_text=text,
                 bot_message_id=int(sent.id),
+                channel_id=int(message.channel.id),
             )
             # Hành động: an toàn làm luôn; phá -> gửi nút xác nhận.
             for p in pending:

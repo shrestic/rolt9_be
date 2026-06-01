@@ -1,7 +1,9 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.models.agent_message import AgentMessage
 from app.models.guild import Guild
 from app.repositories.agent_message import AgentMessageRepository
 
@@ -48,3 +50,74 @@ async def test_conversation_of(db_session):
     await db_session.commit()
     assert await repo.conversation_of(999) == cid
     assert await repo.conversation_of(123) is None
+
+
+@pytest.mark.asyncio
+async def test_latest_conversation_continues_recent(db_session):
+    # Lượt gần đây của đúng (guild, kênh, user) -> trả về cuộc đó để nối tiếp.
+    gid = await _guild(db_session)
+    repo = AgentMessageRepository(db_session)
+    cid = uuid.uuid4()
+    await repo.add_turn(gid, cid, "user", "hi", channel_id=10, user_discord_id=1)
+    await db_session.commit()
+    found = await repo.latest_conversation(
+        gid,
+        channel_id=10,
+        user_discord_id=1,
+        within=timedelta(minutes=20),
+        now=datetime.now(UTC),
+    )
+    assert found == cid
+
+
+@pytest.mark.asyncio
+async def test_latest_conversation_none_when_stale(db_session):
+    # Lượt cuối quá cũ (ngoài window) -> không nối, trả None (mở cuộc mới).
+    gid = await _guild(db_session)
+    repo = AgentMessageRepository(db_session)
+    cid = uuid.uuid4()
+    old = datetime.now(UTC) - timedelta(hours=2)
+    db_session.add(
+        AgentMessage(
+            guild_id=gid,
+            conversation_id=cid,
+            role="user",
+            content="hi",
+            channel_id=10,
+            user_discord_id=1,
+            created_at=old,
+        )
+    )
+    await db_session.commit()
+    found = await repo.latest_conversation(
+        gid,
+        channel_id=10,
+        user_discord_id=1,
+        within=timedelta(minutes=20),
+        now=datetime.now(UTC),
+    )
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_latest_conversation_scoped_by_channel_and_user(db_session):
+    # Cùng guild nhưng khác kênh / khác người -> không được nối nhầm cuộc.
+    gid = await _guild(db_session)
+    repo = AgentMessageRepository(db_session)
+    cid = uuid.uuid4()
+    await repo.add_turn(gid, cid, "user", "hi", channel_id=10, user_discord_id=1)
+    await db_session.commit()
+    now = datetime.now(UTC)
+    within = timedelta(minutes=20)
+    assert (
+        await repo.latest_conversation(
+            gid, channel_id=99, user_discord_id=1, within=within, now=now
+        )
+        is None
+    )
+    assert (
+        await repo.latest_conversation(
+            gid, channel_id=10, user_discord_id=2, within=within, now=now
+        )
+        is None
+    )

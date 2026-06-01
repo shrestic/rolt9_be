@@ -21,6 +21,7 @@ from app.models.karma_grant import KarmaGrant  # noqa: F401
 from app.models.level_role_reward import LevelRoleReward  # noqa: F401
 from app.models.mod_case import ModCase  # noqa: F401
 from app.models.reminder import Reminder  # noqa: F401
+from app.models.subscription import Subscription  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.user_badge import UserBadge  # noqa: F401
 from app.models.user_karma import UserKarma  # noqa: F401

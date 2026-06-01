@@ -5,7 +5,7 @@ Cog (AgentCog) lo phần Discord (mention/reply, cooldown, gửi tin); service l
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
@@ -14,6 +14,7 @@ from app.repositories.ai_config import AIConfigRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.reminder import ReminderRepository
+from app.repositories.subscription import SubscriptionRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.tools.registry import ToolContext
@@ -28,11 +29,17 @@ HISTORY_CHAR_CAP = 6000
 FACTS_CHAR_CAP = 1500
 MAX_FACTS = 15
 
+# Khi user nhắn tiếp mà KHÔNG reply: nếu vừa nói trong cùng (kênh, người) trong khoảng
+# này thì nối tiếp cuộc cũ cho tự nhiên; im lặng lâu hơn -> coi như cuộc mới. Reply vẫn
+# luôn được ưu tiên trên cơ chế này (xem `respond`).
+CONVERSATION_WINDOW = timedelta(minutes=20)
+
 # Nhắc model CHỦ ĐỘNG dùng tool/hành động thay vì chỉ trả lời chay — kéo tỉ lệ
 # gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
 _TOOL_NUDGE = (
     "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, đặt nhắc (báo thức) / xem / huỷ nhắc, "
-    "tạo poll bình chọn & xoá poll, và (nếu được cấp) thực hiện hành động trên server — "
+    "đăng ký nhận tin định kỳ hằng ngày / ngừng đăng ký, tạo poll bình chọn & xoá poll, "
+    "và (nếu được cấp) thực hiện hành động trên server — "
     "tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, timeout (mute) và untimeout (unmute/gỡ mute), "
     "bật/tắt plugin. "
     "Khi người dùng YÊU CẦU một hành động, HÃY GỌI THẲNG đúng tool hành động đó — "
@@ -106,6 +113,7 @@ class AgentService:
         memory_repo: UserMemoryRepository,
         memory_doc_repo: MemoryDocRepository,
         reminder_repo: ReminderRepository,
+        subscription_repo: SubscriptionRepository,
         gateway: AIGateway,
     ):
         self.guild_repo = guild_repo
@@ -114,6 +122,7 @@ class AgentService:
         self.memory_repo = memory_repo
         self.memory_doc_repo = memory_doc_repo
         self.reminder_repo = reminder_repo
+        self.subscription_repo = subscription_repo
         self.gateway = gateway
 
     async def _guild_pk(self, guild_discord_id: int) -> uuid.UUID:
@@ -149,9 +158,22 @@ class AgentService:
         if cfg.agent_channel_id and channel_id != cfg.agent_channel_id:
             return None
 
+        # Chọn cuộc theo 3 tầng ưu tiên:
+        #   1) User REPLY vào tin bot -> nối đúng cuộc đó (rõ ràng nhất).
+        #   2) Không reply, nhưng vừa nói trong cùng (kênh, người) gần đây -> nối cuộc
+        #      gần nhất (tự nhiên, đỡ bắt user phải reply).
+        #   3) Còn lại -> cuộc mới.
         conversation_id = None
         if reference_message_id is not None:
             conversation_id = await self.agent_msg_repo.conversation_of(reference_message_id)
+        if conversation_id is None:
+            conversation_id = await self.agent_msg_repo.latest_conversation(
+                guild.id,
+                channel_id=channel_id,
+                user_discord_id=user_discord_id,
+                within=CONVERSATION_WINDOW,
+                now=datetime.now(UTC),
+            )
         if conversation_id is None:
             conversation_id = uuid.uuid4()
 
@@ -181,6 +203,8 @@ class AgentService:
             # Tool `remind` — ghi báo thức; channel_id = kênh sẽ nhắc khi tới giờ.
             reminder_repo=self.reminder_repo,
             channel_id=channel_id,
+            # Tool `subscribe`/`unsubscribe`/`list_subscriptions` — đăng ký tin định kỳ.
+            subscription_repo=self.subscription_repo,
         )
 
         # Luôn đi qua tool-loop: tool `remember` luôn sẵn sàng nên không còn nhánh "chat chay".
@@ -205,13 +229,22 @@ class AgentService:
         user_text: str,
         assistant_text: str,
         bot_message_id: int,
+        channel_id: int | None = None,
     ) -> None:
         """Sau khi đã gửi reply: lưu 2 lượt + async rút facts. Lỗi rút facts không chặn."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
             return
         old_facts = await self.memory_repo.get_facts(guild.id, user_discord_id)
-        await self.persist(guild.id, conversation_id, user_text, assistant_text, bot_message_id)
+        await self.persist(
+            guild.id,
+            conversation_id,
+            user_text,
+            assistant_text,
+            bot_message_id,
+            channel_id=channel_id,
+            user_discord_id=user_discord_id,
+        )
         await self.extract_memory(
             guild_discord_id, user_discord_id, user_text, assistant_text, old_facts
         )
@@ -223,14 +256,27 @@ class AgentService:
         user_text: str,
         assistant_text: str,
         bot_message_id: int,
+        channel_id: int | None = None,
+        user_discord_id: int | None = None,
     ) -> None:
-        await self.agent_msg_repo.add_turn(guild_id, conversation_id, "user", user_text)
+        # Gắn (kênh, người) vào CẢ 2 lượt -> sau này `latest_conversation` tra ra được
+        # cuộc này khi user nhắn tiếp mà không reply.
+        await self.agent_msg_repo.add_turn(
+            guild_id,
+            conversation_id,
+            "user",
+            user_text,
+            channel_id=channel_id,
+            user_discord_id=user_discord_id,
+        )
         await self.agent_msg_repo.add_turn(
             guild_id,
             conversation_id,
             "assistant",
             assistant_text,
             discord_message_id=bot_message_id,
+            channel_id=channel_id,
+            user_discord_id=user_discord_id,
         )
 
     async def extract_memory(

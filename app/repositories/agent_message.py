@@ -1,7 +1,7 @@
 """Data access cho `agent_message` — lịch sử hội thoại Claw Agent. Flush; commit ở boundary."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,8 @@ class AgentMessageRepository:
         role: str,
         content: str,
         discord_message_id: int | None = None,
+        channel_id: int | None = None,
+        user_discord_id: int | None = None,
     ) -> None:
         self.session.add(
             AgentMessage(
@@ -28,9 +30,50 @@ class AgentMessageRepository:
                 role=role,
                 content=content,
                 discord_message_id=discord_message_id,
+                channel_id=channel_id,
+                user_discord_id=user_discord_id,
             )
         )
         await self.session.flush()
+
+    async def latest_conversation(
+        self,
+        guild_id: uuid.UUID,
+        *,
+        channel_id: int,
+        user_discord_id: int,
+        within: timedelta,
+        now: datetime,
+    ) -> uuid.UUID | None:
+        """Cuộc gần nhất của đúng (guild, kênh, người) NẾU lượt cuối còn trong `within`.
+
+        Dùng khi user nhắn tiếp mà KHÔNG reply: thay vì mở cuộc mới sạch trơn, ta nối
+        lại cuộc vừa nói cho tự nhiên. Im lặng quá `within` -> trả None để mở cuộc mới.
+        So thời gian ở Python (chuẩn hoá naive->UTC) để chạy đúng cả SQLite lẫn Postgres,
+        không phụ thuộc số học datetime ở tầng DB.
+        """
+        r = await self.session.execute(
+            select(AgentMessage.conversation_id, AgentMessage.created_at)
+            .where(
+                AgentMessage.guild_id == guild_id,
+                AgentMessage.channel_id == channel_id,
+                AgentMessage.user_discord_id == user_discord_id,
+            )
+            .order_by(desc(AgentMessage.id))
+            .limit(1)
+        )
+        row = r.first()
+        if row is None:
+            return None
+        conversation_id, created_at = row
+        if created_at is None:
+            return None
+        # SQLite trả naive (UTC ngầm), Postgres trả tz-aware -> chuẩn hoá về UTC rồi so.
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        if now - created_at > within:
+            return None
+        return conversation_id
 
     async def recent_turns(
         self, conversation_id: uuid.UUID, *, limit: int, char_cap: int

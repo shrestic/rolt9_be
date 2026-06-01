@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC
 
 import pytest
 
@@ -11,6 +12,7 @@ from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
 from app.repositories.reminder import ReminderRepository
+from app.repositories.subscription import SubscriptionRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.agent_service import AgentService, build_system
 from app.services.ai.ai_gateway import AIGateway
@@ -81,6 +83,7 @@ async def _svc(
         memory_repo=UserMemoryRepository(db_session),
         memory_doc_repo=MemoryDocRepository(db_session),
         reminder_repo=ReminderRepository(db_session),
+        subscription_repo=SubscriptionRepository(db_session),
         gateway=gateway,
     )
     return gid, svc
@@ -197,6 +200,61 @@ async def test_respond_continues_conversation_via_reference(db_session):
     )
     assert result is not None
     assert result[0] == cid  # nối tiếp đúng cuộc cũ
+
+
+@pytest.mark.asyncio
+async def test_respond_continues_recent_conversation_without_reference(db_session):
+    # Không reply, nhưng vừa nói trong cùng (kênh, user) -> nối tiếp cuộc gần đây.
+    gid, svc = await _svc(db_session)
+    cid = uuid.uuid4()
+    await AgentMessageRepository(db_session).add_turn(
+        gid, cid, "assistant", "câu trước", channel_id=10, user_discord_id=1
+    )
+    await db_session.commit()
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="tiếp",
+        reference_message_id=None,
+    )
+    assert result is not None
+    assert result[0] == cid  # nối tiếp cuộc gần đây dù không reply
+
+
+@pytest.mark.asyncio
+async def test_respond_new_conversation_when_prior_is_stale(db_session):
+    # Lượt cuối quá lâu (ngoài window) -> mở cuộc mới, không nối.
+    from datetime import datetime, timedelta
+
+    from app.models.agent_message import AgentMessage
+
+    gid, svc = await _svc(db_session)
+    cid = uuid.uuid4()
+    old = datetime.now(UTC) - timedelta(hours=3)
+    db_session.add(
+        AgentMessage(
+            guild_id=gid,
+            conversation_id=cid,
+            role="assistant",
+            content="lâu rồi",
+            channel_id=10,
+            user_discord_id=1,
+            created_at=old,
+        )
+    )
+    await db_session.commit()
+    result = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="ơ",
+        reference_message_id=None,
+    )
+    assert result is not None
+    assert result[0] != cid  # cuộc cũ quá -> cuộc mới
 
 
 @pytest.mark.asyncio

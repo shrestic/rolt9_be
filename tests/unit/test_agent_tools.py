@@ -283,3 +283,64 @@ async def test_cancel_reminder_by_time_query(db_session):
     await db_session.commit()
     assert "đã huỷ" in out.lower()
     assert await repo.pending_for_guild(gid) == []
+
+
+def test_tool_specs_has_subscription_tools():
+    names = {s["function"]["name"] for s in tool_specs(has_search=False)}
+    assert {"subscribe", "unsubscribe", "list_subscriptions"} <= names
+
+
+async def _guild_for_subs(db_session):
+    import uuid as _uuid
+
+    from app.models.guild import Guild
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    return gid
+
+
+@pytest.mark.asyncio
+async def test_execute_subscribe_writes_db(db_session):
+    from app.repositories.subscription import SubscriptionRepository
+
+    gid = await _guild_for_subs(db_session)
+    repo = SubscriptionRepository(db_session)
+    ctx = ToolContext(subscription_repo=repo, guild_pk=gid, channel_id=55, commander_id=42)
+    out = await execute("subscribe", {"topic": "tin chứng khoán", "time": "8:00"}, ctx)
+    await db_session.commit()
+    assert "đăng ký" in out.lower()
+    subs = await repo.active_for_creator(gid, 42)
+    assert len(subs) == 1 and subs[0].topic == "tin chứng khoán"
+    assert subs[0].hour == 8 and subs[0].channel_id == 55
+
+
+@pytest.mark.asyncio
+async def test_execute_unsubscribe_and_list(db_session):
+    from app.repositories.subscription import SubscriptionRepository
+
+    gid = await _guild_for_subs(db_session)
+    repo = SubscriptionRepository(db_session)
+    await repo.create(
+        guild_id=gid, channel_id=1, creator_id=42, topic="chứng khoán", hour=8, minute=0
+    )
+    await repo.create(guild_id=gid, channel_id=1, creator_id=42, topic="giá vàng", hour=9, minute=0)
+    await db_session.commit()
+    ctx = ToolContext(subscription_repo=repo, guild_pk=gid, commander_id=42)
+
+    listed = await execute("list_subscriptions", {}, ctx)
+    assert "chứng khoán" in listed and "giá vàng" in listed
+
+    # mơ hồ (không query, 2 cái) -> liệt kê hỏi lại, KHÔNG xoá
+    ambiguous = await execute("unsubscribe", {}, ctx)
+    await db_session.commit()
+    assert "nói rõ" in ambiguous.lower()
+    assert len(await repo.active_for_creator(gid, 42)) == 2
+
+    # đúng 1 khớp -> huỷ
+    out = await execute("unsubscribe", {"query": "vàng"}, ctx)
+    await db_session.commit()
+    assert "đã huỷ" in out.lower()
+    remaining = await repo.active_for_creator(gid, 42)
+    assert len(remaining) == 1 and remaining[0].topic == "chứng khoán"
