@@ -90,14 +90,19 @@ class ActionConfirmView(discord.ui.View):
 
 
 def is_addressed(message, bot_user) -> bool:
-    """True nếu tin nhắm tới bot:
-    - @mention user bot thật, hoặc reply (có reference);
+    """True nếu tin NHẮM TỚI bot:
+    - @mention user bot thật;
+    - reply vào TIN CỦA BOT (không phải reply người khác);
     - mention ROLE của bot (role tự sinh trùng tên bot) — qua role_mentions;
     - tin BẮT ĐẦU bằng tên bot dạng text/render (vd '@rolt9 ...'/'rolt9 ...').
     """
     if any(getattr(u, "id", None) == bot_user.id for u in message.mentions):
         return True
-    if message.reference is not None:
+    # Reply: CHỈ tính khi reply vào tin CỦA BOT. Trước đây nhận MỌI reply -> bot tự nhảy vào
+    # rep cả khi 2 người reply qua lại với nhau (không liên quan bot). Đó là con bug.
+    ref = getattr(message.reference, "resolved", None) if message.reference else None
+    ref_author = getattr(ref, "author", None)
+    if ref_author is not None and getattr(ref_author, "id", None) == bot_user.id:
         return True
     # Mention role của chính bot (guild.me có role đó).
     me = getattr(getattr(message, "guild", None), "me", None)
@@ -106,13 +111,16 @@ def is_addressed(message, bot_user) -> bool:
         my_role_ids = {getattr(r, "id", None) for r in getattr(me, "roles", [])}
         if any(getattr(r, "id", None) in my_role_ids for r in role_mentions):
             return True
-    # Tên bot ở đầu tin — check cả clean_content (đã render "@rolt9") lẫn content thô.
+    # Tên bot ở ĐẦU tin — phải có ranh giới từ sau tên (tránh 'rolt9000...' khớp nhầm 'rolt9').
     name = (getattr(bot_user, "name", "") or "").lower()
     if name:
         for attr in ("clean_content", "content"):
             text = (getattr(message, attr, "") or "").lstrip().lower()
-            if text.startswith(f"@{name}") or text.startswith(name):
-                return True
+            for prefix in (f"@{name}", name):
+                if text.startswith(prefix):
+                    rest = text[len(prefix) :]
+                    if rest == "" or not rest[0].isalnum():
+                        return True
     return False
 
 

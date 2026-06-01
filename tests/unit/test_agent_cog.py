@@ -27,8 +27,9 @@ class _User:
 
 
 class _Ref:
-    def __init__(self, mid):
+    def __init__(self, mid, resolved=None):
         self.message_id = mid
+        self.resolved = resolved  # tin được reply tới (Message) nếu cache có
 
 
 class _Typing:
@@ -84,10 +85,23 @@ def test_is_addressed_by_mention():
     assert is_addressed(_Msg(mentions=[_User(2)]), bot) is False
 
 
-def test_is_addressed_by_reply_present():
+def test_is_addressed_by_reply_to_bot_only():
     bot = _User(1)
-    assert is_addressed(_Msg(reference=_Ref(99)), bot) is True
+    # reply vào TIN CỦA BOT -> True
+    ref_bot = _Ref(99, resolved=SimpleNamespace(author=_User(1)))
+    assert is_addressed(_Msg(reference=ref_bot), bot) is True
+    # reply vào tin NGƯỜI KHÁC -> False (đây là con bug cũ: nhận mọi reply)
+    ref_other = _Ref(99, resolved=SimpleNamespace(author=_User(2)))
+    assert is_addressed(_Msg(reference=ref_other), bot) is False
+    # reply nhưng không resolve được -> không tự nhận (tránh rep nhầm)
+    assert is_addressed(_Msg(reference=_Ref(99)), bot) is False
     assert is_addressed(_Msg(content="chào mọi người"), bot) is False
+
+
+def test_is_addressed_name_prefix_word_boundary():
+    bot = _User(1, name="rolt9")
+    assert is_addressed(_Msg(content="rolt9 ơi"), bot) is True
+    assert is_addressed(_Msg(content="rolt9000 là gì"), bot) is False  # khớp nhầm -> chặn
 
 
 def test_is_addressed_by_name_text():
