@@ -31,6 +31,16 @@ class _Ref:
         self.message_id = mid
 
 
+class _Typing:
+    """Async context manager rỗng giả cho channel.typing()."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
 class _Msg:
     def __init__(
         self,
@@ -60,7 +70,7 @@ class _Msg:
             if guild
             else None
         )
-        self.channel = SimpleNamespace(id=10, send=AsyncMock())
+        self.channel = SimpleNamespace(id=10, send=AsyncMock(), typing=lambda: _Typing())
         self.clean_content = clean_content
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
 

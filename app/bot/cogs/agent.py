@@ -186,20 +186,22 @@ class AgentCog(commands.Cog):
         async with session_scope() as session:
             svc = _build_service(session)
             try:
-                result = await svc.respond(
-                    guild_discord_id=int(message.guild.id),
-                    channel_id=int(message.channel.id),
-                    user_discord_id=int(message.author.id),
-                    user_name=getattr(message.author, "display_name", str(message.author)),
-                    message_text=user_text,
-                    reference_message_id=ref_id,
-                    server_snapshot=server_snapshot,
-                    commander_perms=commander_perms,
-                    role_names=[r.name for r in getattr(g, "roles", [])],
-                    target_user_ids=target_user_ids,
-                    commander_id=int(message.author.id),
-                    channel_context=channel_context,
-                )
+                # "rolt9 đang gõ..." trong lúc gọi model (4-8s) -> đỡ cảm giác đơ.
+                async with message.channel.typing():
+                    result = await svc.respond(
+                        guild_discord_id=int(message.guild.id),
+                        channel_id=int(message.channel.id),
+                        user_discord_id=int(message.author.id),
+                        user_name=getattr(message.author, "display_name", str(message.author)),
+                        message_text=user_text,
+                        reference_message_id=ref_id,
+                        server_snapshot=server_snapshot,
+                        commander_perms=commander_perms,
+                        role_names=[r.name for r in getattr(g, "roles", [])],
+                        target_user_ids=target_user_ids,
+                        commander_id=int(message.author.id),
+                        channel_context=channel_context,
+                    )
             except ValueError as e:
                 await self._safe_reply(message, f"❌ {e}")
                 return

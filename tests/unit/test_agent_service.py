@@ -224,6 +224,56 @@ async def test_respond_continues_recent_conversation_without_reference(db_sessio
 
 
 @pytest.mark.asyncio
+async def test_followup_without_reply_continues_same_conversation_end_to_end(db_session):
+    # Đi HẾT đường thật: respond #1 -> remember (persist) -> respond #2 KHÔNG reply.
+    # Lượt 2 phải nối đúng cuộc của lượt 1 nhờ window (kênh+user khớp), không tạo cuộc mới.
+    gid, svc = await _svc(db_session)
+    first = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="chào bot",
+        reference_message_id=None,
+    )
+    assert first is not None
+    cid1 = first[0]
+    await svc.remember(
+        guild_discord_id=GID,
+        conversation_id=cid1,
+        user_discord_id=1,
+        user_text="chào bot",
+        assistant_text="chào",
+        bot_message_id=1001,
+        channel_id=10,
+    )
+    await db_session.commit()
+
+    second = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=1,
+        user_name="P",
+        message_text="nói tiếp đi",
+        reference_message_id=None,  # KHÔNG reply
+    )
+    assert second is not None
+    assert second[0] == cid1  # tự nối cuộc cũ, không mở cuộc mới
+
+    # Người khác trong cùng kênh -> KHÔNG bị nối nhầm vào cuộc của P.
+    other = await svc.respond(
+        guild_discord_id=GID,
+        channel_id=10,
+        user_discord_id=2,
+        user_name="Q",
+        message_text="ê bot",
+        reference_message_id=None,
+    )
+    assert other is not None
+    assert other[0] != cid1
+
+
+@pytest.mark.asyncio
 async def test_respond_new_conversation_when_prior_is_stale(db_session):
     # Lượt cuối quá lâu (ngoài window) -> mở cuộc mới, không nối.
     from datetime import datetime, timedelta
