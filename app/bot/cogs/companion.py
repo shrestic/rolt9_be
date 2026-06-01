@@ -86,14 +86,25 @@ class CompanionCog(commands.Cog):
             or not cfg.companion_enabled
             or not cfg.companion_channel_id
         ):
+            log.info("companion gate: tắt/thiếu kênh (guild %s)", guild.id)
             return None
         # Cooldown hiệu lực = max(cấu hình, sàn cứng) -> dù admin set thấp cũng không spam.
         gap_min = max(cfg.companion_cooldown_min, MIN_GAP_MINUTES)
         last = self.cooldown.get(int(guild.id))
         if last is not None and now - last < gap_min * 60:
+            log.info(
+                "companion gate: COOLDOWN còn %.0fs (guild %s)",
+                gap_min * 60 - (now - last),
+                guild.id,
+            )
             return None
         channel = guild.get_channel(cfg.companion_channel_id)
         if channel is None:
+            log.info(
+                "companion gate: bot không thấy kênh %s (guild %s)",
+                cfg.companion_channel_id,
+                guild.id,
+            )
             return None
         return guild_row, cfg, channel
 
@@ -111,12 +122,14 @@ class CompanionCog(commands.Cog):
         )
         text = self._strip_self_mention(text)
         if not text:
+            log.info("companion: AI chọn KHÔNG nói lần này (guild %s)", guild.id)
             return
         try:
             await channel.send(text)
         except (DiscordError, discord.DiscordException):
             log.warning("companion: failed to post in guild %s", guild.id)
             return
+        log.info("companion POSTED (guild %s): %s", guild.id, text[:80])
         self.cooldown[int(guild.id)] = now
 
     def _strip_self_mention(self, text: str) -> str:
@@ -161,6 +174,12 @@ class CompanionCog(commands.Cog):
         guild = getattr(after, "guild", None)
         if guild is None:
             return
+        log.info(
+            "companion presence: %s vừa %s (guild %s)",
+            getattr(after, "display_name", "?"),
+            activities,
+            guild.id,
+        )
         now = time.monotonic()
         try:
             await self._handle_presence_event(guild, after, activities, now=now)
