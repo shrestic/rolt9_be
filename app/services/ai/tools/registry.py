@@ -670,6 +670,10 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
             return res  # lỗi/từ chối -> báo lại model
         ctx.pending.append(res)
         log.info("agent action staged: name=%s desc=%s", name, res.description)
-        return f"Đã chuẩn bị: {res.description}. Chờ admin xác nhận/thực thi."
+        # Hành động PHÁ -> chờ nút ✅/❌. Hành động an toàn -> hệ thống làm NGAY (không cần confirm).
+        # Báo đúng để model khỏi nói nhầm "chờ admin confirm" cho việc tự chạy ngay.
+        if res.destructive:
+            return f"Đã xếp hàng: {res.description}. Hệ thống sẽ hiện nút ✅/❌ cho admin xác nhận."
+        return f"Đã thực hiện: {res.description}."
     log.info("agent tool called: name=%s", name)
     return f"Tool không tồn tại: {name}"
