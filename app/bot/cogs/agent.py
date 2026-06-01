@@ -240,6 +240,7 @@ class AgentCog(commands.Cog):
                     res = await run_action(
                         p, guild=message.guild, session=session, channel=message.channel
                     )
+                    log.info("agent action executed: kind=%s -> %s", p.kind, res)
                     # Poll tự là output rồi -> khỏi spam thêm "✅"; action khác thì báo.
                     if p.kind != "create_poll":
                         await self._safe_reply(message, f"✅ {res}")

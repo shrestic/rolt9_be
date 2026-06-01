@@ -86,9 +86,13 @@ async def test_stage_kick_needs_target_and_is_destructive():
 
 @pytest.mark.asyncio
 async def test_stage_timeout_minutes():
-    assert isinstance(await stage("timeout", {"minutes": 0}, _ctx()), str)
-    p = await stage("timeout", {"minutes": 10}, _ctx())
-    assert p.params["minutes"] == 10 and p.destructive is True
+    # không nói phút (hoặc phút không hợp lệ) -> MẶC ĐỊNH 10, KHÔNG hỏi lại (tránh bẫy multi-turn)
+    p0 = await stage("timeout", {}, _ctx())
+    assert isinstance(p0, PendingAction) and p0.params["minutes"] == 10
+    p_bad = await stage("timeout", {"minutes": 0}, _ctx())
+    assert isinstance(p_bad, PendingAction) and p_bad.params["minutes"] == 10
+    p = await stage("timeout", {"minutes": 5}, _ctx())
+    assert p.params["minutes"] == 5 and p.destructive is True
 
 
 @pytest.mark.asyncio

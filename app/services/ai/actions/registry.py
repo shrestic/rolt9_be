@@ -172,16 +172,16 @@ ACTION_SPECS = [
             "name": "timeout",
             "description": (
                 "Timeout / mute tạm (cấm chat) user (hành động phá, cần xác nhận). Mục tiêu là người "
-                "được @; nếu user gõ TÊN mà KHÔNG mention thật được thì truyền 'user'=tên/ID."
+                "được @; nếu user gõ TÊN mà KHÔNG mention thật được thì truyền 'user'=tên/ID. "
+                "KHÔNG cần hỏi lại số phút — user không nói thì MẶC ĐỊNH 10 phút, cứ gọi tool luôn."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "minutes": {"type": "integer"},
+                    "minutes": {"type": "integer", "description": "Số phút (bỏ trống = 10)"},
                     "user": {"type": "string", "description": "Tên/ID khi không @ mention được"},
                     "reason": {"type": "string"},
                 },
-                "required": ["minutes"],
             },
         },
     },
@@ -340,8 +340,9 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
         who = f"{len(targets)} người" if targets else f"'{query}'"
         if name == "timeout":
             minutes = args.get("minutes")
+            # Không nói/không hợp lệ -> mặc định 10 phút (đỡ phải hỏi lại = tránh bẫy multi-turn).
             if not isinstance(minutes, int) or minutes <= 0:
-                return "Số phút timeout phải > 0."
+                minutes = 10
             params["minutes"] = minutes
             desc = f"Timeout {who} {minutes} phút"
         else:
