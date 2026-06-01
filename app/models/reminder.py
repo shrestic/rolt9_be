@@ -28,6 +28,9 @@ class Reminder(Base):
     # Danh sách user id (số) cần @ping khi tới giờ. JSON cho gọn (portable SQLite + PG).
     target_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    # Smart reminder: nếu set, tới giờ bot TRA CỨU sống (web_search) + AI trả lời thật theo `task`
+    # (vd 'giá vàng hôm nay') thay vì chỉ echo `message`. NULL = reminder thường.
+    task: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Thời điểm nhắc — LƯU UTC (tz-aware). Index để query "cái nào tới giờ" nhanh.
     remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     fired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

@@ -13,11 +13,28 @@ from discord.ext import commands, tasks
 from app.db.session import session_scope
 from app.discord_io.client import DiscordClient
 from app.discord_io.errors import DiscordError
+from app.repositories.ai_config import AIConfigRepository
+from app.repositories.ai_usage import AIUsageRepository
+from app.repositories.guild import GuildRepository
 from app.repositories.reminder import ReminderRepository
+from app.services.ai.ai_gateway import AIGateway
+from app.services.ai.provider import get_ai_provider
+from app.services.ai.reminder_service import build_reminder_task_system
+from app.services.ai.tools.web_search import run_web_search
 
 log = logging.getLogger(__name__)
 
 CHECK_SECONDS = 60  # quét mỗi phút — đủ mịn cho báo thức, nhẹ tải
+
+
+def _gateway(session) -> AIGateway:
+    """Dựng AIGateway từ session (cho smart reminder tra web + AI trả lời lúc tới giờ)."""
+    return AIGateway(
+        guild_repo=GuildRepository(session),
+        config_repo=AIConfigRepository(session),
+        usage_repo=AIUsageRepository(session),
+        provider=get_ai_provider(),
+    )
 
 
 class ReminderCog(commands.Cog):
@@ -47,17 +64,44 @@ class ReminderCog(commands.Cog):
         async with session_scope() as session:
             repo = ReminderRepository(session)
             for r in await repo.due(now):
-                await self._send(r)
+                await self._send(r, session)
                 await repo.mark_fired(r.id)  # luôn mark để không lặp lại
 
-    async def _send(self, reminder) -> None:
+    async def _send(self, reminder, session) -> None:
         channel = self.bot.get_channel(reminder.channel_id)
         if channel is None:
             log.warning("reminder %s: không thấy kênh %s", reminder.id, reminder.channel_id)
             return
         mentions = " ".join(f"<@{uid}>" for uid in (reminder.target_ids or []))
-        text = f"⏰ {mentions} Tới giờ rồi nè: {reminder.message}".strip()
+        task = getattr(reminder, "task", None)
+        if task:
+            # SMART reminder: tới giờ TRA SỐNG (web search) + AI trả lời thật theo `task`.
+            body = await self._run_task(reminder, channel, session, task)
+            if body is None:  # tra/AI hỏng -> vẫn báo đã tới giờ + lý do, không im lặng
+                body = f"Tới giờ xem '{task}' rồi mà mình tra không ra lúc này, thử lại sau nha 🥲"
+            text = f"⏰ {mentions} {body}".strip()
+        else:
+            text = f"⏰ {mentions} Tới giờ rồi nè: {reminder.message}".strip()
         try:
             await channel.send(text[:2000])
         except (DiscordError, discord.DiscordException):
             log.warning("reminder %s: gửi thất bại", reminder.id)
+
+    async def _run_task(self, reminder, channel, session, task: str) -> str | None:
+        """Tra web về `task` rồi nhờ AI trả lời thật. Lỗi (AI off/thiếu key/tra hỏng) -> None."""
+        cfg = await AIConfigRepository(session).get(reminder.guild_id)
+        if cfg is None or not cfg.enabled:
+            return None
+        raw = await run_web_search(task)
+        low = raw.lower()
+        if "thất bại" in low or "không tìm thấy" in low or "chưa cấu hình" in low:
+            return None  # tra web hỏng
+        try:
+            text = await _gateway(session).complete(
+                guild_discord_id=channel.guild.id,
+                system=build_reminder_task_system(cfg.persona, task),
+                prompt=raw,
+            )
+        except ValueError:
+            return None  # AI off / thiếu key / hết budget
+        return text or None

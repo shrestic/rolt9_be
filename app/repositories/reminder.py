@@ -26,6 +26,7 @@ class ReminderRepository:
         target_ids: list[int],
         message: str,
         remind_at: datetime,
+        task: str | None = None,
     ) -> Reminder:
         row = Reminder(
             guild_id=guild_id,
@@ -34,6 +35,7 @@ class ReminderRepository:
             target_ids=list(target_ids),
             message=message,
             remind_at=remind_at,
+            task=task,
         )
         self.session.add(row)
         await self.session.flush()

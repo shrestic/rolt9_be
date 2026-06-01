@@ -56,6 +56,10 @@ async def test_run_posts_digest(monkeypatch):
 
     await cog._run(sub, MagicMock())
 
+    # ĐẢM BẢO thực sự GỌI TOOL web_search (tra sống theo topic) + AI tóm tắt, rồi mới đăng.
+    sub_mod.run_web_search.assert_awaited_once()
+    assert "chứng khoán" in sub_mod.run_web_search.call_args.args[0].lower()
+    gw.complete.assert_awaited_once()
     ch.send.assert_awaited_once()
     assert "Chứng khoán hôm nay" in ch.send.call_args.args[0]
 

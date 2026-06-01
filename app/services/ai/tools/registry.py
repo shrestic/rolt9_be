@@ -132,7 +132,11 @@ _REMIND_SPEC = {
             "'hẹn...', 'báo thức...', 'tới giờ X nhắc...'. Tự tính thời điểm TUYỆT ĐỐI dựa vào "
             "'Bây giờ (giờ VN)' ĐÃ CHO SẴN trong prompt — ĐỪNG gọi current_time, cứ tính thẳng từ đó "
             "(vd 'ngày mai 5h30 chiều', 'thứ 7 tuần sau 8h', '2 tiếng nữa'). "
-            "Người được @ trong tin sẽ được nhắc cùng (không @ ai thì nhắc người ra lệnh)."
+            "Người được @ trong tin sẽ được nhắc cùng (không @ ai thì nhắc người ra lệnh). "
+            "DÙNG 'task' khi người dùng muốn tới giờ thì TRA CỨU/CẬP NHẬT dữ liệu SỐNG rồi báo "
+            "(vd 'tới 5h show giá vàng', 'sáng mai báo thời tiết', 'tối nay tỷ giá USD'): đặt "
+            "task='giá vàng hôm nay'… — tới giờ bot tự web search + trả lời số liệu THẬT. Việc cá "
+            "nhân bình thường (không cần tra) thì BỎ task, chỉ dùng message."
         ),
         "parameters": {
             "type": "object",
@@ -142,6 +146,13 @@ _REMIND_SPEC = {
                     "description": "Thời điểm nhắc, định dạng 'YYYY-MM-DD HH:MM' theo GIỜ VN (24h)",
                 },
                 "message": {"type": "string", "description": "Nội dung cần nhắc"},
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "TUỲ CHỌN. Truy vấn cần TRA SỐNG lúc tới giờ (vd 'giá vàng hôm nay'). "
+                        "Có task -> bot web search + AI trả lời thật; bỏ trống -> chỉ nhắc message."
+                    ),
+                },
             },
             "required": ["when", "message"],
         },
@@ -467,6 +478,8 @@ async def _create_reminder(args: dict, ctx: ToolContext) -> str:
         return "Chưa đặt được nhắc (thiếu ngữ cảnh)."
     when_raw = str(args.get("when", "")).strip()
     message = str(args.get("message", "")).strip()
+    # task (tuỳ chọn): truy vấn cần TRA SỐNG lúc tới giờ (smart reminder). Rỗng -> None.
+    task = str(args.get("task", "")).strip() or None
     if not when_raw or not message:
         return "Cần cả thời điểm lẫn nội dung nhắc."
     remind_at = _parse_vn_to_utc(when_raw)
@@ -482,7 +495,10 @@ async def _create_reminder(args: dict, ctx: ToolContext) -> str:
         target_ids=targets,
         message=message,
         remind_at=remind_at,
+        task=task,
     )
+    if task:
+        return f"Đã hẹn lúc {when_raw} (giờ VN) sẽ tra '{task}' và báo kết quả thật cho bạn."
     return f"Đã đặt nhắc lúc {when_raw} (giờ VN): {message}"
 
 
