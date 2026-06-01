@@ -254,3 +254,32 @@ async def test_delete_poll_stages_pending():
     out = await execute("delete_poll", {}, ctx)
     assert "poll" in out.lower()
     assert ctx.pending and ctx.pending[0].kind == "delete_poll"
+
+
+@pytest.mark.asyncio
+async def test_cancel_reminder_by_time_query(db_session):
+    # Xoá theo GIỜ: "7h tối" phải khớp lời nhắc lúc 19:00 VN (= 12:00 UTC)
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    from app.models.guild import Guild
+    from app.repositories.reminder import ReminderRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    repo = ReminderRepository(db_session)
+    await repo.create(
+        guild_id=gid,
+        channel_id=1,
+        creator_id=42,
+        target_ids=[42],
+        message="rủ chơi game",
+        remind_at=datetime(2099, 6, 1, 12, 0, tzinfo=UTC),
+    )
+    await db_session.commit()
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("cancel_reminder", {"query": "7h tối"}, ctx)
+    await db_session.commit()
+    assert "đã huỷ" in out.lower()
+    assert await repo.pending_for_guild(gid) == []

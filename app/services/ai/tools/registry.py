@@ -233,10 +233,47 @@ def _parse_vn_to_utc(when_raw: str) -> datetime | None:
         return None
 
 
-def _fmt_reminder(r) -> str:
-    """1 dòng cho người đọc: 'HH:MM dd/mm — nội dung' (đổi remind_at UTC sang giờ VN)."""
+def _vn_remind_at(r) -> datetime:
+    """remind_at (UTC, có thể naive từ SQLite) -> datetime giờ VN."""
     dt = r.remind_at if r.remind_at.tzinfo is not None else r.remind_at.replace(tzinfo=UTC)
-    return f"{dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')} — {r.message}"
+    return dt.astimezone(VN_TZ)
+
+
+def _fmt_reminder(r) -> str:
+    """1 dòng cho người đọc: 'HH:MM dd/mm — nội dung'."""
+    return f"{_vn_remind_at(r).strftime('%H:%M %d/%m')} — {r.message}"
+
+
+def _buoi(h: int) -> str:
+    """Buổi trong ngày theo giờ (để khớp 'sáng/chiều/tối...')."""
+    if 5 <= h <= 10:
+        return "sáng"
+    if 11 <= h <= 12:
+        return "trưa"
+    if 13 <= h <= 17:
+        return "chiều"
+    if 18 <= h <= 22:
+        return "tối"
+    return "đêm"
+
+
+def _reminder_haystack(r) -> str:
+    """Gom NỘI DUNG + nhiều biến thể GIỜ (24h, 12h kèm buổi, ngày) để khớp query người dùng —
+    cho phép xoá theo '7h tối', '19h', '19:00' hay theo nội dung. Tất cả viết thường."""
+    dt = _vn_remind_at(r)
+    h, h12 = dt.hour, (dt.hour % 12 or 12)
+    buoi = _buoi(h)
+    variants = [
+        dt.strftime("%H:%M"),  # 19:00
+        f"{h}h",  # 19h
+        f"{h} giờ",
+        f"{h12}h {buoi}",  # 7h tối
+        f"{h12} giờ {buoi}",
+        f"{h12}h",
+        buoi,
+        dt.strftime("%d/%m"),
+    ]
+    return f"{r.message or ''} {' '.join(variants)}".lower()
 
 
 async def _my_pending(ctx: ToolContext) -> list:
@@ -269,7 +306,8 @@ async def _cancel_reminder(args: dict, ctx: ToolContext) -> str:
             await ctx.reminder_repo.cancel(r.id, ctx.guild_pk)
         return f"Đã huỷ tất cả {len(mine)} lời nhắc."
     query = str(args.get("query", "")).strip().lower()
-    matched = [r for r in mine if query in (r.message or "").lower()] if query else mine
+    # Khớp query trong NỘI DUNG hoặc GIỜ (19:00 / 19h / 7h tối...). Trống -> lấy hết.
+    matched = [r for r in mine if query in _reminder_haystack(r)] if query else mine
     if not matched:
         lines = "\n".join(f"- {_fmt_reminder(r)}" for r in mine)
         return f"Không thấy nhắc nào khớp '{query}'. Bạn đang có:\n{lines}"
