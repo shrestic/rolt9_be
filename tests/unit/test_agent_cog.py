@@ -199,6 +199,35 @@ def test_tag_known_members_skips_bot_itself():
     assert "<@1>" not in out  # chính bot -> không tag
 
 
+def test_tag_known_members_strips_fabricated_bot_mention():
+    from app.bot.cogs.agent import tag_known_members
+
+    # Model tự bịa '<@rolt9>' (mention chính bot, không phải id số) -> Discord ra chữ rác.
+    # Phải bỏ cặp '<@ >', để lại 'rolt9' (không tag chính bot).
+    g = _guild_with([_Member(1, name="rolt9")])
+    out = tag_known_members("Alo alo, <@rolt9>! Mày gọi gì đấy?", g, bot_id=1)
+    assert "<@rolt9>" not in out
+    assert "rolt9" in out  # còn lại tên thường
+
+
+def test_tag_known_members_strips_any_unknown_fabricated_mention():
+    from app.bot.cogs.agent import tag_known_members
+
+    # Tên không có trong guild members mà model vẫn bịa '<@ai_do>' -> dọn về chữ thường.
+    g = _guild_with([])
+    out = tag_known_members("hỏi <@ai_do> đi nha", g, bot_id=1)
+    assert out == "hỏi ai_do đi nha"
+
+
+def test_tag_known_members_keeps_valid_id_and_role_mentions():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(42, name="thinh.nguyen2")])
+    # '<@123>' (id số) và '<@&999>' (role) đều HỢP LỆ -> giữ nguyên, không bị dọn nhầm.
+    out = tag_known_members("chào <@123> và role <@&999> nhé", g, bot_id=1)
+    assert "<@123>" in out and "<@&999>" in out
+
+
 def test_cooldown_tracker():
     t = CooldownTracker(AGENT_COOLDOWN)
     assert t.ready(7, 42, now=100.0) is True

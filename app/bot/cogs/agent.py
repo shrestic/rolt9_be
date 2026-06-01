@@ -108,6 +108,10 @@ def tag_known_members(text: str, guild, bot_id) -> str:
         text = re.sub(
             rf"(?<![\w@<]){esc}(?![\w>])", f"<@{uid}>", text, count=1, flags=re.IGNORECASE
         )
+    # PASS CUỐI — dọn MỌI mention BỊA còn sót: '<@...>' / '<@!...>' mà bên trong KHÔNG phải
+    # toàn SỐ (Discord chỉ render mention khi là id số). Vd model tự bịa '<@rolt9>' (tên bot) hay
+    # '<@tên-lạ>' -> ra chữ rác. Bỏ cặp '<@ >' để lại tên thường. Chừa role '<@&id>' (ký tự '&').
+    text = re.sub(r"<@!?([^0-9>&][^>]*)>", r"\1", text)
     return text
 
 
