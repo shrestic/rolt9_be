@@ -167,6 +167,8 @@ class AgentCog(commands.Cog):
         self.bot = bot
         self.discord_io = discord_io
         self.cooldown = CooldownTracker(AGENT_COOLDOWN)
+        # (guild_id, user_id) đang được xử lý — chặn tin mới của CÙNG người khi tin trước chưa xong.
+        self._in_flight: set[tuple[int, int]] = set()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -176,13 +178,26 @@ class AgentCog(commands.Cog):
             return
 
         now = time.monotonic()
-        # Cooldown 5s theo (guild, user) -> không chặn nhầm khi cùng user nhắn ở server khác.
-        # MARK NGAY (trước khi xử lý) — vì respond mất 8-20s; nếu mark sau thì user bắn dồn dập
-        # trong lúc bot đang nghĩ vẫn lọt hết -> chặn không hiệu quả. Mark sớm = chặn spam thật.
-        if not self.cooldown.ready(int(message.guild.id), message.author.id, now=now):
+        # SLOWMODE khi mention bot (chỉ chặn tin nhắm bot, không đụng chat thường): mỗi (guild,user)
+        # chỉ kích bot 1 lần / AGENT_COOLDOWN giây, VÀ không kích lại khi tin TRƯỚC của họ còn ĐANG
+        # xử lý (reply lâu hơn cooldown -> đỡ chồng nhiều luồng).
+        key = (int(message.guild.id), message.author.id)
+        if not self.cooldown.ready(*key, now=now) or key in self._in_flight:
+            # Báo throttle bằng reaction ⏳ (nhẹ, KHÔNG đẻ thêm tin nhắn để khỏi bot tự spam lại).
+            try:
+                await message.add_reaction("⏳")
+            except (DiscordError, discord.DiscordException):
+                pass
             return
-        self.cooldown.mark(int(message.guild.id), message.author.id, now=now)
+        self.cooldown.mark(*key, now=now)
+        self._in_flight.add(key)
+        try:
+            await self._process(message)
+        finally:
+            self._in_flight.discard(key)
 
+    async def _process(self, message: discord.Message) -> None:
+        """Xử lý 1 tin nhắm tới bot (sau khi đã qua slowmode + khoá đang-xử-lý)."""
         user_text = message.clean_content
         ref_id = (
             int(message.reference.message_id)

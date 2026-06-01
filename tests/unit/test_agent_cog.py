@@ -74,6 +74,7 @@ class _Msg:
         self.channel = SimpleNamespace(id=10, send=AsyncMock(), typing=lambda: _Typing())
         self.clean_content = clean_content
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
+        self.add_reaction = AsyncMock()  # để test reaction ⏳ khi bị throttle
 
 
 # ---------- pure helpers ----------
@@ -243,6 +244,33 @@ async def test_on_message_marks_cooldown_before_processing(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_message_inflight_blocks_while_processing(monkeypatch):
+    # Đang xử lý tin của user -> tin MỚI của họ bị bỏ (dù đã hết cooldown). Tắt cooldown để test riêng.
+    import asyncio
+
+    gate = asyncio.Event()
+    cid = uuid.uuid4()
+
+    async def slow_respond(**kw):
+        await gate.wait()  # giữ tin 1 "đang xử lý"
+        return (cid, "ok", [])
+
+    stub = MagicMock()
+    stub.respond = AsyncMock(side_effect=slow_respond)
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    cog = _cog()
+    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> chỉ còn khoá in_flight
+    u = _User(2)
+    t1 = asyncio.create_task(cog.on_message(_Msg(author=u, mentions=[_User(1)])))
+    await asyncio.sleep(0.01)  # để t1 vào _in_flight
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # tin 2 -> bị khoá in_flight chặn
+    gate.set()
+    await t1
+    assert stub.respond.await_count == 1  # tin 2 không được xử lý vì tin 1 đang chạy
+
+
+@pytest.mark.asyncio
 async def test_on_message_cooldown_blocks_second(monkeypatch):
     cid = uuid.uuid4()
     stub = MagicMock()
@@ -252,8 +280,10 @@ async def test_on_message_cooldown_blocks_second(monkeypatch):
     cog = _cog()
     u = _User(2)
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
-    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # ngay lập tức -> cooldown
+    msg2 = _Msg(author=u, mentions=[_User(1)])  # ngay lập tức -> cooldown chặn
+    await cog.on_message(msg2)
     assert stub.respond.await_count == 1
+    msg2.add_reaction.assert_awaited_once_with("⏳")  # báo bị throttle bằng reaction ⏳
 
 
 # ---------- actions (perms + pending handling) ----------
