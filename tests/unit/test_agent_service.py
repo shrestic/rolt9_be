@@ -10,6 +10,7 @@ from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
+from app.repositories.reminder import ReminderRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.agent_service import AgentService, build_system
 from app.services.ai.ai_gateway import AIGateway
@@ -79,6 +80,7 @@ async def _svc(
         agent_msg_repo=AgentMessageRepository(db_session),
         memory_repo=UserMemoryRepository(db_session),
         memory_doc_repo=MemoryDocRepository(db_session),
+        reminder_repo=ReminderRepository(db_session),
         gateway=gateway,
     )
     return gid, svc

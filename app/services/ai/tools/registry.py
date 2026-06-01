@@ -3,12 +3,16 @@
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from app.services.ai.tools.current_time import run_current_time
 from app.services.ai.tools.server_info import run_server_info
 from app.services.ai.tools.web_search import run_web_search
 
 log = logging.getLogger(__name__)
+
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")  # mọi thời điểm người dùng nói là giờ VN
 
 
 @dataclass
@@ -25,6 +29,9 @@ class ToolContext:
     # Server memory doc (OpenClaw-style) — tool `remember` ghi vào đây.
     memory_repo_doc: object | None = None
     guild_pk: object | None = None
+    # Reminder (báo thức) — tool `remind` ghi vào đây; channel_id = kênh sẽ nhắc.
+    reminder_repo: object | None = None
+    channel_id: int | None = None
 
 
 _REMEMBER_SPEC = {
@@ -112,8 +119,34 @@ _CREATE_POLL_SPEC = {
 }
 
 
+_REMIND_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "remind",
+        "description": (
+            "Đặt lời nhắc / báo thức cho TƯƠNG LAI. Gọi khi người dùng nói 'nhắc tao...', "
+            "'hẹn...', 'báo thức...', 'tới giờ X nhắc...'. Tự tính thời điểm TUYỆT ĐỐI dựa vào "
+            "'Bây giờ (giờ VN)' ĐÃ CHO SẴN trong prompt — ĐỪNG gọi current_time, cứ tính thẳng từ đó "
+            "(vd 'ngày mai 5h30 chiều', 'thứ 7 tuần sau 8h', '2 tiếng nữa'). "
+            "Người được @ trong tin sẽ được nhắc cùng (không @ ai thì nhắc người ra lệnh)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "when": {
+                    "type": "string",
+                    "description": "Thời điểm nhắc, định dạng 'YYYY-MM-DD HH:MM' theo GIỜ VN (24h)",
+                },
+                "message": {"type": "string", "description": "Nội dung cần nhắc"},
+            },
+            "required": ["when", "message"],
+        },
+    },
+}
+
+
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
-    specs = [_REMEMBER_SPEC, _CREATE_POLL_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
+    specs = [_REMEMBER_SPEC, _REMIND_SPEC, _CREATE_POLL_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
     if has_search:
         specs = [_WEB_SEARCH_SPEC, *specs]
     if include_actions:
@@ -128,6 +161,46 @@ def parse_args(raw: str | None) -> dict:
         return json.loads(raw or "{}")
     except (ValueError, TypeError):
         return {}
+
+
+def _parse_vn_to_utc(when_raw: str) -> datetime | None:
+    """Chuỗi giờ VN (model tính ra) -> datetime UTC tz-aware. None nếu không parse được."""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            naive = datetime.strptime(when_raw, fmt)
+            return naive.replace(tzinfo=VN_TZ).astimezone(UTC)
+        except ValueError:
+            continue
+    try:  # dự phòng: ISO bất kỳ
+        dt = datetime.fromisoformat(when_raw)
+        return (dt.replace(tzinfo=VN_TZ) if dt.tzinfo is None else dt).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+async def _create_reminder(args: dict, ctx: ToolContext) -> str:
+    """Ghi 1 lời nhắc vào DB (qua ctx.reminder_repo). Model đã tính 'when' theo giờ VN."""
+    if ctx.reminder_repo is None or ctx.guild_pk is None or ctx.channel_id is None:
+        return "Chưa đặt được nhắc (thiếu ngữ cảnh)."
+    when_raw = str(args.get("when", "")).strip()
+    message = str(args.get("message", "")).strip()
+    if not when_raw or not message:
+        return "Cần cả thời điểm lẫn nội dung nhắc."
+    remind_at = _parse_vn_to_utc(when_raw)
+    if remind_at is None:
+        return "Mình không hiểu thời điểm — cho dạng 'YYYY-MM-DD HH:MM' (giờ VN) nhé."
+    if remind_at <= datetime.now(UTC):
+        return "Thời điểm đó qua mất rồi, chọn lúc trong tương lai đi."
+    targets = list(ctx.target_user_ids) or ([ctx.commander_id] if ctx.commander_id else [])
+    await ctx.reminder_repo.create(
+        guild_id=ctx.guild_pk,
+        channel_id=ctx.channel_id,
+        creator_id=ctx.commander_id or 0,
+        target_ids=targets,
+        message=message,
+        remind_at=remind_at,
+    )
+    return f"Đã đặt nhắc lúc {when_raw} (giờ VN): {message}"
 
 
 def _stage_poll(args: dict, ctx: ToolContext) -> str:
@@ -166,6 +239,8 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
             await ctx.memory_repo_doc.append_note(ctx.guild_pk, note)
             return "Đã ghi nhớ."
         return "Chưa ghi nhớ được."
+    if name == "remind":
+        return await _create_reminder(args, ctx)
     if name == "create_poll":
         return _stage_poll(args, ctx)
     if name == "web_search":

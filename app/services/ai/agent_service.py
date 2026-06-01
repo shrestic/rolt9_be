@@ -5,18 +5,23 @@ Cog (AgentCog) lo phần Discord (mention/reply, cooldown, gửi tin); service l
 """
 
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.repositories.agent_message import AgentMessageRepository
 from app.repositories.ai_config import AIConfigRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
+from app.repositories.reminder import ReminderRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.tools.registry import ToolContext
 from app.services.ai.tools.runner import run_with_tools
 
 DEFAULT_PERSONA = "Bạn là trợ lý thân thiện, trả lời ngắn gọn, tự nhiên bằng tiếng Việt."
+
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")  # giờ VN để model tính thời điểm đặt nhắc
 
 TURN_LIMIT = 20
 HISTORY_CHAR_CAP = 6000
@@ -65,12 +70,16 @@ def build_system(
     user_name: str,
     memory_doc: str = "",
     channel_context: str = "",
+    now_text: str = "",
 ) -> str:
     """Ghép persona + trí nhớ server (memory_doc) + facts về user + ngữ cảnh kênh
     thành system prompt. memory_doc là lore chung toàn server (biệt danh, luật, …) áp
-    cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại."""
+    cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại.
+    now_text = giờ VN hiện tại để model tính thời điểm khi đặt nhắc (tool remind)."""
     base = persona or DEFAULT_PERSONA
     parts = [base, _TOOL_NUDGE, f"\nBạn đang nói chuyện với '{user_name}'."]
+    if now_text:
+        parts.append(f"\nBây giờ (giờ VN): {now_text}.")
     if memory_doc.strip():
         # Lore toàn server — luôn tuân theo (vd: "từ nay gọi An là X").
         parts.append(f"\nTRÍ NHỚ SERVER (luôn áp dụng):\n{memory_doc.strip()}")
@@ -93,6 +102,7 @@ class AgentService:
         agent_msg_repo: AgentMessageRepository,
         memory_repo: UserMemoryRepository,
         memory_doc_repo: MemoryDocRepository,
+        reminder_repo: ReminderRepository,
         gateway: AIGateway,
     ):
         self.guild_repo = guild_repo
@@ -100,6 +110,7 @@ class AgentService:
         self.agent_msg_repo = agent_msg_repo
         self.memory_repo = memory_repo
         self.memory_doc_repo = memory_doc_repo
+        self.reminder_repo = reminder_repo
         self.gateway = gateway
 
     async def _guild_pk(self, guild_discord_id: int) -> uuid.UUID:
@@ -146,7 +157,9 @@ class AgentService:
         history = await self.agent_msg_repo.recent_turns(
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
-        system = build_system(cfg.persona, facts, user_name, memory_doc, channel_context)
+        # Giờ VN hiện tại để model tính thời điểm khi đặt nhắc ("ngày mai 5h30" -> tuyệt đối).
+        now_text = datetime.now(_VN_TZ).strftime("%Y-%m-%d %H:%M (%A)")
+        system = build_system(cfg.persona, facts, user_name, memory_doc, channel_context, now_text)
 
         perms = commander_perms or {}
         can_act = any(perms.values())
@@ -162,6 +175,9 @@ class AgentService:
             # Tool `remember` LUÔN có — ghi vào trí nhớ server qua repo này.
             memory_repo_doc=self.memory_doc_repo,
             guild_pk=guild.id,
+            # Tool `remind` — ghi báo thức; channel_id = kênh sẽ nhắc khi tới giờ.
+            reminder_repo=self.reminder_repo,
+            channel_id=channel_id,
         )
 
         # Luôn đi qua tool-loop: tool `remember` luôn sẵn sàng nên không còn nhánh "chat chay".

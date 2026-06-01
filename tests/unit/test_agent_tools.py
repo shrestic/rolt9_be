@@ -119,3 +119,52 @@ async def test_execute_create_poll_rejects_too_few_options():
     ctx = ToolContext()
     out = await execute("create_poll", {"question": "?", "options": ["chỉ 1"]}, ctx)
     assert "2-10" in out and not ctx.pending
+
+
+def test_tool_specs_always_has_remind():
+    assert "remind" in {s["function"]["name"] for s in tool_specs(has_search=False)}
+
+
+@pytest.mark.asyncio
+async def test_execute_remind_writes_db(db_session):
+    import uuid as _uuid
+    from datetime import UTC, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.models.guild import Guild
+    from app.repositories.reminder import ReminderRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+
+    # "when" giờ VN, trong tương lai
+    when = (datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")) + timedelta(days=1)).strftime(
+        "%Y-%m-%d %H:%M"
+    )
+    ctx = ToolContext(
+        reminder_repo=ReminderRepository(db_session),
+        guild_pk=gid,
+        channel_id=555,
+        commander_id=42,
+        target_user_ids=[42, 77],
+    )
+    out = await execute("remind", {"when": when, "message": "chơi game"}, ctx)
+    await db_session.commit()
+    assert "đặt nhắc" in out.lower()
+    pending = await ReminderRepository(db_session).due(datetime.now(UTC) + timedelta(days=2))
+    assert len(pending) == 1
+    assert pending[0].target_ids == [42, 77] and pending[0].channel_id == 555
+
+
+@pytest.mark.asyncio
+async def test_execute_remind_rejects_past():
+    ctx = ToolContext(reminder_repo=object(), guild_pk="x", channel_id=1, commander_id=1)
+    out = await execute("remind", {"when": "2000-01-01 00:00", "message": "trễ"}, ctx)
+    assert "qua" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_remind_no_ctx():
+    out = await execute("remind", {"when": "2099-01-01 00:00", "message": "x"}, ToolContext())
+    assert "chưa đặt được" in out.lower()

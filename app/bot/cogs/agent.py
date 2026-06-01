@@ -20,6 +20,7 @@ from app.repositories.ai_config import AIConfigRepository
 from app.repositories.ai_usage import AIUsageRepository
 from app.repositories.guild import GuildRepository
 from app.repositories.memory_doc import MemoryDocRepository
+from app.repositories.reminder import ReminderRepository
 from app.repositories.user_memory import UserMemoryRepository
 from app.services.ai.actions.registry import ACTION_PERMS
 from app.services.ai.actions.registry import execute as run_action
@@ -142,6 +143,7 @@ def _build_service(session) -> AgentService:
         agent_msg_repo=AgentMessageRepository(session),
         memory_repo=UserMemoryRepository(session),
         memory_doc_repo=MemoryDocRepository(session),
+        reminder_repo=ReminderRepository(session),
         gateway=gateway,
     )
 
