@@ -1,8 +1,9 @@
 """Data access cho `agent_message` — lịch sử hội thoại Claw Agent. Flush; commit ở boundary."""
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_message import AgentMessage
@@ -59,3 +60,11 @@ class AgentMessageRepository:
             )
         )
         return r.scalar_one_or_none()
+
+    async def delete_older_than(self, cutoff: datetime) -> int:
+        """Xoá các lượt có created_at < cutoff (dọn rác định kỳ). Trả số dòng đã xoá."""
+        res = await self.session.execute(
+            delete(AgentMessage).where(AgentMessage.created_at < cutoff)
+        )
+        await self.session.flush()
+        return res.rowcount or 0
