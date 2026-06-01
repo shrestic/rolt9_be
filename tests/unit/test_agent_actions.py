@@ -457,3 +457,21 @@ async def test_execute_kick_name_not_found():
     p = PendingAction("kick", True, "", {"target_ids": [], "query": "nobody", "reason": ""})
     out = await execute(p, guild=guild, session=None)
     assert "không tìm thấy" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_stage_untimeout_accepts_name():
+    p = await stage("untimeout", {"user": "samnguyen"}, _ctx(target_user_ids=[]))
+    assert isinstance(p, PendingAction) and p.params["query"] == "samnguyen"
+
+
+@pytest.mark.asyncio
+async def test_execute_untimeout_resolves_name():
+    m = SimpleNamespace(id=5, bot=False, name="samnguyen", display_name="Sam", timeout=AsyncMock())
+    guild = SimpleNamespace(members=[m], get_member=lambda uid: m if uid == 5 else None)
+    p = PendingAction(
+        "untimeout", False, "", {"target_ids": [], "query": "samnguyen", "reason": ""}
+    )
+    out = await execute(p, guild=guild, session=None)
+    m.timeout.assert_awaited_once_with(None, reason=None)
+    assert "gỡ timeout 1" in out.lower()

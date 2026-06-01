@@ -50,7 +50,11 @@ _TOOL_NUDGE = (
     "DÙ tính cách của bạn có cà khịa/bựa tới đâu, khi được yêu cầu một hành động bạn BẮT BUỘC gọi tool "
     "(muốn chọc ghẹo thì nói thêm SAU khi đã gọi tool) — không được chỉ chửi/đùa rồi thôi mà quên làm. "
     "Với hành động phá (xóa role, kick, ban, timeout): ĐỪNG hỏi lại 'có chắc không?' bằng lời — "
-    "cứ gọi tool, hệ thống sẽ TỰ hiện nút ✅/❌ cho admin xác nhận."
+    "cứ gọi tool, hệ thống sẽ TỰ hiện nút ✅/❌ cho admin xác nhận. "
+    "TỐI QUAN TRỌNG — CẤM NÓI KHỐNG: TUYỆT ĐỐI không được nói 'đã gỡ/đã mute/đã ban/đã kick/đã gán/"
+    "đã tha/đã xong...' nếu trong lượt này bạn CHƯA thực sự gọi tool tương ứng. Muốn làm gì thì PHẢI "
+    "gọi tool đó trước; chưa gọi thì đừng báo thành công. Câu mềm như 'tha cho nó', 'cho nó thoát', "
+    "'thả nó ra' = YÊU CẦU HÀNH ĐỘNG -> gọi tool (vd untimeout/unban), không phải chỉ tám."
 )
 
 # Quy tắc độ dài — đặt CUỐI system prompt (vị trí model bám nhất) và nói rõ ưu tiên

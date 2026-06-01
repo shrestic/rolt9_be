@@ -190,13 +190,17 @@ ACTION_SPECS = [
         "function": {
             "name": "untimeout",
             "description": (
-                "Gỡ timeout / unmute cho (các) user được nhắc — cho họ chat lại ngay. Gọi NGAY khi "
-                "user nói 'gỡ mute', 'unmute', 'bỏ timeout', 'mở mồm cho X', 'cho X nói lại', "
-                "'tha cho X'. ĐỪNG chỉ trả lời bằng lời — phải gọi tool."
+                "Gỡ timeout / unmute cho user — cho họ chat lại ngay. Gọi NGAY khi user nói "
+                "'gỡ mute', 'unmute', 'bỏ timeout', 'mở mồm cho X', 'cho X nói lại', 'tha cho X'. "
+                "Mục tiêu là người được @; nếu gõ TÊN mà không @ được thì truyền 'user'=tên/ID. "
+                "ĐỪNG chỉ trả lời bằng lời — phải gọi tool."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"reason": {"type": "string"}},
+                "properties": {
+                    "user": {"type": "string", "description": "Tên/ID khi không @ mention được"},
+                    "reason": {"type": "string"},
+                },
             },
         },
     },
@@ -237,6 +241,34 @@ def _find_role_name(role_name: str, role_names: list[str]) -> str | None:
         if r.lower() == low:
             return r
     return None
+
+
+def _resolve_member_ids(guild, target_ids, query) -> "tuple[list[int], str | None]":
+    """Tìm id member để xử lý. Có mention (target_ids) -> dùng luôn; không thì TRA THEO TÊN/ID
+    trong danh sách member (vd user gõ '@samnguyen' dạng text, không mention thật được).
+    Trả (ids, error): error != None nghĩa là không tìm ra hoặc mơ hồ -> báo lại cho user."""
+    ids = [int(x) for x in (target_ids or [])]
+    if ids:
+        return ids, None
+    q = (query or "").strip().lower().lstrip("@")
+    if not q:
+        return [], None  # caller tự quyết (vd assign fallback người ra lệnh)
+    cands = [
+        m
+        for m in getattr(guild, "members", [])
+        if not getattr(m, "bot", False)
+        and (
+            q == str(m.id)
+            or q in (m.name or "").lower()
+            or q in (getattr(m, "display_name", "") or "").lower()
+        )
+    ]
+    if not cands:
+        return [], f"Không tìm thấy ai tên '{query}' trong server — thử @ mention trực tiếp."
+    if len(cands) > 1:
+        names = ", ".join(getattr(m, "display_name", str(m.id)) for m in cands[:5])
+        return [], f"Có {len(cands)} người khớp '{query}' ({names}). @ rõ giùm cho chắc."
+    return [cands[0].id], None
 
 
 async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
@@ -317,15 +349,17 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
         return PendingAction(name, destructive, desc, params)
 
     if name == "untimeout":
-        # Gỡ mute: cần người còn trong server (mention được).
+        # Gỡ mute: người còn trong server. Cho phép nêu tên/ID nếu không @ mention được.
         targets = list(ctx.target_user_ids)
-        if not targets:
-            return "Cần @ người cần gỡ timeout/unmute."
+        query = str(args.get("user", "") or "").strip()
+        if not targets and not query:
+            return "Cần @ người cần gỡ timeout/unmute (hoặc nêu tên/ID)."
+        who = f"{len(targets)} người" if targets else f"'{query}'"
         return PendingAction(
             name,
             False,
-            f"Gỡ timeout {len(targets)} người",
-            {"target_ids": targets, "reason": str(args.get("reason", "") or "")},
+            f"Gỡ timeout {who}",
+            {"target_ids": targets, "query": query, "reason": str(args.get("reason", "") or "")},
         )
 
     if name == "unban":
@@ -411,28 +445,10 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
             return f"Đã {verb} role {role.name} cho {done} người."
 
         if pending.kind in ("kick", "ban", "timeout"):
-            target_ids = list(p.get("target_ids") or [])
-            # Không có mention thật -> tìm member theo TÊN/ID (vd user gõ "@samnguyen" dạng text).
-            query = (p.get("query") or "").strip().lower()
-            if not target_ids and query:
-                cands = [
-                    m
-                    for m in getattr(guild, "members", [])
-                    if not getattr(m, "bot", False)
-                    and (
-                        query == str(m.id)
-                        or query in (m.name or "").lower()
-                        or query in (getattr(m, "display_name", "") or "").lower()
-                    )
-                ]
-                if not cands:
-                    return (
-                        f"Không tìm thấy ai tên '{query}' trong server — thử @ mention trực tiếp."
-                    )
-                if len(cands) > 1:
-                    names = ", ".join(getattr(m, "display_name", str(m.id)) for m in cands[:5])
-                    return f"Có {len(cands)} người khớp '{query}' ({names}). @ rõ giùm cho chắc."
-                target_ids = [cands[0].id]
+            # Có mention -> dùng; không thì tìm member theo tên/ID (gõ "@samnguyen" dạng text).
+            target_ids, err = _resolve_member_ids(guild, p.get("target_ids"), p.get("query"))
+            if err:
+                return err
             if not target_ids:
                 return f"Không rõ {pending.kind} ai."
             done = 0
@@ -463,8 +479,11 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
             return msg
 
         if pending.kind == "untimeout":
+            target_ids, err = _resolve_member_ids(guild, p.get("target_ids"), p.get("query"))
+            if err:
+                return err
             done = 0
-            for uid in p["target_ids"]:
+            for uid in target_ids:
                 member = guild.get_member(uid)
                 if member is None:
                     continue
