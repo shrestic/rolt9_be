@@ -117,18 +117,22 @@ def is_addressed(message, bot_user) -> bool:
 
 
 class CooldownTracker:
-    """Cooldown/user trong bộ nhớ (rolt9 chạy 1 process)."""
+    """Cooldown trong bộ nhớ (rolt9 chạy 1 process).
+
+    Key theo (guild_id, user_id) -> mỗi server tính cooldown riêng, nên cùng 1 người
+    nhắn bot ở 2 server khác nhau KHÔNG chặn nhầm chéo nhau.
+    """
 
     def __init__(self, seconds: float):
         self._seconds = seconds
-        self._last: dict[int, float] = {}
+        self._last: dict[tuple[int, int], float] = {}
 
-    def ready(self, user_id: int, *, now: float) -> bool:
-        last = self._last.get(user_id)
+    def ready(self, guild_id: int, user_id: int, *, now: float) -> bool:
+        last = self._last.get((guild_id, user_id))
         return last is None or (now - last) >= self._seconds
 
-    def mark(self, user_id: int, *, now: float) -> None:
-        self._last[user_id] = now
+    def mark(self, guild_id: int, user_id: int, *, now: float) -> None:
+        self._last[(guild_id, user_id)] = now
 
 
 def _build_service(session) -> AgentService:
@@ -164,7 +168,8 @@ class AgentCog(commands.Cog):
             return
 
         now = time.monotonic()
-        if not self.cooldown.ready(message.author.id, now=now):
+        # Cooldown theo (guild, user) -> không chặn nhầm khi cùng user nhắn ở server khác.
+        if not self.cooldown.ready(int(message.guild.id), message.author.id, now=now):
             return
 
         user_text = message.clean_content
@@ -212,7 +217,7 @@ class AgentCog(commands.Cog):
                 return
 
             conversation_id, text, pending = result
-            self.cooldown.mark(message.author.id, now=now)
+            self.cooldown.mark(int(message.guild.id), message.author.id, now=now)
             sent = await self._safe_reply(message, text)
             if sent is None:
                 return

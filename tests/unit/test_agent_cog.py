@@ -116,10 +116,18 @@ def test_is_addressed_by_bot_role_mention():
 
 def test_cooldown_tracker():
     t = CooldownTracker(AGENT_COOLDOWN)
-    assert t.ready(42, now=100.0) is True
-    t.mark(42, now=100.0)
-    assert t.ready(42, now=100.0 + AGENT_COOLDOWN - 1) is False
-    assert t.ready(42, now=100.0 + AGENT_COOLDOWN + 1) is True
+    assert t.ready(7, 42, now=100.0) is True
+    t.mark(7, 42, now=100.0)
+    assert t.ready(7, 42, now=100.0 + AGENT_COOLDOWN - 1) is False
+    assert t.ready(7, 42, now=100.0 + AGENT_COOLDOWN + 1) is True
+
+
+def test_cooldown_tracker_scoped_by_guild():
+    # Cùng 1 user nhưng khác guild -> cooldown độc lập, không chặn nhầm chéo server.
+    t = CooldownTracker(AGENT_COOLDOWN)
+    t.mark(7, 42, now=100.0)  # user 42 ở guild 7
+    assert t.ready(7, 42, now=100.0) is False  # cùng (guild, user) -> đang cooldown
+    assert t.ready(8, 42, now=100.0) is True  # cùng user, guild khác -> KHÔNG bị chặn
 
 
 # ---------- on_message glue (patched session_scope + stub service) ----------
