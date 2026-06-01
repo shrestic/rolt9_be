@@ -173,7 +173,11 @@ ACTION_SPECS = [
         "type": "function",
         "function": {
             "name": "untimeout",
-            "description": "Gỡ timeout / unmute cho (các) user được nhắc — cho họ chat lại ngay.",
+            "description": (
+                "Gỡ timeout / unmute cho (các) user được nhắc — cho họ chat lại ngay. Gọi NGAY khi "
+                "user nói 'gỡ mute', 'unmute', 'bỏ timeout', 'mở mồm cho X', 'cho X nói lại', "
+                "'tha cho X'. ĐỪNG chỉ trả lời bằng lời — phải gọi tool."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"reason": {"type": "string"}},
