@@ -53,7 +53,10 @@ class WelcomeService:
                     guild_discord_id=guild_discord_id,
                     system=WELCOME_SYSTEM,
                     prompt=f"Chào mừng thành viên '{user_name}' vừa vào server '{server_name}'.",
-                    max_tokens=120,
+                    # Đủ rộng cho model REASONING (vd deepseek-v4): nó tiêu token cho phần suy
+                    # luận trước khi xuất câu chào. 120 quá nhỏ -> reasoning nuốt sạch -> content
+                    # rỗng -> lỗi. Câu chào vẫn ngắn vì WELCOME_SYSTEM ép "1 câu". Fail -> fallback template.
+                    max_tokens=2048,
                 )
                 # Prefix the mention so the new member gets pinged even on the AI line.
                 text = f"{user_mention} {ai}"

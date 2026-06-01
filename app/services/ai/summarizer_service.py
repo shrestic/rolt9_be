@@ -25,5 +25,5 @@ class SummarizerService:
             guild_discord_id=guild_discord_id,
             system=SUMMARY_SYSTEM,
             prompt=prompt,
-            max_tokens=500,
+            max_tokens=4096,  # room cho model reasoning (v4) + bản tóm tắt; prompt bound độ dài
         )
