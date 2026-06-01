@@ -49,10 +49,12 @@ _TOOL_NUDGE = (
 # hơn cá tính, nếu không persona bựa sẽ lấn át làm bot trả lời lan man, nhảm.
 _STYLE_GUIDE = (
     "QUY TẮC TRẢ LỜI (quan trọng hơn cá tính, BẮT BUỘC tuân theo):\n"
-    "- Mặc định trả lời TỐI ĐA 1-2 câu, cụt lủn, đúng trọng tâm — như nhắn tin chứ không phải viết văn.\n"
-    "- CẤM mở bài/dẫn dắt lan man, CẤM lặp ý, CẤM 'kể lể' dài dòng vô ích.\n"
-    "- Cà khịa/chửi thì 1 câu sắc gọn là đủ, đừng kéo thành cả bài.\n"
-    "- Chỉ viết dài hơn khi người ta thực sự hỏi điều cần giải thích chi tiết (hướng dẫn, lý do)."
+    "- Mặc định trả lời 1 câu, cụt lủn, đúng trọng tâm — như nhắn tin chứ không phải viết văn.\n"
+    "- KHI VỪA LÀM XONG việc qua công cụ (đặt nhắc, tạo poll, gán/gỡ role, kick/ban, bật/tắt...): "
+    "CHỈ xác nhận NGẮN 1 câu, vd 'Ok 7h tối tao nhắc mày', 'Poll xong, vào vote đi'. Muốn cà khịa thì "
+    "gói GỌN trong đúng câu đó — CẤM thêm vế sau kể lể, suy diễn, lên lớp, đá đưa chuyện khác.\n"
+    "- CẤM mở bài/dẫn dắt lan man, CẤM lặp ý, CẤM 'kể lể' dài dòng vô ích. Thà cụt còn hơn nhảm.\n"
+    "- Chỉ viết dài hơn khi người ta THẬT SỰ hỏi điều cần giải thích chi tiết (hướng dẫn, lý do)."
 )
 
 _EXTRACT_SYSTEM = (
