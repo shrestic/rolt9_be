@@ -56,6 +56,11 @@ class GuildAIConfig(Base):
     companion_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     companion_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     companion_cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=45)
+    # Thời điểm (UTC) bot companion POST gần nhất — LƯU DB để cooldown SỐNG SÓT qua restart/deploy
+    # (trước đây giữ trong RAM nên mỗi lần restart là quên -> spam lại). NULL = chưa post lần nào.
+    companion_last_post_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

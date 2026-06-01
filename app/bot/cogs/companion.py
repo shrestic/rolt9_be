@@ -5,7 +5,7 @@ Presence Intent (privileged) để thấy game — nếu chưa bật, snapshot c
 """
 
 import logging
-import time
+from datetime import UTC, datetime
 
 import discord
 from discord.ext import commands, tasks
@@ -48,7 +48,6 @@ class CompanionCog(commands.Cog):
     def __init__(self, bot: commands.Bot, discord_io: DiscordClient):
         self.bot = bot
         self.discord_io = discord_io
-        self.cooldown: dict[int, float] = {}
 
     async def cog_load(self) -> None:
         self.companion_tick.start()
@@ -58,7 +57,7 @@ class CompanionCog(commands.Cog):
 
     @tasks.loop(minutes=TICK_MINUTES)
     async def companion_tick(self) -> None:
-        now = time.monotonic()
+        now = datetime.now(UTC)
         for guild in list(self.bot.guilds):
             try:
                 await self._handle_guild(guild, now=now)
@@ -76,7 +75,7 @@ class CompanionCog(commands.Cog):
         cfg = await AIConfigRepository(session).get(guild.id)
         return guild, cfg
 
-    async def _gate(self, session, guild, *, now: float):
+    async def _gate(self, session, guild, *, now: datetime):
         """Kiểm tra đủ điều kiện post (enabled + companion_enabled + có kênh + qua cooldown).
         Trả (guild_row, cfg, channel) nếu OK, ngược lại None."""
         guild_row, cfg = await self._load_cfg(session, int(guild.id))
@@ -89,15 +88,18 @@ class CompanionCog(commands.Cog):
             log.info("companion gate: tắt/thiếu kênh (guild %s)", guild.id)
             return None
         # Cooldown hiệu lực = max(cấu hình, sàn cứng) -> dù admin set thấp cũng không spam.
+        # Mốc post cuối lấy từ DB (cfg.companion_last_post_at) nên SỐNG SÓT qua restart/deploy.
         gap_min = max(cfg.companion_cooldown_min, MIN_GAP_MINUTES)
-        last = self.cooldown.get(int(guild.id))
-        if last is not None and now - last < gap_min * 60:
-            log.info(
-                "companion gate: COOLDOWN còn %.0fs (guild %s)",
-                gap_min * 60 - (now - last),
-                guild.id,
-            )
-            return None
+        last = cfg.companion_last_post_at
+        if last is not None:
+            elapsed = (now - last).total_seconds()
+            if elapsed < gap_min * 60:
+                log.info(
+                    "companion gate: COOLDOWN còn %.0fs (guild %s)",
+                    gap_min * 60 - elapsed,
+                    guild.id,
+                )
+                return None
         channel = guild.get_channel(cfg.companion_channel_id)
         if channel is None:
             log.info(
@@ -130,7 +132,8 @@ class CompanionCog(commands.Cog):
             log.warning("companion: failed to post in guild %s", guild.id)
             return
         log.info("companion POSTED (guild %s): %s", guild.id, text[:80])
-        self.cooldown[int(guild.id)] = now
+        # Ghi mốc post vào DB -> cooldown bền qua restart (không còn spam sau mỗi deploy).
+        await AIConfigRepository(session).set_companion_last_post(guild_row.id, now)
 
     def _strip_self_mention(self, text: str) -> str:
         """Gỡ mọi mention TỚI CHÍNH BOT khỏi câu (model lâu lâu tự tag mình). Trả chuỗi đã dọn."""
@@ -143,7 +146,7 @@ class CompanionCog(commands.Cog):
             text = " ".join(text.split())  # gộp khoảng trắng thừa do vừa gỡ
         return text.strip()
 
-    async def _handle_guild(self, guild, *, now: float) -> None:
+    async def _handle_guild(self, guild, *, now: datetime) -> None:
         """Tick định kỳ: chụp toàn cảnh server (game + voice + chat) rồi để AI tự quyết."""
         async with session_scope() as session:
             gated = await self._gate(session, guild, now=now)
@@ -180,7 +183,7 @@ class CompanionCog(commands.Cog):
             activities,
             guild.id,
         )
-        now = time.monotonic()
+        now = datetime.now(UTC)
         try:
             await self._handle_presence_event(guild, after, activities, now=now)
         except Exception:  # noqa: BLE001 — lỗi 1 sự kiện không được làm chết listener
@@ -188,7 +191,7 @@ class CompanionCog(commands.Cog):
                 "companion: presence event failed for guild %s", getattr(guild, "id", "?")
             )
 
-    async def _handle_presence_event(self, guild, member, activities, *, now: float) -> None:
+    async def _handle_presence_event(self, guild, member, activities, *, now: datetime) -> None:
         async with session_scope() as session:
             gated = await self._gate(session, guild, now=now)
             if gated is None:

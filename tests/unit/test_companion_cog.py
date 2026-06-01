@@ -1,4 +1,5 @@
 import contextlib
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +8,9 @@ import pytest
 
 import app.bot.cogs.companion as companion_mod
 from app.bot.cogs.companion import CompanionCog
+
+# Mốc thời gian cố định cho test (cooldown giờ tính theo đồng hồ thực UTC, lưu DB).
+NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 class _AsyncIter:
@@ -44,6 +48,7 @@ def _cfg(**kw):
         "companion_enabled": True,
         "companion_channel_id": 10,
         "companion_cooldown_min": 45,
+        "companion_last_post_at": None,  # chưa post lần nào (cooldown không chặn)
         "persona": "",
     }
     base.update(kw)
@@ -51,23 +56,29 @@ def _cfg(**kw):
 
 
 def _patch(monkeypatch, stub):
+    """Patch session_scope + _build_service + MemoryDocRepository + AIConfigRepository.
+    Trả cfg_repo mock để test assert set_companion_last_post (ghi mốc cooldown vào DB)."""
+
     @contextlib.asynccontextmanager
     async def fake_scope():
         yield MagicMock()
 
     monkeypatch.setattr(companion_mod, "session_scope", fake_scope)
     monkeypatch.setattr(companion_mod, "_build_service", lambda session: stub)
-    # MemoryDocRepository(session).get_doc(...) -> "" (companion nạp lore qua đây)
     doc_repo = MagicMock()
     doc_repo.get_doc = AsyncMock(return_value="")
     monkeypatch.setattr(companion_mod, "MemoryDocRepository", lambda session: doc_repo)
+    cfg_repo = MagicMock()
+    cfg_repo.set_companion_last_post = AsyncMock()
+    monkeypatch.setattr(companion_mod, "AIConfigRepository", lambda session: cfg_repo)
+    return cfg_repo
 
 
 def _cog(cfg):
     bot = MagicMock()
     bot.user = SimpleNamespace(id=1)
     cog = CompanionCog(bot, MagicMock())
-    # _load_cfg trả (guild_row, cfg); guild_row.id dùng để nạp memory_doc
+    # _load_cfg trả (guild_row, cfg); guild_row.id dùng để nạp memory_doc + ghi mốc cooldown
     cog._load_cfg = AsyncMock(return_value=(SimpleNamespace(id="gpk"), cfg))
     return cog
 
@@ -76,14 +87,15 @@ def _cog(cfg):
 async def test_handle_guild_posts_when_activity(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock(return_value="Ê An chơi LoL một mình kìa 👀")
-    _patch(monkeypatch, stub)
+    cfg_repo = _patch(monkeypatch, stub)
     cog = _cog(_cfg())
     ch = _channel()
     guild = _guild(ch, members=[_member("An", game="LoL")])
-    await cog._handle_guild(guild, now=10_000.0)
+    await cog._handle_guild(guild, now=NOW)
     stub.decide.assert_awaited_once()
     ch.send.assert_awaited_once()
-    assert cog.cooldown[100] == 10_000.0
+    # post xong -> ghi mốc cooldown vào DB (sống sót qua restart)
+    cfg_repo.set_companion_last_post.assert_awaited_once_with("gpk", NOW)
 
 
 @pytest.mark.asyncio
@@ -93,7 +105,7 @@ async def test_handle_guild_skip_when_disabled(monkeypatch):
     _patch(monkeypatch, stub)
     cog = _cog(_cfg(companion_enabled=False))
     ch = _channel()
-    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=10_000.0)
+    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=NOW)
     stub.decide.assert_not_awaited()
     ch.send.assert_not_awaited()
 
@@ -105,7 +117,7 @@ async def test_handle_guild_skip_no_activity(monkeypatch):
     _patch(monkeypatch, stub)
     cog = _cog(_cfg())
     ch = _channel()  # no history, no members -> snapshot None
-    await cog._handle_guild(_guild(ch, members=[]), now=10_000.0)
+    await cog._handle_guild(_guild(ch, members=[]), now=NOW)
     stub.decide.assert_not_awaited()  # KHÔNG gọi AI khi không có gì
 
 
@@ -114,23 +126,36 @@ async def test_handle_guild_cooldown_blocks(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock(return_value="hi")
     _patch(monkeypatch, stub)
-    cog = _cog(_cfg(companion_cooldown_min=45))
-    cog.cooldown[100] = 10_000.0  # vừa nói
+    # vừa post cách đây 60s, cooldown 45' -> còn chặn
+    cog = _cog(_cfg(companion_cooldown_min=45, companion_last_post_at=NOW - timedelta(seconds=60)))
     ch = _channel()
-    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=10_000.0 + 60)
+    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=NOW)
     stub.decide.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_guild_cooldown_survives_restart(monkeypatch):
+    # CHỐNG BUG: cooldown đọc từ DB (cfg) chứ KHÔNG phải RAM -> restart (cog mới tinh) vẫn nhớ.
+    stub = MagicMock()
+    stub.decide = AsyncMock(return_value="hi")
+    _patch(monkeypatch, stub)
+    cfg = _cfg(companion_cooldown_min=45, companion_last_post_at=NOW - timedelta(minutes=5))
+    cog = _cog(cfg)  # 'cog mới' mô phỏng sau restart, không có state RAM
+    ch = _channel()
+    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=NOW)
+    stub.decide.assert_not_awaited()  # 5' < 45' -> vẫn im dù vừa restart
 
 
 @pytest.mark.asyncio
 async def test_handle_guild_skip_silenced(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock(return_value=None)  # AI chọn SKIP
-    _patch(monkeypatch, stub)
+    cfg_repo = _patch(monkeypatch, stub)
     cog = _cog(_cfg())
     ch = _channel()
-    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=10_000.0)
+    await cog._handle_guild(_guild(ch, members=[_member("An", game="LoL")]), now=NOW)
     ch.send.assert_not_awaited()
-    assert 100 not in cog.cooldown
+    cfg_repo.set_companion_last_post.assert_not_awaited()  # không post -> không set cooldown
 
 
 # ---------- real-time: on_presence_update (vừa bật game) ----------
@@ -148,15 +173,15 @@ def _pmember(guild, game=None, name="An", uid=1):
 async def test_presence_event_posts_when_game_started(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock(return_value="Ê <@1> chơi Valorant một mình kìa, ai vô gánh ko")
-    _patch(monkeypatch, stub)
+    cfg_repo = _patch(monkeypatch, stub)
     cog = _cog(_cfg())
     ch = _channel()
     member = _pmember(None, game="Valorant")
     guild = _guild(ch, members=[member])
-    await cog._handle_presence_event(guild, member, ["Valorant"], now=10_000.0)
+    await cog._handle_presence_event(guild, member, ["Valorant"], now=NOW)
     stub.decide.assert_awaited_once()
     ch.send.assert_awaited_once()
-    assert cog.cooldown[100] == 10_000.0
+    cfg_repo.set_companion_last_post.assert_awaited_once_with("gpk", NOW)
     snap = stub.decide.call_args.kwargs["snapshot"]
     assert "VỪA MỚI" in snap and "Valorant" in snap  # snapshot nêu rõ sự kiện vừa bật game
 
@@ -168,7 +193,7 @@ async def test_presence_event_skip_when_disabled(monkeypatch):
     _patch(monkeypatch, stub)
     cog = _cog(_cfg(companion_enabled=False))
     member = _pmember(None, game="Valorant")
-    await cog._handle_presence_event(_guild(_channel(), [member]), member, ["Valorant"], now=1.0)
+    await cog._handle_presence_event(_guild(_channel(), [member]), member, ["Valorant"], now=NOW)
     stub.decide.assert_not_awaited()
 
 
@@ -177,12 +202,10 @@ async def test_presence_event_respects_cooldown(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock(return_value="hi")
     _patch(monkeypatch, stub)
-    cog = _cog(_cfg(companion_cooldown_min=5))
-    cog.cooldown[100] = 10_000.0  # vừa nói cách đây 60s
+    # vừa nói cách đây 60s, cooldown 5' -> còn chặn
+    cog = _cog(_cfg(companion_cooldown_min=5, companion_last_post_at=NOW - timedelta(seconds=60)))
     member = _pmember(None, game="Valorant")
-    await cog._handle_presence_event(
-        _guild(_channel(), [member]), member, ["Valorant"], now=10_060.0
-    )
+    await cog._handle_presence_event(_guild(_channel(), [member]), member, ["Valorant"], now=NOW)
     stub.decide.assert_not_awaited()
 
 
@@ -221,7 +244,7 @@ async def test_decide_and_post_strips_self_mention(monkeypatch):
     cog.bot.user = SimpleNamespace(id=777)  # bot là 777
     ch = _channel()
     member = _pmember(None, game="Valorant", uid=1)
-    await cog._handle_presence_event(_guild(ch, [member]), member, ["chơi Valorant"], now=10_000.0)
+    await cog._handle_presence_event(_guild(ch, [member]), member, ["chơi Valorant"], now=NOW)
     sent = ch.send.call_args.args[0]
     assert "<@777>" not in sent  # mention bot đã bị gỡ
     assert "<@1>" in sent  # mention người khác vẫn còn
