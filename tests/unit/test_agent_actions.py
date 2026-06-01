@@ -185,6 +185,29 @@ async def test_execute_create_poll_needs_channel():
     assert "thiếu kênh" in out.lower()
 
 
+@pytest.mark.asyncio
+async def test_execute_delete_poll_finds_bot_poll():
+    # tin có poll DO BOT tạo -> xoá; tin thường bỏ qua
+    poll_msg = SimpleNamespace(poll=object(), author=SimpleNamespace(id=1), delete=AsyncMock())
+    plain = SimpleNamespace(poll=None, author=SimpleNamespace(id=1))
+    channel = SimpleNamespace(history=lambda limit: _AsyncIter([plain, poll_msg]))
+    guild = SimpleNamespace(me=SimpleNamespace(id=1))
+    p = PendingAction("delete_poll", False, "", {})
+    out = await execute(p, guild=guild, session=None, channel=channel)
+    poll_msg.delete.assert_awaited_once()
+    assert "xoá poll" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_delete_poll_none_found():
+    plain = SimpleNamespace(poll=None, author=SimpleNamespace(id=1))
+    channel = SimpleNamespace(history=lambda limit: _AsyncIter([plain]))
+    guild = SimpleNamespace(me=SimpleNamespace(id=1))
+    p = PendingAction("delete_poll", False, "", {})
+    out = await execute(p, guild=guild, session=None, channel=channel)
+    assert "không thấy poll" in out.lower()
+
+
 @functools.total_ordering
 class _Role:
     def __init__(self, pos):

@@ -145,8 +145,63 @@ _REMIND_SPEC = {
 }
 
 
+_LIST_REMINDERS_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "list_reminders",
+        "description": (
+            "Liệt kê các lời nhắc (báo thức) ĐANG CHỜ của người ra lệnh, kèm giờ + nội dung. "
+            "Gọi khi user hỏi 'tao có nhắc gì', hoặc khi họ muốn xoá mà chưa rõ cái nào (cho họ xem để chọn)."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+_CANCEL_REMINDER_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "cancel_reminder",
+        "description": (
+            "Huỷ / xoá lời nhắc (báo thức) đã đặt. Gọi khi user nói 'xoá nhắc...', 'huỷ báo thức...'. "
+            "'query' = từ khoá trong nội dung hoặc giờ để tìm đúng cái (vd 'chơi game', '7h tối'). "
+            "Nếu NHIỀU lời nhắc cùng khớp, tool sẽ trả về danh sách để bạn hỏi lại user cho rõ — "
+            "ĐỪNG đoán bừa. Đặt 'all'=true CHỈ khi user nói rõ muốn xoá HẾT. Chỉ huỷ nhắc của chính họ."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Từ khoá nội dung/giờ để tìm (tuỳ chọn)",
+                },
+                "all": {"type": "boolean", "description": "true = huỷ TẤT CẢ nhắc của người đó"},
+            },
+        },
+    },
+}
+_DELETE_POLL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "delete_poll",
+        "description": (
+            "Xoá cuộc bình chọn (poll) gần nhất mà bot đã tạo trong kênh này. Gọi khi user nói "
+            "'xoá poll', 'gỡ bình chọn', 'huỷ vote'."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
-    specs = [_REMEMBER_SPEC, _REMIND_SPEC, _CREATE_POLL_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
+    specs = [
+        _REMEMBER_SPEC,
+        _REMIND_SPEC,
+        _LIST_REMINDERS_SPEC,
+        _CANCEL_REMINDER_SPEC,
+        _CREATE_POLL_SPEC,
+        _DELETE_POLL_SPEC,
+        _SERVER_INFO_SPEC,
+        _CURRENT_TIME_SPEC,
+    ]
     if has_search:
         specs = [_WEB_SEARCH_SPEC, *specs]
     if include_actions:
@@ -176,6 +231,54 @@ def _parse_vn_to_utc(when_raw: str) -> datetime | None:
         return (dt.replace(tzinfo=VN_TZ) if dt.tzinfo is None else dt).astimezone(UTC)
     except ValueError:
         return None
+
+
+def _fmt_reminder(r) -> str:
+    """1 dòng cho người đọc: 'HH:MM dd/mm — nội dung' (đổi remind_at UTC sang giờ VN)."""
+    dt = r.remind_at if r.remind_at.tzinfo is not None else r.remind_at.replace(tzinfo=UTC)
+    return f"{dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')} — {r.message}"
+
+
+async def _my_pending(ctx: ToolContext) -> list:
+    """Các lời nhắc đang chờ CỦA CHÍNH người ra lệnh."""
+    rows = await ctx.reminder_repo.pending_for_guild(ctx.guild_pk)
+    return [r for r in rows if r.creator_id == (ctx.commander_id or 0)]
+
+
+async def _list_reminders(ctx: ToolContext) -> str:
+    """Liệt kê nhắc đang chờ của người ra lệnh — để họ thấy & chọn cái cần xoá."""
+    if ctx.reminder_repo is None or ctx.guild_pk is None:
+        return "Chưa xem được (thiếu ngữ cảnh)."
+    mine = await _my_pending(ctx)
+    if not mine:
+        return "Bạn không có lời nhắc nào đang chờ."
+    lines = "\n".join(f"{i + 1}. {_fmt_reminder(r)}" for i, r in enumerate(mine))
+    return f"Lời nhắc đang chờ của bạn:\n{lines}"
+
+
+async def _cancel_reminder(args: dict, ctx: ToolContext) -> str:
+    """Huỷ nhắc CỦA CHÍNH người ra lệnh. Nhiều cái khớp -> LIỆT KÊ hỏi lại (không xoá nhầm).
+    all=true -> xoá hết. query rỗng + còn nhiều -> cũng liệt kê để chọn."""
+    if ctx.reminder_repo is None or ctx.guild_pk is None:
+        return "Chưa huỷ được (thiếu ngữ cảnh)."
+    mine = await _my_pending(ctx)
+    if not mine:
+        return "Bạn không có lời nhắc nào đang chờ."
+    if bool(args.get("all")):
+        for r in mine:
+            await ctx.reminder_repo.cancel(r.id, ctx.guild_pk)
+        return f"Đã huỷ tất cả {len(mine)} lời nhắc."
+    query = str(args.get("query", "")).strip().lower()
+    matched = [r for r in mine if query in (r.message or "").lower()] if query else mine
+    if not matched:
+        lines = "\n".join(f"- {_fmt_reminder(r)}" for r in mine)
+        return f"Không thấy nhắc nào khớp '{query}'. Bạn đang có:\n{lines}"
+    if len(matched) > 1:
+        # Mơ hồ -> liệt kê, để model hỏi lại user cho rõ, KHÔNG xoá bừa.
+        lines = "\n".join(f"- {_fmt_reminder(r)}" for r in matched)
+        return f"Có {len(matched)} nhắc khớp, nói rõ hơn (theo giờ hoặc nội dung) nhé:\n{lines}"
+    await ctx.reminder_repo.cancel(matched[0].id, ctx.guild_pk)
+    return f"Đã huỷ nhắc: {_fmt_reminder(matched[0])}"
 
 
 async def _create_reminder(args: dict, ctx: ToolContext) -> str:
@@ -241,8 +344,17 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
         return "Chưa ghi nhớ được."
     if name == "remind":
         return await _create_reminder(args, ctx)
+    if name == "list_reminders":
+        return await _list_reminders(ctx)
+    if name == "cancel_reminder":
+        return await _cancel_reminder(args, ctx)
     if name == "create_poll":
         return _stage_poll(args, ctx)
+    if name == "delete_poll":
+        from app.services.ai.actions.registry import PendingAction  # lazy: tránh vòng import
+
+        ctx.pending.append(PendingAction("delete_poll", False, "Xoá poll gần nhất", {}))
+        return "Đã xoá poll gần nhất."
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
     if name == "server_info":

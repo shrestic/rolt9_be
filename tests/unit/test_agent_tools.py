@@ -168,3 +168,89 @@ async def test_execute_remind_rejects_past():
 async def test_execute_remind_no_ctx():
     out = await execute("remind", {"when": "2099-01-01 00:00", "message": "x"}, ToolContext())
     assert "chưa đặt được" in out.lower()
+
+
+def test_tool_specs_has_list_and_delete_tools():
+    names = {s["function"]["name"] for s in tool_specs(has_search=False)}
+    assert {"list_reminders", "cancel_reminder", "delete_poll"} <= names
+
+
+async def _mk_reminders(db_session):
+    """guild + 2 reminder của commander 42 (1 'chơi game', 1 'họp nhóm')."""
+    import uuid as _uuid
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.guild import Guild
+    from app.repositories.reminder import ReminderRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    repo = ReminderRepository(db_session)
+    now = datetime.now(UTC)
+    await repo.create(
+        guild_id=gid,
+        channel_id=1,
+        creator_id=42,
+        target_ids=[42],
+        message="chơi game tối nay",
+        remind_at=now + timedelta(hours=5),
+    )
+    await repo.create(
+        guild_id=gid,
+        channel_id=1,
+        creator_id=42,
+        target_ids=[42],
+        message="họp nhóm sáng",
+        remind_at=now + timedelta(days=2),
+    )
+    await db_session.commit()
+    return gid, repo
+
+
+@pytest.mark.asyncio
+async def test_list_reminders_shows_all_mine(db_session):
+    gid, repo = await _mk_reminders(db_session)
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("list_reminders", {}, ctx)
+    assert "chơi game tối nay" in out and "họp nhóm sáng" in out
+
+
+@pytest.mark.asyncio
+async def test_cancel_reminder_unique_query_deletes(db_session):
+    gid, repo = await _mk_reminders(db_session)
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("cancel_reminder", {"query": "họp"}, ctx)
+    await db_session.commit()
+    assert "đã huỷ nhắc" in out.lower()
+    remaining = await repo.pending_for_guild(gid)
+    assert len(remaining) == 1 and "chơi game" in remaining[0].message
+
+
+@pytest.mark.asyncio
+async def test_cancel_reminder_ambiguous_lists_without_deleting(db_session):
+    # nhiều cái khớp (query rỗng) -> liệt kê hỏi lại, KHÔNG xoá nhầm
+    gid, repo = await _mk_reminders(db_session)
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("cancel_reminder", {}, ctx)
+    await db_session.commit()
+    assert "nói rõ hơn" in out.lower()
+    assert len(await repo.pending_for_guild(gid)) == 2  # còn nguyên cả 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_reminder_all_flag(db_session):
+    gid, repo = await _mk_reminders(db_session)
+    ctx = ToolContext(reminder_repo=repo, guild_pk=gid, commander_id=42)
+    out = await execute("cancel_reminder", {"all": True}, ctx)
+    await db_session.commit()
+    assert "tất cả" in out.lower()
+    assert await repo.pending_for_guild(gid) == []
+
+
+@pytest.mark.asyncio
+async def test_delete_poll_stages_pending():
+    ctx = ToolContext()
+    out = await execute("delete_poll", {}, ctx)
+    assert "poll" in out.lower()
+    assert ctx.pending and ctx.pending[0].kind == "delete_poll"

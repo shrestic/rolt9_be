@@ -31,9 +31,10 @@ MAX_FACTS = 15
 # Nhắc model CHỦ ĐỘNG dùng tool/hành động thay vì chỉ trả lời chay — kéo tỉ lệ
 # gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
 _TOOL_NUDGE = (
-    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, tạo poll bình chọn, và (nếu được cấp) "
-    "thực hiện hành động trên server — tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, "
-    "timeout (mute) và untimeout (unmute/gỡ mute), bật/tắt plugin. "
+    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, đặt nhắc (báo thức) / xem / huỷ nhắc, "
+    "tạo poll bình chọn & xoá poll, và (nếu được cấp) thực hiện hành động trên server — "
+    "tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, timeout (mute) và untimeout (unmute/gỡ mute), "
+    "bật/tắt plugin. "
     "Khi người dùng YÊU CẦU một hành động, HÃY GỌI THẲNG đúng tool hành động đó — "
     "ĐỪNG gọi server_info để 'kiểm tra' trước; hệ thống tự xác thực role/thành viên khi bạn gọi tool "
     "và sẽ báo lại nếu sai, nên cứ gọi tool hành động luôn. "

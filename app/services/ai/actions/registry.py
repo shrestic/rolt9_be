@@ -331,6 +331,19 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
             await channel.send(poll=poll)
             return f"Đã tạo poll: {p['question']}"
 
+        if pending.kind == "delete_poll":
+            if channel is None:
+                return "Không xoá được poll (thiếu kênh)."
+            me_id = guild.me.id if guild is not None and guild.me is not None else None
+            # Quét vài tin gần đây, tìm poll DO BOT tạo để xoá (xoá tin = xoá poll).
+            async for m in channel.history(limit=30):
+                if getattr(m, "poll", None) is not None and (
+                    me_id is None or getattr(m.author, "id", None) == me_id
+                ):
+                    await m.delete()
+                    return "Đã xoá poll gần nhất."
+            return "Không thấy poll nào gần đây để xoá."
+
         if pending.kind == "create_role":
             kwargs = {"name": p["name"]}
             if p.get("color") is not None:
