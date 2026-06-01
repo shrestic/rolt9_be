@@ -48,6 +48,9 @@ class CompanionCog(commands.Cog):
     def __init__(self, bot: commands.Bot, discord_io: DiscordClient):
         self.bot = bot
         self.discord_io = discord_io
+        # tasks.loop chạy lượt ĐẦU ngay khi online (không đợi đủ interval) -> mỗi lần restart
+        # bot tự nói liền dù chưa tới chu kỳ. Cờ này bỏ qua lượt tick đầu sau mỗi lần khởi động.
+        self._warmed_up = False
 
     async def cog_load(self) -> None:
         self.companion_tick.start()
@@ -57,6 +60,11 @@ class CompanionCog(commands.Cog):
 
     @tasks.loop(minutes=TICK_MINUTES)
     async def companion_tick(self) -> None:
+        # Bỏ lượt đầu (chạy ngay lúc vừa online) -> không tự cà khịa mỗi khi restart/deploy.
+        # Real-time presence (on_presence_update) vẫn chạy bình thường nếu có game mới bật.
+        if not self._warmed_up:
+            self._warmed_up = True
+            return
         now = datetime.now(UTC)
         for guild in list(self.bot.guilds):
             try:

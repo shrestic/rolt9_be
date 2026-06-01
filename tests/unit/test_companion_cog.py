@@ -99,6 +99,18 @@ async def test_handle_guild_posts_when_activity(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_companion_tick_skips_first_run_after_restart():
+    # tasks.loop chạy lượt đầu NGAY khi online -> phải BỎ để bot không tự nói mỗi lần restart.
+    cog = _cog(_cfg())
+    cog._handle_guild = AsyncMock()
+    cog.bot.guilds = [SimpleNamespace(id=100)]
+    await cog.companion_tick()  # lượt đầu (vừa restart) -> bỏ qua
+    cog._handle_guild.assert_not_awaited()
+    await cog.companion_tick()  # lượt kế (đã qua 1 chu kỳ) -> chạy bình thường
+    cog._handle_guild.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_handle_guild_skip_when_disabled(monkeypatch):
     stub = MagicMock()
     stub.decide = AsyncMock()
