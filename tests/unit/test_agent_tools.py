@@ -92,3 +92,30 @@ async def test_execute_remember_writes_doc(db_session):
 async def test_execute_remember_no_ctx():
     out = await execute("remember", {"note": "x"}, ToolContext())
     assert "chưa ghi" in out.lower()
+
+
+def test_tool_specs_always_has_create_poll():
+    assert "create_poll" in {s["function"]["name"] for s in tool_specs(has_search=False)}
+
+
+@pytest.mark.asyncio
+async def test_execute_create_poll_stages_pending():
+    ctx = ToolContext()
+    out = await execute(
+        "create_poll",
+        {"question": "Tối nay ăn gì?", "options": ["Phở", "Cơm tấm", "Bún bò"]},
+        ctx,
+    )
+    assert "poll" in out.lower()
+    assert len(ctx.pending) == 1
+    p = ctx.pending[0]
+    assert p.kind == "create_poll" and p.destructive is False
+    assert p.params["options"] == ["Phở", "Cơm tấm", "Bún bò"]
+    assert p.params["duration_hours"] == 24  # mặc định
+
+
+@pytest.mark.asyncio
+async def test_execute_create_poll_rejects_too_few_options():
+    ctx = ToolContext()
+    out = await execute("create_poll", {"question": "?", "options": ["chỉ 1"]}, ctx)
+    assert "2-10" in out and not ctx.pending

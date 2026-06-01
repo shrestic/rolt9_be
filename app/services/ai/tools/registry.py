@@ -80,10 +80,40 @@ _CURRENT_TIME_SPEC = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
+_CREATE_POLL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "create_poll",
+        "description": (
+            "Tạo một cuộc bình chọn (poll) Discord thật trong kênh. Gọi khi người dùng muốn "
+            "'tạo poll', 'vote', 'bình chọn', 'khảo sát'. Tự tách câu hỏi + các lựa chọn."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "Câu hỏi của poll"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Các lựa chọn (2-10 cái)",
+                },
+                "duration_hours": {
+                    "type": "integer",
+                    "description": "Số giờ poll mở (mặc định 24, tối đa 168 = 7 ngày)",
+                },
+                "multiple": {
+                    "type": "boolean",
+                    "description": "Cho chọn nhiều đáp án không (mặc định false)",
+                },
+            },
+            "required": ["question", "options"],
+        },
+    },
+}
 
 
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
-    specs = [_REMEMBER_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
+    specs = [_REMEMBER_SPEC, _CREATE_POLL_SPEC, _SERVER_INFO_SPEC, _CURRENT_TIME_SPEC]
     if has_search:
         specs = [_WEB_SEARCH_SPEC, *specs]
     if include_actions:
@@ -100,6 +130,34 @@ def parse_args(raw: str | None) -> dict:
         return {}
 
 
+def _stage_poll(args: dict, ctx: ToolContext) -> str:
+    """Validate args poll rồi xếp vào ctx.pending để cog gửi poll Discord thật vào kênh."""
+    from app.services.ai.actions.registry import PendingAction  # lazy: tránh vòng import
+
+    question = str(args.get("question", "")).strip()
+    options = [str(o).strip() for o in (args.get("options") or []) if str(o).strip()]
+    if not question:
+        return "Thiếu câu hỏi cho poll."
+    if not (2 <= len(options) <= 10):
+        return "Poll cần 2-10 lựa chọn."
+    dur = args.get("duration_hours")
+    dur = dur if isinstance(dur, int) and 1 <= dur <= 168 else 24  # 1h..7 ngày, mặc định 24h
+    ctx.pending.append(
+        PendingAction(
+            "create_poll",
+            False,  # tạo poll không phải hành động phá -> không cần nút xác nhận
+            f"Poll: {question}",
+            {
+                "question": question,
+                "options": options,
+                "duration_hours": dur,
+                "multiple": bool(args.get("multiple")),
+            },
+        )
+    )
+    return f"Đã tạo poll: {question} ({len(options)} lựa chọn)."
+
+
 async def execute(name: str, args: dict, ctx: ToolContext) -> str:
     log.info("agent tool call: name=%s args=%s", name, args)
     if name == "remember":
@@ -108,6 +166,8 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
             await ctx.memory_repo_doc.append_note(ctx.guild_pk, note)
             return "Đã ghi nhớ."
         return "Chưa ghi nhớ được."
+    if name == "create_poll":
+        return _stage_poll(args, ctx)
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
     if name == "server_info":

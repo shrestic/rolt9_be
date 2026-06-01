@@ -309,12 +309,28 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
     return f"Hành động không hỗ trợ: {name}"
 
 
-async def execute(pending: PendingAction, *, guild, session) -> str:
-    """Thực thi thật. guild = discord.Guild; session = AsyncSession. Lỗi -> chuỗi báo."""
+async def execute(pending: PendingAction, *, guild, session, channel=None) -> str:
+    """Thực thi thật. guild = discord.Guild; session = AsyncSession; channel = kênh để gửi
+    (poll cần). Lỗi -> chuỗi báo."""
+    import datetime
+
     import discord
 
     p = pending.params
     try:
+        if pending.kind == "create_poll":
+            if channel is None:
+                return "Không gửi được poll (thiếu kênh)."
+            poll = discord.Poll(
+                question=p["question"],
+                duration=datetime.timedelta(hours=p["duration_hours"]),
+                multiple=p["multiple"],
+            )
+            for opt in p["options"]:
+                poll.add_answer(text=opt[:55])  # Discord giới hạn 55 ký tự/đáp án
+            await channel.send(poll=poll)
+            return f"Đã tạo poll: {p['question']}"
+
         if pending.kind == "create_role":
             kwargs = {"name": p["name"]}
             if p.get("color") is not None:

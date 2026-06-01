@@ -223,8 +223,12 @@ class AgentCog(commands.Cog):
                 if p.destructive:
                     await self._send_confirm(message, p)
                 else:
-                    res = await run_action(p, guild=message.guild, session=session)
-                    await self._safe_reply(message, f"✅ {res}")
+                    res = await run_action(
+                        p, guild=message.guild, session=session, channel=message.channel
+                    )
+                    # Poll tự là output rồi -> khỏi spam thêm "✅"; action khác thì báo.
+                    if p.kind != "create_poll":
+                        await self._safe_reply(message, f"✅ {res}")
 
     async def _send_confirm(self, message, pending) -> None:
         try:

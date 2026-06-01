@@ -157,6 +157,34 @@ async def test_execute_create_role_calls_api():
     assert "tạo role" in out.lower()
 
 
+@pytest.mark.asyncio
+async def test_execute_create_poll_sends_native_poll():
+    channel = SimpleNamespace(send=AsyncMock())
+    p = PendingAction(
+        "create_poll",
+        False,
+        "",
+        {
+            "question": "Tối nay ăn gì?",
+            "options": ["Phở", "Cơm tấm"],
+            "duration_hours": 24,
+            "multiple": False,
+        },
+    )
+    out = await execute(p, guild=None, session=None, channel=channel)
+    channel.send.assert_awaited_once()
+    # poll Discord native được truyền qua kwarg `poll`
+    assert channel.send.call_args.kwargs.get("poll") is not None
+    assert "poll" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_create_poll_needs_channel():
+    p = PendingAction("create_poll", False, "", {"question": "x", "options": ["a", "b"]})
+    out = await execute(p, guild=None, session=None, channel=None)
+    assert "thiếu kênh" in out.lower()
+
+
 @functools.total_ordering
 class _Role:
     def __init__(self, pos):
