@@ -176,9 +176,12 @@ class AgentCog(commands.Cog):
             return
 
         now = time.monotonic()
-        # Cooldown theo (guild, user) -> không chặn nhầm khi cùng user nhắn ở server khác.
+        # Cooldown 5s theo (guild, user) -> không chặn nhầm khi cùng user nhắn ở server khác.
+        # MARK NGAY (trước khi xử lý) — vì respond mất 8-20s; nếu mark sau thì user bắn dồn dập
+        # trong lúc bot đang nghĩ vẫn lọt hết -> chặn không hiệu quả. Mark sớm = chặn spam thật.
         if not self.cooldown.ready(int(message.guild.id), message.author.id, now=now):
             return
+        self.cooldown.mark(int(message.guild.id), message.author.id, now=now)
 
         user_text = message.clean_content
         ref_id = (
@@ -232,7 +235,7 @@ class AgentCog(commands.Cog):
                 return
 
             conversation_id, text, pending = result
-            self.cooldown.mark(int(message.guild.id), message.author.id, now=now)
+            # (cooldown đã mark ở đầu, không mark lại ở đây)
 
             if pending:
                 # LƯỢT HÀNH ĐỘNG: chạy tool TRƯỚC rồi mới báo theo KẾT QUẢ THẬT — KHÔNG gửi lời

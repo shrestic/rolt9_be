@@ -229,6 +229,20 @@ async def test_on_message_value_error_replies_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_message_marks_cooldown_before_processing(monkeypatch):
+    # Mark cooldown NGAY (trước respond): dù respond trả None / chậm, tin thứ 2 vẫn bị chặn.
+    stub = MagicMock()
+    stub.respond = AsyncMock(return_value=None)  # vd agent off / sai kênh
+    stub.remember = AsyncMock()
+    _patch(monkeypatch, stub)
+    cog = _cog()
+    u = _User(2)
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # ngay sau -> cooldown chặn
+    assert stub.respond.await_count == 1  # lần 2 bị chặn dù lần 1 không trả lời
+
+
+@pytest.mark.asyncio
 async def test_on_message_cooldown_blocks_second(monkeypatch):
     cid = uuid.uuid4()
     stub = MagicMock()
