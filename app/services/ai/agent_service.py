@@ -57,7 +57,10 @@ _TOOL_NUDGE = (
     "'thả nó ra' = YÊU CẦU HÀNH ĐỘNG -> gọi tool (vd untimeout/unban), không phải chỉ tám. "
     "TAG NGƯỜI: khi NHẮC TỚI một người mà bạn biết '<@id>' của họ (ở mục 'Người được @' hoặc trong "
     "'TRÍ NHỚ SERVER'), HÃY viết nguyên cụm '<@id>' để tag thật — ĐỪNG viết tên/biệt danh trơn "
-    "(vd biết loz Khôi = <@123> thì viết '<@123>', không viết 'loz Khôi')."
+    "(vd biết loz Khôi = <@123> thì viết '<@123>', không viết 'loz Khôi'). "
+    "QUAN TRỌNG: '<@...>' CHỈ hợp lệ khi bên trong là ID SỐ (vd <@123456>). TUYỆT ĐỐI ĐỪNG bịa "
+    "'<@tên>'/'<@username>' (vd <@thinh.nguyen2>) — Discord không tag được, ra chữ rác. Nếu chỉ "
+    "biết TÊN mà không có id số, cứ viết TÊN THƯỜNG (vd 'thinh.nguyen2'), hệ thống sẽ tự tag giúp."
 )
 
 # Quy tắc độ dài — đặt CUỐI system prompt (vị trí model bám nhất) và nói rõ ưu tiên

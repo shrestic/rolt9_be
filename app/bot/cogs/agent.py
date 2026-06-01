@@ -7,6 +7,7 @@ kênh). Cooldown/user chống spam. Cần intents.message_content (đã bật).
 
 import asyncio
 import logging
+import re
 import time
 
 import discord
@@ -63,6 +64,51 @@ async def collect_channel_context(channel, *, before, limit: int = CHANNEL_CONTE
         return ""
     lines.reverse()  # history() trả mới->cũ; đảo lại thành cũ->mới cho dễ đọc
     return "\n".join(lines)
+
+
+def _distinctive(name: str) -> bool:
+    """Tên có ĐỦ ĐẶC TRƯNG để auto-tag không (giảm ping nhầm)?
+
+    Username Discord (vd 'thinh.nguyen2') gần như luôn có dấu '.', '_' hoặc số -> rất ít
+    đụng từ thường. Tên thuần chữ thì phải dài (>=6) mới tag, để 'minh'/'Đạt' (dễ trùng từ
+    tiếng Việt) KHÔNG bị biến nhầm thành mention.
+    """
+    return len(name) >= 6 or any(c.isdigit() or c in "._" for c in name)
+
+
+def tag_known_members(text: str, guild, bot_id) -> str:
+    """Đổi tên thành viên (username/global_name) xuất hiện trong text thành '<@id>' để bot
+    TAG đúng người (ping được), kể cả khi trí nhớ chỉ lưu tên CHỮ TRƠN (không kèm id).
+
+    An toàn: chỉ thay tên ĐẶC TRƯNG (xem _distinctive), đúng ranh giới từ, chưa nằm trong
+    '<@...>' sẵn, và mỗi người chỉ thay 1 lần. Lỗi/regex hỏng -> trả text gốc, không chặn gửi.
+    """
+    if not text or guild is None:
+        return text
+    members = getattr(guild, "members", None) or []
+    # (tên, id) — ưu tiên tên DÀI trước để 'thinh.nguyen2' được khớp trước 'thinh'.
+    idents: list[tuple[str, int]] = []
+    for m in members:
+        if getattr(m, "id", None) == bot_id:
+            continue
+        for nm in (getattr(m, "name", None), getattr(m, "global_name", None)):
+            if nm and _distinctive(nm):
+                idents.append((nm, int(m.id)))
+    idents.sort(key=lambda x: len(x[0]), reverse=True)
+    for nm, uid in idents:
+        if f"<@{uid}>" in text:  # đã có mention ID hợp lệ rồi -> bỏ qua
+            continue
+        esc = re.escape(nm)
+        # (a) Model hay BỊA '<@thinh.nguyen2>' / '<@!thinh.nguyen2>' (nhét tên vào cú pháp mention
+        # nhưng Discord cần ID SỐ -> ra chữ trơn). Sửa thành '<@id>' thật.
+        text = re.sub(rf"<@!?{esc}>", f"<@{uid}>", text, count=1, flags=re.IGNORECASE)
+        if f"<@{uid}>" in text:  # đã sửa được dạng bịa -> khỏi xử lý dạng chữ trơn
+            continue
+        # (b) Tên CHỮ TRƠN 'thinh.nguyen2' ở ranh giới từ (không sau '@'/'<', không dính chữ) -> '<@id>'.
+        text = re.sub(
+            rf"(?<![\w@<]){esc}(?![\w>])", f"<@{uid}>", text, count=1, flags=re.IGNORECASE
+        )
+    return text
 
 
 def perms_dict(guild_permissions) -> dict:
@@ -353,6 +399,9 @@ class AgentCog(commands.Cog):
                 )
             else:
                 # LƯỢT CHAT (không hành động): gửi lời model bình thường.
+                # Đổi tên thành viên trong câu -> '<@id>' để bot TAG đúng người (ping), kể cả khi
+                # trí nhớ chỉ lưu tên chữ trơn (vd 'thinh.nguyen2' không kèm id lúc được dạy).
+                text = tag_known_members(text, message.guild, bot_id)
                 sent = await self._safe_reply(message, text)
                 if sent is None:
                     return

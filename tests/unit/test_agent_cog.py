@@ -129,6 +129,76 @@ def test_is_addressed_by_bot_role_mention():
     assert is_addressed(msg, bot) is True
 
 
+class _Member:
+    """Thành viên giả cho guild.members trong test tag_known_members."""
+
+    def __init__(self, id, name=None, global_name=None):
+        self.id = id
+        self.name = name
+        self.global_name = global_name
+
+
+def _guild_with(members):
+    return SimpleNamespace(members=members)
+
+
+def test_tag_known_members_username_to_mention():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Đạt")])
+    # tên chữ trơn trong câu -> đổi thành <@id> để ping
+    out = tag_known_members("Đạt = thằng thinh.nguyen2 đấy", g, bot_id=1)
+    assert "<@42>" in out
+    assert "thinh.nguyen2" not in out  # username đã được thay
+
+
+def test_tag_known_members_fixes_fabricated_mention():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Đạt")])
+    # Model BỊA '<@thinh.nguyen2>' (Discord ko render vì cần ID số) -> phải sửa thành '<@42>'.
+    out = tag_known_members("Đạt = thằng <@thinh.nguyen2> tên thật Đạt", g, bot_id=1)
+    assert "<@42>" in out
+    assert "<@thinh.nguyen2>" not in out
+    assert out.count("<@42>") == 1  # không nhân đôi
+
+
+def test_tag_known_members_fixes_fabricated_mention_bang_form():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(42, name="thinh.nguyen2")])
+    out = tag_known_members("ê <@!thinh.nguyen2> ơi", g, bot_id=1)
+    assert out == "ê <@42> ơi"
+
+
+def test_tag_known_members_skips_short_common_names():
+    from app.bot.cogs.agent import tag_known_members
+
+    # global_name 'Đạt' (3 ký tự, thuần chữ) KHÔNG đủ đặc trưng -> không tag (tránh ping nhầm).
+    g = _guild_with([_Member(7, name="abc", global_name="Đạt")])
+    out = tag_known_members("Hôm nay Đạt được mùa", g, bot_id=1)
+    assert out == "Hôm nay Đạt được mùa"  # giữ nguyên
+
+
+def test_tag_known_members_idempotent_and_no_double_tag():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(42, name="thinh.nguyen2")])
+    # đã có sẵn <@42> -> không tự chèn thêm
+    assert tag_known_members("chào <@42> nhé", g, bot_id=1) == "chào <@42> nhé"
+    # không đụng vào mention sẵn của người khác / username nằm trong <@...>
+    out = tag_known_members("ping thinh.nguyen2 đi", g, bot_id=1)
+    assert out.count("<@42>") == 1
+
+
+def test_tag_known_members_skips_bot_itself():
+    from app.bot.cogs.agent import tag_known_members
+
+    g = _guild_with([_Member(1, name="rolt9.bot")])
+    out = tag_known_members("gọi rolt9.bot xem", g, bot_id=1)
+    assert "<@1>" not in out  # chính bot -> không tag
+
+
 def test_cooldown_tracker():
     t = CooldownTracker(AGENT_COOLDOWN)
     assert t.ready(7, 42, now=100.0) is True
