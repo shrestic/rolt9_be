@@ -24,7 +24,10 @@ from app.services.ai.tools.web_search import run_web_search
 
 log = logging.getLogger(__name__)
 
-CHECK_SECONDS = 60  # quét mỗi phút — đủ mịn cho báo thức, nhẹ tải
+# Quét mỗi 20s: reminder bắn ở lần quét kế tiếp >= remind_at, nên poll thưa = trễ nhiều.
+# 20s -> trễ tối đa ~20s (query `due` có index, 3 lần/phút cực nhẹ). Smart reminder còn +~10-20s
+# do web_search + AI, nhưng phần đó không giảm bằng poll được.
+CHECK_SECONDS = 20
 
 
 def _gateway(session) -> AIGateway:
