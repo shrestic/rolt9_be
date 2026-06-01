@@ -454,29 +454,43 @@ async def execute(pending: PendingAction, *, guild, session, channel=None) -> st
                 return f"Không rõ {pending.kind} ai."
             done = 0
             blocked: list[str] = []  # người có role ≥ bot — bỏ qua, KHÔNG chặn cả lô
+            owner_id = getattr(guild, "owner_id", None)
+            failed: list[str] = []  # Discord từ chối (Forbidden…) lúc thực thi
             for uid in target_ids:
                 member = guild.get_member(uid)
+                # CHỦ SERVER: Discord cấm ban/kick/timeout owner BẤT KỂ role -> chặn rõ, đừng để
+                # guild.ban(owner) ném Forbidden rồi crash (đây là vụ 'ban shrestic' = chủ server).
+                if member is not None and owner_id is not None and member.id == owner_id:
+                    blocked.append(f"{member.display_name} (chủ server)")
+                    continue
                 # Cấp bậc: chỉ chặn khi member còn trong server và role ≥ bot.
                 if member is not None and guild.me.top_role <= member.top_role:
                     blocked.append(member.display_name)
                     continue
-                if pending.kind == "ban":
-                    # Ban được CẢ người đã rời server (ban theo ID qua discord.Object).
-                    await guild.ban(
-                        member or discord.Object(id=uid), reason=p.get("reason") or None
-                    )
-                elif member is None:
-                    continue  # kick/timeout cần người còn trong server
-                elif pending.kind == "kick":
-                    await member.kick(reason=p.get("reason") or None)
-                else:
-                    await member.timeout(
-                        timedelta(minutes=p["minutes"]), reason=p.get("reason") or None
-                    )
+                try:
+                    if pending.kind == "ban":
+                        # Ban được CẢ người đã rời server (ban theo ID qua discord.Object).
+                        await guild.ban(
+                            member or discord.Object(id=uid), reason=p.get("reason") or None
+                        )
+                    elif member is None:
+                        continue  # kick/timeout cần người còn trong server
+                    elif pending.kind == "kick":
+                        await member.kick(reason=p.get("reason") or None)
+                    else:
+                        await member.timeout(
+                            timedelta(minutes=p["minutes"]), reason=p.get("reason") or None
+                        )
+                except discord.DiscordException:
+                    # Discord chặn (thiếu quyền, owner, 2FA…) -> báo lại chứ KHÔNG để văng exception.
+                    failed.append(member.display_name if member else str(uid))
+                    continue
                 done += 1
             msg = f"Đã {pending.kind} {done} người."
             if blocked:
-                msg += f" Bỏ qua (role cao hơn/ngang bot): {', '.join(blocked)}."
+                msg += f" Bỏ qua (chủ server / role cao hơn-ngang bot): {', '.join(blocked)}."
+            if failed:
+                msg += f" Discord từ chối: {', '.join(failed)}."
             return msg
 
         if pending.kind == "untimeout":

@@ -258,6 +258,42 @@ async def test_execute_kick_blocked_by_hierarchy():
     assert "cao hơn" in out.lower()
 
 
+@pytest.mark.asyncio
+async def test_execute_ban_blocks_server_owner():
+    # CHỦ SERVER không ban được (Discord cấm bất kể role) -> chặn rõ, KHÔNG gọi guild.ban.
+    member = SimpleNamespace(id=999, top_role=_Role(1), display_name="shrestic")
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)),
+        get_member=lambda uid: member,
+        owner_id=999,  # shrestic = chủ server
+        ban=AsyncMock(),
+    )
+    p = PendingAction("ban", True, "", {"target_ids": [999], "reason": ""})
+    out = await execute(p, guild=guild, session=None)
+    guild.ban.assert_not_awaited()  # không hề gọi ban owner
+    assert "chủ server" in out.lower()  # báo rõ lý do
+
+
+@pytest.mark.asyncio
+async def test_execute_ban_reports_discord_rejection_instead_of_crashing():
+    # Discord từ chối lúc thực thi (Forbidden…) -> báo lại, KHÔNG văng exception.
+    import discord
+
+    async def boom(*a, **k):
+        raise discord.DiscordException("forbidden")
+
+    member = SimpleNamespace(id=5, top_role=_Role(1), display_name="X")
+    guild = SimpleNamespace(
+        me=SimpleNamespace(top_role=_Role(10)),
+        get_member=lambda uid: member,
+        owner_id=None,
+        ban=AsyncMock(side_effect=boom),
+    )
+    p = PendingAction("ban", True, "", {"target_ids": [5], "reason": ""})
+    out = await execute(p, guild=guild, session=None)  # không raise
+    assert "từ chối" in out.lower()
+
+
 class _AsyncIter:
     """Async-iterator giả cho guild.bans()."""
 
