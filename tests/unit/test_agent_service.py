@@ -423,6 +423,14 @@ def test_build_system_includes_mention_map():
     assert "<@123>" in s and "Khôi" in s and "tag" in s.lower()
 
 
+def test_build_system_includes_commander_id_for_self_reference():
+    # Có user_id -> prompt nêu '<@id>' người đang chat + dặn 'tao/tôi/mình' = <@id>, đừng bịa <@rolt9>.
+    s = build_system("Bạn là mèo.", "", "Phong", user_id=705682495592726558)
+    assert "<@705682495592726558>" in s
+    assert "tao" in s.lower()  # nói rõ khi họ xưng tao/tôi/mình
+    assert "rolt9" in s.lower()  # dặn đừng dùng <@rolt9>
+
+
 # ---------- biệt danh tự đặt -> tag thật (<@id>) ----------
 
 from app.services.ai.agent_service import apply_nick_mentions, extract_nick_mentions  # noqa: E402

@@ -104,14 +104,25 @@ def build_system(
     channel_context: str = "",
     now_text: str = "",
     mention_map: str = "",
+    user_id: int | None = None,
 ) -> str:
     """Ghép persona + trí nhớ server (memory_doc) + facts về user + ngữ cảnh kênh
     thành system prompt. memory_doc là lore chung toàn server (biệt danh, luật, …) áp
     cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại.
     now_text = giờ VN hiện tại để model tính thời điểm khi đặt nhắc (tool remind).
-    mention_map = ánh xạ 'tên -> <@id>' của người được @ trong tin, để model TAG thật + ghi nhớ kèm id."""
+    mention_map = ánh xạ 'tên -> <@id>' của người được @ trong tin, để model TAG thật + ghi nhớ kèm id.
+    user_id = Discord id NGƯỜI ĐANG NÓI CHUYỆN -> để model tag đúng khi họ xưng 'tao/tôi/mình'
+    (đừng bịa <@rolt9> = tên bot để chỉ chính họ)."""
     base = persona or DEFAULT_PERSONA
-    parts = [base, _TOOL_NUDGE, f"\nBạn đang nói chuyện với '{user_name}'."]
+    if user_id is not None:
+        who = (
+            f"\nBạn đang nói chuyện với <@{user_id}> (tên: '{user_name}'). Khi họ xưng "
+            f"'tao/tôi/mình/tớ', đó CHÍNH LÀ <@{user_id}> — muốn nhắc/ghi nhớ về họ thì dùng "
+            f"'<@{user_id}>', TUYỆT ĐỐI ĐỪNG dùng '<@rolt9>' (đó là tên BOT, không phải người này)."
+        )
+    else:
+        who = f"\nBạn đang nói chuyện với '{user_name}'."
+    parts = [base, _TOOL_NUDGE, who]
     if now_text:
         parts.append(f"\nBây giờ (giờ VN): {now_text}.")
     if mention_map.strip():
@@ -257,7 +268,14 @@ class AgentService:
         # Giờ VN hiện tại để model tính thời điểm khi đặt nhắc ("ngày mai 5h30" -> tuyệt đối).
         now_text = datetime.now(_VN_TZ).strftime("%Y-%m-%d %H:%M (%A)")
         system = build_system(
-            cfg.persona, facts, user_name, memory_doc, channel_context, now_text, mention_map
+            cfg.persona,
+            facts,
+            user_name,
+            memory_doc,
+            channel_context,
+            now_text,
+            mention_map,
+            user_id=user_discord_id,
         )
 
         perms = commander_perms or {}
