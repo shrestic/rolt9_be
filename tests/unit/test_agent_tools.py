@@ -11,6 +11,15 @@ def test_tool_specs_includes_search_only_when_available():
     assert "web_search" not in {s["function"]["name"] for s in tool_specs(has_search=False)}
 
 
+def test_remind_and_subscribe_carry_ambiguous_time_rule():
+    # remind + subscribe đều phải dặn xử lý giờ MƠ HỒ sáng/chiều (hỏi lại khi 1-12 không rõ).
+    specs = {
+        s["function"]["name"]: s["function"]["description"] for s in tool_specs(has_search=True)
+    }
+    for name in ("remind", "subscribe"):
+        assert "MƠ HỒ" in specs[name] and "sáng hay chiều/tối" in specs[name]
+
+
 def test_server_info_kinds():
     snap = {"member_count": 7, "roles": ["Admin", "Mod"], "channels": ["general"]}
     assert "7" in run_server_info("member_count", snap)

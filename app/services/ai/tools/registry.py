@@ -133,6 +133,18 @@ _CREATE_POLL_SPEC = {
 }
 
 
+# Quy tắc giờ MƠ HỒ sáng/chiều — dùng chung cho remind + subscribe (cùng nhận giờ từ người dùng).
+_AMBIG_TIME_RULE = (
+    "CỰC KỲ QUAN TRỌNG VỀ GIỜ: giờ từ 1 đến 12 mà người dùng KHÔNG kèm 'sáng/trưa/chiều/tối' thì "
+    "LUÔN coi là MƠ HỒ — KỂ CẢ khi nó trông như giờ 24h hợp lệ. Vd '11h15' có thể là 11:15 sáng "
+    "HAY 23:15 tối; '8h' có thể 8h sáng HAY 20h tối. Gặp ca này: TUYỆT ĐỐI ĐỪNG gọi tool, ĐỪNG tự "
+    "đặt, ĐỪNG mặc định buổi sáng — HỎI LẠI đúng 1 câu 'ý là sáng hay chiều/tối?' rồi đợi trả lời. "
+    "CHỈ tự đặt (không hỏi) khi: (a) có chữ sáng/trưa/chiều/tối -> quy đổi 24h (11h15 tối=23:15, "
+    "11h15 sáng=11:15, 2h chiều=14:00); HOẶC (b) giờ >12 đã rõ (23h15, 14h); HOẶC (c) tương đối "
+    "('5 phút nữa', '2 tiếng nữa')."
+)
+
+
 _REMIND_SPEC = {
     "type": "function",
     "function": {
@@ -146,7 +158,7 @@ _REMIND_SPEC = {
             "DÙNG 'task' khi người dùng muốn tới giờ thì TRA CỨU/CẬP NHẬT dữ liệu SỐNG rồi báo "
             "(vd 'tới 5h show giá vàng', 'sáng mai báo thời tiết', 'tối nay tỷ giá USD'): đặt "
             "task='giá vàng hôm nay'… — tới giờ bot tự web search + trả lời số liệu THẬT. Việc cá "
-            "nhân bình thường (không cần tra) thì BỎ task, chỉ dùng message."
+            "nhân bình thường (không cần tra) thì BỎ task, chỉ dùng message. " + _AMBIG_TIME_RULE
         ),
         "parameters": {
             "type": "object",
@@ -250,7 +262,7 @@ _SUBSCRIBE_SPEC = {
             "(2) 'message' = câu NHẮC CÁ NHÂN lặp lại, KHÔNG tra web (vd 'mỗi 5h30 hú tao đi về' "
             "-> message='Đi về thôi!', 'mỗi 8h uống thuốc' -> message='Uống thuốc đi'). "
             "TUYỆT ĐỐI đừng nhét lời nhắc cá nhân vào 'topic' (sẽ tra web ra tin rác). Nhắc 1 LẦN thì "
-            "dùng 'remind' chứ không phải tool này."
+            "dùng 'remind' chứ không phải tool này. " + _AMBIG_TIME_RULE
         ),
         "parameters": {
             "type": "object",
