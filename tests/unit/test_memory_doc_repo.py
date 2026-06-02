@@ -84,3 +84,52 @@ async def test_remove_notes_no_match_returns_empty(db_session):
     removed = await repo.remove_notes(gid, "không-có-gì-khớp")
     assert removed == []
     assert "gọi An là sếp" in await repo.get_doc(gid)  # không đụng doc
+
+
+@pytest.mark.asyncio
+async def test_clear_deletes_row_not_just_empty(db_session):
+    from sqlalchemy import func, select
+
+    from app.models.guild_memory_doc import GuildMemoryDoc
+
+    gid = await _guild(db_session)
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, "gọi An là sếp")
+    await db_session.commit()
+    await repo.clear(gid)
+    await db_session.commit()
+    # XOÁ HẲN record, không để row doc rỗng
+    cnt = await db_session.scalar(
+        select(func.count()).select_from(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == gid)
+    )
+    assert cnt == 0
+    assert await repo.get_doc(gid) == ""
+
+
+@pytest.mark.asyncio
+async def test_remove_all_notes_deletes_row(db_session):
+    from sqlalchemy import func, select
+
+    from app.models.guild_memory_doc import GuildMemoryDoc
+
+    gid = await _guild(db_session)
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, "biệt danh ngọc gà")
+    await db_session.commit()
+    await repo.remove_notes(gid, "ngọc gà")  # xoá dòng cuối -> row trống -> xoá luôn record
+    await db_session.commit()
+    cnt = await db_session.scalar(
+        select(func.count()).select_from(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == gid)
+    )
+    assert cnt == 0
+
+
+@pytest.mark.asyncio
+async def test_append_after_clear_recreates(db_session):
+    gid = await _guild(db_session)
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, "x")
+    await repo.clear(gid)
+    await repo.append_note(gid, "ghi lại sau khi xoá")  # _row tạo lại row mới
+    await db_session.commit()
+    assert "ghi lại sau khi xoá" in await repo.get_doc(gid)

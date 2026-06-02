@@ -76,11 +76,22 @@ class MemoryDocRepository:
             else:
                 kept.append(line)
         if removed:
-            row.doc = "\n".join(kept).strip()
+            new_doc = "\n".join(kept).strip()
+            if new_doc:
+                row.doc = new_doc
+            else:
+                # Xoá hết -> XOÁ LUÔN record, không để row rỗng trong DB.
+                await self.session.delete(row)
             await self.session.flush()
         return removed
 
     async def clear(self, guild_id: uuid.UUID) -> None:
-        row = await self._row(guild_id)
-        row.doc = ""
-        await self.session.flush()
+        """Xoá SẠCH trí nhớ = XOÁ HẲN record khỏi DB (không để row doc rỗng). get_doc sẽ trả ''
+        khi không có row; append_note tự tạo lại row mới khi cần ghi."""
+        r = await self.session.execute(
+            select(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == guild_id)
+        )
+        row = r.scalar_one_or_none()
+        if row is not None:
+            await self.session.delete(row)
+            await self.session.flush()
