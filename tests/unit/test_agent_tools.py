@@ -449,3 +449,32 @@ async def test_execute_forget_removes_note(db_session):
 async def test_execute_forget_no_match():
     out = await execute("forget", {"query": "x"}, ToolContext())
     assert "chưa xoá được" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_forget_all_clears_with_perm(db_session):
+    import uuid as _uuid
+
+    from app.models.guild import Guild
+    from app.repositories.memory_doc import MemoryDocRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, "gọi An là sếp")
+    await repo.append_note(gid, "Bình thích cà phê")
+    await db_session.commit()
+    ctx = ToolContext(memory_repo_doc=repo, guild_pk=gid, commander_perms={"manage_guild": True})
+    out = await execute("forget", {"all": True}, ctx)
+    await db_session.commit()
+    assert "xoá sạch" in out.lower()
+    assert await repo.get_doc(gid) == ""  # đã sạch THẬT
+
+
+@pytest.mark.asyncio
+async def test_execute_forget_all_needs_manage_guild():
+    # Không có quyền Manage Server -> KHÔNG xoá sạch được (gate giống /claw-lore-clear).
+    ctx = ToolContext(memory_repo_doc=object(), guild_pk="x", commander_perms={})
+    out = await execute("forget", {"all": True}, ctx)
+    assert "manage server" in out.lower()

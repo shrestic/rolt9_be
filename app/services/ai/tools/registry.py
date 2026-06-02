@@ -62,18 +62,22 @@ _FORGET_SPEC = {
     "function": {
         "name": "forget",
         "description": (
-            "QUÊN/XOÁ một ghi nhớ trong TRÍ NHỚ SERVER (biệt danh, ghi chú, luật đã lưu). Gọi khi "
-            "user nói 'quên ... đi', 'xoá biệt danh ...', 'bỏ ghi chú ...', 'đừng nhớ ... nữa', "
-            "'xoá cái ... trong trí nhớ'. Truyền 'query' = từ khoá để tìm dòng cần xoá (vd 'ngọc gà', "
-            "'thinh.nguyen2', 'sếp'). Xoá MỌI dòng chứa từ khoá đó; hệ thống báo lại đã xoá gì. "
-            "Muốn xoá SẠCH toàn bộ trí nhớ server thì bảo user dùng lệnh /claw-lore-clear."
+            "QUÊN/XOÁ ghi nhớ trong TRÍ NHỚ SERVER (biệt danh, ghi chú, luật đã lưu). Gọi khi user "
+            "nói 'quên ... đi', 'xoá biệt danh ...', 'bỏ ghi chú ...', 'đừng nhớ ... nữa'. Truyền "
+            "'query' = từ khoá dòng cần xoá (vd 'ngọc gà', 'thinh.nguyen2'); xoá MỌI dòng chứa nó. "
+            "XOÁ SẠCH toàn bộ trí nhớ: user nói 'xoá hết/xoá sạch/quên hết trí nhớ' -> đặt all=true "
+            "(KHÔNG cần query). TUYỆT ĐỐI ĐỪNG dùng remember để ghi 1 dòng kiểu 'đã xoá' — đó KHÔNG "
+            "phải xoá, chỉ làm bẩn trí nhớ. Hệ thống báo lại đã xoá gì."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Từ khoá của ghi nhớ cần quên/xoá"}
+                "query": {
+                    "type": "string",
+                    "description": "Từ khoá ghi nhớ cần quên (bỏ trống nếu all=true)",
+                },
+                "all": {"type": "boolean", "description": "true = xoá SẠCH toàn bộ trí nhớ server"},
             },
-            "required": ["query"],
         },
     },
 }
@@ -736,9 +740,17 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
             return "Đã ghi nhớ."
         return "Chưa ghi nhớ được."
     if name == "forget":
+        if ctx.memory_repo_doc is None or ctx.guild_pk is None:
+            return "Chưa xoá được (thiếu ngữ cảnh)."
+        if bool(args.get("all")):
+            # Xoá SẠCH = nuclear -> cần quyền Manage Server (giống /claw-lore-clear).
+            if not ctx.commander_perms.get("manage_guild"):
+                return "Cần quyền Manage Server mới xoá sạch toàn bộ trí nhớ server được."
+            await ctx.memory_repo_doc.clear(ctx.guild_pk)
+            return "Đã xoá sạch toàn bộ trí nhớ server."
         query = str(args.get("query", "")).strip()
-        if ctx.memory_repo_doc is None or ctx.guild_pk is None or not query:
-            return "Chưa xoá được (thiếu ngữ cảnh hoặc chưa nêu cần quên gì)."
+        if not query:
+            return "Chưa rõ cần quên gì — nêu từ khoá, hoặc bảo 'xoá hết' (all) để xoá sạch."
         removed = await ctx.memory_repo_doc.remove_notes(ctx.guild_pk, query)
         if not removed:
             return f"Không thấy ghi nhớ nào khớp '{query}' để quên."
