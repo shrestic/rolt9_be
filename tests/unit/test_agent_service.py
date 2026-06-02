@@ -421,3 +421,42 @@ def test_build_system_includes_mention_map():
     # mention_map đưa 'tên = <@id>' vào prompt để bot tag thật + ghi nhớ kèm id
     s = build_system("Bạn là mèo.", "", "Phong", mention_map="Khôi = <@123>")
     assert "<@123>" in s and "Khôi" in s and "tag" in s.lower()
+
+
+# ---------- biệt danh tự đặt -> tag thật (<@id>) ----------
+
+from app.services.ai.agent_service import apply_nick_mentions, extract_nick_mentions  # noqa: E402
+
+
+def test_extract_nick_mentions_from_memory():
+    doc = (
+        '- <@945952778998665247> (Jacky Chun) có biệt danh "ngọc gà"\n'
+        "- <@661419725091373066> (khoingo76) có biệt danh 'loz Khôi'\n"
+        '- dòng không có id, có "abc" -> bỏ\n'
+        '- <@1> và <@2> cùng dòng, có "xyz" -> bỏ (nhiều id)'
+    )
+    pairs = dict(extract_nick_mentions(doc))
+    assert pairs["ngọc gà"] == 945952778998665247
+    assert pairs["loz Khôi"] == 661419725091373066
+    assert "abc" not in pairs  # dòng không id
+    assert "xyz" not in pairs  # dòng nhiều id -> bỏ cho an toàn
+
+
+def test_apply_nick_mentions_tags_plain_and_at_form():
+    doc = '- <@945952778998665247> có biệt danh "ngọc gà"'
+    # chữ trơn
+    out = apply_nick_mentions("chờ tí tao báo vàng cho ngọc gà đây", doc)
+    assert "<@945952778998665247>" in out and "ngọc gà" not in out
+    # dạng '@ngọc gà' (mention giả) cũng thành mention thật
+    out2 = apply_nick_mentions("Báo giá vàng cho @ngọc gà nha", doc)
+    assert "<@945952778998665247>" in out2 and "@ngọc gà" not in out2
+
+
+def test_apply_nick_mentions_tags_every_occurrence():
+    doc = '- <@5> có biệt danh "sếp tổng"'
+    out = apply_nick_mentions("sếp tổng đâu rồi, gọi sếp tổng vô đây", doc)
+    assert out.count("<@5>") == 2  # tag MỌI lần nhắc tới biệt danh
+
+
+def test_apply_nick_mentions_noop_without_doc():
+    assert apply_nick_mentions("ngọc gà ơi", "") == "ngọc gà ơi"

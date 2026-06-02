@@ -4,6 +4,7 @@ Cog (AgentCog) lo phần Discord (mention/reply, cooldown, gửi tin); service l
 + DB + gọi gateway. Mọi call AI đi qua AIGateway (budget USD + token/cost).
 """
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -133,6 +134,45 @@ def build_system(
     return "\n".join(parts)
 
 
+# Cụm trong ngoặc kép (mọi kiểu nháy) — biệt danh người dùng tự đặt thường được lưu dạng này.
+_NICK_QUOTE_RE = re.compile(r"[\"'“”‘’«»]([^\"'“”‘’«»\n]{2,40})[\"'“”‘’«»]")
+
+
+def extract_nick_mentions(memory_doc: str) -> list[tuple[str, int]]:
+    """Rút (biệt danh -> user id) từ TRÍ NHỚ SERVER để sau này tag thật.
+
+    Quy ước an toàn: chỉ nhận DÒNG có ĐÚNG 1 '<@id>' — khi đó mọi cụm trong ngoặc kép trên
+    dòng đó coi là biệt danh của người ấy (vd '<@945> (Jacky) có biệt danh "ngọc gà"').
+    Dòng có nhiều id / không id -> bỏ (tránh map nhầm người).
+    """
+    out: list[tuple[str, int]] = []
+    for line in (memory_doc or "").splitlines():
+        ids = re.findall(r"<@!?(\d+)>", line)
+        if len(set(ids)) != 1:
+            continue
+        uid = int(ids[0])
+        for nick in _NICK_QUOTE_RE.findall(line):
+            nick = nick.strip()
+            if nick:
+                out.append((nick, uid))
+    return out
+
+
+def apply_nick_mentions(text: str, memory_doc: str) -> str:
+    """Đổi biệt danh tự đặt (vd 'ngọc gà', '@ngọc gà') trong câu trả lời thành '<@id>' để LUÔN
+    tag thật người đó — kể cả khi model chỉ viết biệt danh trơn. Ưu tiên biệt danh DÀI trước."""
+    if not text or not memory_doc:
+        return text
+    for nick, uid in sorted(
+        extract_nick_mentions(memory_doc), key=lambda x: len(x[0]), reverse=True
+    ):
+        if f"<@{uid}>" in text:  # đã tag người này trong câu rồi -> thôi
+            continue
+        # '@ngọc gà' hoặc 'ngọc gà' (chữ trơn) ở ranh giới từ -> '<@id>'. Đổi MỌI lần xuất hiện.
+        text = re.sub(rf"(?<!\w)@?{re.escape(nick)}(?!\w)", f"<@{uid}>", text, flags=re.IGNORECASE)
+    return text
+
+
 class AgentService:
     def __init__(
         self,
@@ -251,6 +291,8 @@ class AgentService:
             has_search=cfg.tools_enabled and bool(settings.TAVILY_API_KEY),
             include_actions=include_actions,
         )
+        # Biệt danh tự đặt ('ngọc gà'…) trong câu -> '<@id>' để LUÔN tag thật người đó.
+        text = apply_nick_mentions(text, memory_doc)
         return conversation_id, text, ctx.pending
 
     async def remember(
