@@ -11,6 +11,27 @@ def test_tool_specs_includes_search_only_when_available():
     assert "web_search" not in {s["function"]["name"] for s in tool_specs(has_search=False)}
 
 
+def test_tool_specs_includes_read_link_with_search():
+    names = {s["function"]["name"] for s in tool_specs(has_search=True)}
+    assert "read_link" in names
+    assert "read_link" not in {s["function"]["name"] for s in tool_specs(has_search=False)}
+
+
+@pytest.mark.asyncio
+async def test_execute_dispatches_read_link(monkeypatch):
+    import app.services.ai.tools.registry as reg
+
+    called = {}
+
+    async def fake_read(url):
+        called["url"] = url
+        return "NỘI DUNG ĐÃ ĐỌC"
+
+    monkeypatch.setattr(reg, "run_read_link", fake_read)
+    out = await execute("read_link", {"url": "https://x.com/bai"}, ToolContext())
+    assert out == "NỘI DUNG ĐÃ ĐỌC" and called["url"] == "https://x.com/bai"
+
+
 def test_remind_and_subscribe_carry_ambiguous_time_rule():
     # remind + subscribe đều phải dặn xử lý giờ MƠ HỒ sáng/chiều (hỏi lại khi 1-12 không rõ).
     specs = {

@@ -1,4 +1,13 @@
-from app.services.ai.tools.web_search import _sanitize_query
+import pytest
+
+from app.services.ai.tools.web_search import _sanitize_query, run_read_link
+
+
+@pytest.mark.asyncio
+async def test_read_link_rejects_non_url():
+    out = await run_read_link("đây không phải link")
+    assert "không hợp lệ" in out.lower()
+    assert "http" in out.lower()
 
 
 def test_sanitize_strips_date_from_current_query():

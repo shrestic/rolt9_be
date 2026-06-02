@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.services.ai.tools.current_time import run_current_time
 from app.services.ai.tools.server_info import run_server_info
-from app.services.ai.tools.web_search import run_web_search
+from app.services.ai.tools.web_search import run_read_link, run_web_search
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +76,22 @@ _WEB_SEARCH_SPEC = {
                 }
             },
             "required": ["query"],
+        },
+    },
+}
+_READ_LINK_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "read_link",
+        "description": (
+            "Đọc NỘI DUNG một đường link (URL) cụ thể mà người dùng đưa. Gọi khi user DÁN link kèm "
+            "ý 'đọc/tóm tắt/link này nói gì/có gì trong link/coi giùm bài này'. Truyền NGUYÊN url. "
+            "(Khác web_search: web_search tra theo từ khoá; read_link mở đúng 1 link đó.)"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "Đường link cần đọc"}},
+            "required": ["url"],
         },
     },
 }
@@ -356,7 +372,8 @@ def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
         _CURRENT_TIME_SPEC,
     ]
     if has_search:
-        specs = [_WEB_SEARCH_SPEC, *specs]
+        # read_link đi cùng web_search (cùng nhóm tool web): tra từ khoá + đọc link cụ thể.
+        specs = [_WEB_SEARCH_SPEC, _READ_LINK_SPEC, *specs]
     if include_actions:
         from app.services.ai.actions.registry import ACTION_SPECS  # lazy: tránh vòng import
 
@@ -722,6 +739,8 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
         return await _list_subscriptions(ctx)
     if name == "web_search":
         return await run_web_search(str(args.get("query", "")))
+    if name == "read_link":
+        return await run_read_link(str(args.get("url", "")))
     if name == "server_info":
         return run_server_info(str(args.get("kind", "")), ctx.guild_snapshot)
     if name == "current_time":

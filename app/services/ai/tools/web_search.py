@@ -47,3 +47,42 @@ async def run_web_search(query: str) -> str:
         f"- {x.get('title', '?')} ({x.get('url', '')})\n  {x.get('content', '')[:300]}"
         for x in results
     )
+
+
+_READ_LINK_CAP = 6000  # cắt nội dung trang để AI tóm tắt, đỡ ngốn token
+
+
+async def run_read_link(url: str) -> str:
+    """Đọc nội dung 1 URL -> text sạch để AI tóm tắt/trả lời.
+
+    Tavily /extract trước (tái dùng key đã có). Lỗi/rỗng/hết credit -> fallback Jina Reader
+    (r.jina.ai, FREE, không cần key). Hỏng cả hai -> báo nhẹ, KHÔNG raise.
+    """
+    url = (url or "").strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return "Link không hợp lệ (cần bắt đầu bằng http/https)."
+    # 1) Tavily extract — bóc nội dung sạch, tái dùng key.
+    if settings.TAVILY_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    "https://api.tavily.com/extract",
+                    json={"api_key": settings.TAVILY_API_KEY, "urls": [url]},
+                )
+                r.raise_for_status()
+                res = r.json().get("results") or []
+                content = res[0].get("raw_content") if res else ""
+                if content and content.strip():
+                    return content[:_READ_LINK_CAP]
+        except Exception:  # noqa: BLE001 — lỗi/hết credit -> thử fallback, không raise
+            log.warning("read_link: tavily extract failed for %r", url)
+    # 2) Fallback Jina Reader — FREE, không key.
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.get(f"https://r.jina.ai/{url}")
+            r.raise_for_status()
+            if r.text.strip():
+                return r.text[:_READ_LINK_CAP]
+    except Exception:  # noqa: BLE001
+        log.warning("read_link: jina reader failed for %r", url)
+    return "Đọc link không được (trang chặn bot hoặc lỗi mạng) — thử link khác nhé."
