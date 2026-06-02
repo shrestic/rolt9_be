@@ -57,6 +57,26 @@ _REMEMBER_SPEC = {
         },
     },
 }
+_FORGET_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "forget",
+        "description": (
+            "QUÊN/XOÁ một ghi nhớ trong TRÍ NHỚ SERVER (biệt danh, ghi chú, luật đã lưu). Gọi khi "
+            "user nói 'quên ... đi', 'xoá biệt danh ...', 'bỏ ghi chú ...', 'đừng nhớ ... nữa', "
+            "'xoá cái ... trong trí nhớ'. Truyền 'query' = từ khoá để tìm dòng cần xoá (vd 'ngọc gà', "
+            "'thinh.nguyen2', 'sếp'). Xoá MỌI dòng chứa từ khoá đó; hệ thống báo lại đã xoá gì. "
+            "Muốn xoá SẠCH toàn bộ trí nhớ server thì bảo user dùng lệnh /claw-lore-clear."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Từ khoá của ghi nhớ cần quên/xoá"}
+            },
+            "required": ["query"],
+        },
+    },
+}
 _WEB_SEARCH_SPEC = {
     "type": "function",
     "function": {
@@ -358,6 +378,7 @@ _LIST_SUBSCRIPTIONS_SPEC = {
 def tool_specs(has_search: bool, include_actions: bool = False) -> list[dict]:
     specs = [
         _REMEMBER_SPEC,
+        _FORGET_SPEC,
         _REMIND_SPEC,
         _LIST_REMINDERS_SPEC,
         _CANCEL_REMINDER_SPEC,
@@ -714,6 +735,14 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> str:
             await ctx.memory_repo_doc.append_note(ctx.guild_pk, note)
             return "Đã ghi nhớ."
         return "Chưa ghi nhớ được."
+    if name == "forget":
+        query = str(args.get("query", "")).strip()
+        if ctx.memory_repo_doc is None or ctx.guild_pk is None or not query:
+            return "Chưa xoá được (thiếu ngữ cảnh hoặc chưa nêu cần quên gì)."
+        removed = await ctx.memory_repo_doc.remove_notes(ctx.guild_pk, query)
+        if not removed:
+            return f"Không thấy ghi nhớ nào khớp '{query}' để quên."
+        return "Đã quên: " + "; ".join(removed)
     if name == "remind":
         return await _create_reminder(args, ctx)
     if name == "list_reminders":

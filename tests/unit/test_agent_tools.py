@@ -419,3 +419,33 @@ async def test_execute_edit_subscription_time_and_topic(db_session):
     await execute("edit_subscription", {"query": "chứng khoán", "topic": "giá vàng SJC"}, ctx)
     await db_session.commit()
     assert (await repo.active_for_creator(gid, 42))[0].topic == "giá vàng SJC"
+
+
+def test_tool_specs_always_has_forget():
+    assert "forget" in {s["function"]["name"] for s in tool_specs(has_search=False)}
+
+
+@pytest.mark.asyncio
+async def test_execute_forget_removes_note(db_session):
+    import uuid as _uuid
+
+    from app.models.guild import Guild
+    from app.repositories.memory_doc import MemoryDocRepository
+
+    gid = _uuid.uuid4()
+    db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
+    await db_session.commit()
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, 'gọi Khôi là "loz Khôi"')
+    await db_session.commit()
+    ctx = ToolContext(memory_repo_doc=repo, guild_pk=gid)
+    out = await execute("forget", {"query": "loz Khôi"}, ctx)
+    await db_session.commit()
+    assert "đã quên" in out.lower()
+    assert "loz Khôi" not in await repo.get_doc(gid)
+
+
+@pytest.mark.asyncio
+async def test_execute_forget_no_match():
+    out = await execute("forget", {"query": "x"}, ToolContext())
+    assert "chưa xoá được" in out.lower()

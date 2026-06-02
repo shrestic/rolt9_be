@@ -56,3 +56,31 @@ async def test_set_and_clear(db_session):
     await repo.clear(gid)
     await db_session.commit()
     assert await repo.get_doc(gid) == ""
+
+
+@pytest.mark.asyncio
+async def test_remove_notes_deletes_matching(db_session):
+    gid = await _guild(db_session)
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, '<@945> (Jacky) có biệt danh "ngọc gà"')
+    await repo.append_note(gid, "thinh.nguyen2 tên thật là Đạt")
+    await repo.append_note(gid, "ngọc gà thích chơi Valorant")
+    await db_session.commit()
+
+    removed = await repo.remove_notes(gid, "ngọc gà")  # xoá 2 dòng chứa 'ngọc gà'
+    await db_session.commit()
+    assert len(removed) == 2
+    doc = await repo.get_doc(gid)
+    assert "ngọc gà" not in doc.lower()
+    assert "thinh.nguyen2" in doc  # dòng không khớp -> giữ nguyên
+
+
+@pytest.mark.asyncio
+async def test_remove_notes_no_match_returns_empty(db_session):
+    gid = await _guild(db_session)
+    repo = MemoryDocRepository(db_session)
+    await repo.append_note(gid, "gọi An là sếp")
+    await db_session.commit()
+    removed = await repo.remove_notes(gid, "không-có-gì-khớp")
+    assert removed == []
+    assert "gọi An là sếp" in await repo.get_doc(gid)  # không đụng doc

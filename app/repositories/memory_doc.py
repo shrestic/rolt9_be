@@ -58,6 +58,28 @@ class MemoryDocRepository:
         row.doc = _cap(f"{row.doc}\n{line}".strip() if row.doc else line)
         await self.session.flush()
 
+    async def remove_notes(self, guild_id: uuid.UUID, query: str) -> list[str]:
+        """Xoá các DÒNG ghi nhớ KHỚP `query` (substring, không phân biệt hoa thường).
+
+        Trả danh sách nội dung dòng đã xoá (rỗng = không khớp gì) để báo lại cho người dùng
+        biết chính xác đã quên cái gì. Đây là counterpart 'quên' của append_note.
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        row = await self._row(guild_id)
+        kept: list[str] = []
+        removed: list[str] = []
+        for line in (row.doc or "").split("\n"):
+            if line.strip() and q in line.lower():
+                removed.append(line.lstrip("-").strip())
+            else:
+                kept.append(line)
+        if removed:
+            row.doc = "\n".join(kept).strip()
+            await self.session.flush()
+        return removed
+
     async def clear(self, guild_id: uuid.UUID) -> None:
         row = await self._row(guild_id)
         row.doc = ""
