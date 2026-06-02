@@ -163,12 +163,13 @@ def apply_nick_mentions(text: str, memory_doc: str) -> str:
     tag thật người đó — kể cả khi model chỉ viết biệt danh trơn. Ưu tiên biệt danh DÀI trước."""
     if not text or not memory_doc:
         return text
+    # KHÔNG bỏ qua theo uid: 1 người có thể có NHIỀU biệt danh ('ngọc gà' lẫn 'ngọc kem') cùng
+    # xuất hiện -> phải tag HẾT, đừng skip chỉ vì đã tag 1 biệt danh khác của họ. Ưu tiên biệt
+    # danh DÀI trước để khớp đúng cụm dài nhất; mỗi biệt danh đổi MỌI lần xuất hiện.
     for nick, uid in sorted(
         extract_nick_mentions(memory_doc), key=lambda x: len(x[0]), reverse=True
     ):
-        if f"<@{uid}>" in text:  # đã tag người này trong câu rồi -> thôi
-            continue
-        # '@ngọc gà' hoặc 'ngọc gà' (chữ trơn) ở ranh giới từ -> '<@id>'. Đổi MỌI lần xuất hiện.
+        # '@ngọc gà' hoặc 'ngọc gà' (chữ trơn) ở ranh giới từ -> '<@id>'.
         text = re.sub(rf"(?<!\w)@?{re.escape(nick)}(?!\w)", f"<@{uid}>", text, flags=re.IGNORECASE)
     return text
 

@@ -460,3 +460,18 @@ def test_apply_nick_mentions_tags_every_occurrence():
 
 def test_apply_nick_mentions_noop_without_doc():
     assert apply_nick_mentions("ngọc gà ơi", "") == "ngọc gà ơi"
+
+
+def test_apply_nick_mentions_tags_multiple_nicknames_of_same_person():
+    # 1 người có NHIỀU biệt danh ('ngọc gà' lẫn 'ngọc kem') -> cùng câu phải tag CẢ HAI,
+    # đừng vì đã tag 1 biệt danh mà bỏ biệt danh kia (bug guard-theo-uid đã sửa).
+    doc = '- <@945> (Jacky) có biệt danh "ngọc gà"\n- <@945> có biệt danh mới: "ngọc kem"'
+    out = apply_nick_mentions("rủ ngọc gà với ngọc kem chơi đi", doc)
+    assert out == "rủ <@945> với <@945> chơi đi"
+
+
+def test_apply_nick_mentions_longest_nick_wins():
+    # Biệt danh chồng nhau -> ưu tiên cụm DÀI trước (khớp 'ngọc gà con' trước 'ngọc gà').
+    doc = '- <@1> có biệt danh "ngọc gà"\n- <@2> có biệt danh "ngọc gà con"'
+    out = apply_nick_mentions("gọi ngọc gà con vô", doc)
+    assert out == "gọi <@2> vô"
