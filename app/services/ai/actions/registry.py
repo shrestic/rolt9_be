@@ -253,10 +253,13 @@ def _resolve_member_ids(guild, target_ids, query) -> "tuple[list[int], str | Non
     q = (query or "").strip().lower().lstrip("@")
     if not q:
         return [], None  # caller tự quyết (vd assign fallback người ra lệnh)
+    # CHO PHÉP match BOT khác (vd ban 'Jockie Music' = music bot — nhu cầu chính đáng); chỉ
+    # loại CHÍNH rolt9 (đừng tự ban mình). Trước đây loại mọi bot -> ban bot nào cũng "không thấy".
+    me_id = getattr(getattr(guild, "me", None), "id", None)
     cands = [
         m
         for m in getattr(guild, "members", [])
-        if not getattr(m, "bot", False)
+        if m.id != me_id
         and (
             q == str(m.id)
             or q in (m.name or "").lower()

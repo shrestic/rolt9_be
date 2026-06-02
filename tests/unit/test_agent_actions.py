@@ -271,6 +271,26 @@ async def test_execute_kick_blocked_by_hierarchy():
     assert "cao hơn" in out.lower()
 
 
+def test_resolve_member_ids_matches_other_bot_by_name():
+    # Ban/kick BOT khác (vd 'Jockie Music' music bot) qua tên -> phải match được (trước đây loại bot).
+    from app.services.ai.actions.registry import _resolve_member_ids
+
+    jockie = SimpleNamespace(id=222, name="Jockie Music", display_name="Jockie Music", bot=True)
+    guild = SimpleNamespace(members=[jockie], me=SimpleNamespace(id=1))
+    ids, err = _resolve_member_ids(guild, [], "Jockie Music")
+    assert ids == [222] and err is None
+
+
+def test_resolve_member_ids_excludes_self_bot():
+    # KHÔNG tự match CHÍNH rolt9 (đừng tự ban mình) dù tên khớp.
+    from app.services.ai.actions.registry import _resolve_member_ids
+
+    me = SimpleNamespace(id=1, name="rolt9", display_name="rolt9", bot=True)
+    guild = SimpleNamespace(members=[me], me=SimpleNamespace(id=1))
+    ids, err = _resolve_member_ids(guild, [], "rolt9")
+    assert ids == [] and err  # không thấy ai (đã loại chính bot)
+
+
 @pytest.mark.asyncio
 async def test_execute_ban_blocks_server_owner():
     # CHỦ SERVER không ban được (Discord cấm bất kể role) -> chặn rõ, KHÔNG gọi guild.ban.
