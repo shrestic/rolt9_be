@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     AI_MAX_TOKENS: int = 200000
     # Claw Agent tools: web search qua Tavily (key global, bot trả). Rỗng = tắt web_search.
     TAVILY_API_KEY: str = Field(default="")
+    # WC Predict — football-data.org free tier (có competition World Cup). Rỗng = tắt sync.
+    FOOTBALL_DATA_API_KEY: str = Field(default="")
 
     # Tokens
     TOKEN_ENCRYPTION_KEY: str = Field(default="")
