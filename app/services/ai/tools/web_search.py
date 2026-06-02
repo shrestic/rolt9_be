@@ -25,15 +25,27 @@ def _sanitize_query(query: str) -> str:
     return query
 
 
+# Số kết quả lấy NỘI DUNG ĐẦY ĐỦ + giới hạn ký tự mỗi bài (snippet 300 ký tự thường thiếu ->
+# luôn KÈM raw_content top kết quả để AI trả lời CHÍNH XÁC, vd giá vàng lấy từ bảng giá trong bài).
+_SEARCH_DEEP_N = 2
+_SEARCH_DEEP_CAP = 3000
+
+
 async def run_web_search(query: str) -> str:
     if not settings.TAVILY_API_KEY:
         return "Web search chưa cấu hình (thiếu TAVILY_API_KEY)."
     query = _sanitize_query(query)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
                 "https://api.tavily.com/search",
-                json={"api_key": settings.TAVILY_API_KEY, "query": query, "max_results": 3},
+                json={
+                    "api_key": settings.TAVILY_API_KEY,
+                    "query": query,
+                    "max_results": 3,
+                    # LUÔN kèm extract: lấy nội dung đầy đủ bài, không chỉ snippet ngắn.
+                    "include_raw_content": True,
+                },
             )
             r.raise_for_status()
             data = r.json()
@@ -43,10 +55,20 @@ async def run_web_search(query: str) -> str:
     results = data.get("results") or []
     if not results:
         return "Không tìm thấy kết quả."
-    return "\n".join(
-        f"- {x.get('title', '?')} ({x.get('url', '')})\n  {x.get('content', '')[:300]}"
-        for x in results
-    )
+    # Danh sách snippet (tất cả) + NỘI DUNG ĐẦY ĐỦ của top kết quả (để trả lời chuẩn số liệu).
+    out = ["Kết quả tìm kiếm:"]
+    for x in results:
+        out.append(
+            f"- {x.get('title', '?')} ({x.get('url', '')})\n  {(x.get('content') or '')[:300]}"
+        )
+    for x in results[:_SEARCH_DEEP_N]:
+        raw = (x.get("raw_content") or "").strip()
+        if raw:
+            out.append(
+                f"\nNội dung đầy đủ — {x.get('title', '?')} ({x.get('url', '')}):\n"
+                f"{raw[:_SEARCH_DEEP_CAP]}"
+            )
+    return "\n".join(out)
 
 
 _READ_LINK_CAP = 6000  # cắt nội dung trang để AI tóm tắt, đỡ ngốn token
