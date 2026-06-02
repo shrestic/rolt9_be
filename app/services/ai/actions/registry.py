@@ -332,6 +332,11 @@ async def stage(name: str, args: dict, ctx) -> "PendingAction | str":
         query = str(args.get("user", "") or "").strip()
         if not targets and not query:
             return f"Cần @ người cần {name} (hoặc nêu tên/ID nếu không @ được)."
+        # CHỦ SERVER: Discord cấm ban/kick/timeout owner -> từ chối NGAY lúc stage (đừng hiện nút
+        # xác nhận rồi mới báo). Chỉ chặn được khi đã có id (mention); gõ tên trơn -> execute chặn nốt.
+        owner_id = (ctx.guild_snapshot or {}).get("owner_id")
+        if owner_id is not None and any(int(t) == int(owner_id) for t in targets):
+            return f"Không thể {name} chủ server (Discord cấm) — bỏ qua nha."
         params = {
             "target_ids": targets,
             "query": query,

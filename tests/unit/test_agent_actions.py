@@ -85,6 +85,19 @@ async def test_stage_kick_needs_target_and_is_destructive():
 
 
 @pytest.mark.asyncio
+async def test_stage_ban_owner_rejected_immediately():
+    # Ban/kick/timeout CHỦ SERVER -> từ chối NGAY lúc stage (chuỗi lỗi), KHÔNG ra PendingAction
+    # (đỡ hiện nút xác nhận rồi mới báo). owner_id lấy từ guild_snapshot.
+    ctx = _ctx(target_user_ids=[705], guild_snapshot={"owner_id": 705})
+    for kind in ("ban", "kick", "timeout"):
+        out = await stage(kind, {}, ctx)
+        assert isinstance(out, str) and "chủ server" in out.lower()
+    # người KHÁC owner -> vẫn stage bình thường
+    p = await stage("ban", {}, _ctx(target_user_ids=[111], guild_snapshot={"owner_id": 705}))
+    assert isinstance(p, PendingAction)
+
+
+@pytest.mark.asyncio
 async def test_stage_timeout_minutes():
     # không nói phút (hoặc phút không hợp lệ) -> MẶC ĐỊNH 10, KHÔNG hỏi lại (tránh bẫy multi-turn)
     p0 = await stage("timeout", {}, _ctx())

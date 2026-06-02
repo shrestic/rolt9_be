@@ -86,13 +86,20 @@ def tag_known_members(text: str, guild, bot_id) -> str:
     if not text or guild is None:
         return text
     members = getattr(guild, "members", None) or []
-    # (tên, id) — ưu tiên tên DÀI trước để 'thinh.nguyen2' được khớp trước 'thinh'.
+    # (tên, id): gom CẢ username, global_name, display_name (tên hiển thị/nick — vd 'ᴊᴀᴄᴋʏ ᴄʜᴜɴ').
+    # Ưu tiên tên DÀI trước để khớp đúng cụm dài nhất ('thinh.nguyen2' trước 'thinh').
     idents: list[tuple[str, int]] = []
     for m in members:
         if getattr(m, "id", None) == bot_id:
             continue
-        for nm in (getattr(m, "name", None), getattr(m, "global_name", None)):
-            if nm and _distinctive(nm):
+        seen: set[str] = set()
+        for nm in (
+            getattr(m, "name", None),
+            getattr(m, "global_name", None),
+            getattr(m, "display_name", None),
+        ):
+            if nm and nm not in seen:
+                seen.add(nm)
                 idents.append((nm, int(m.id)))
     idents.sort(key=lambda x: len(x[0]), reverse=True)
     for nm, uid in idents:
@@ -102,12 +109,21 @@ def tag_known_members(text: str, guild, bot_id) -> str:
         # (a) Model hay BỊA '<@thinh.nguyen2>' / '<@!thinh.nguyen2>' (nhét tên vào cú pháp mention
         # nhưng Discord cần ID SỐ -> ra chữ trơn). Sửa thành '<@id>' thật.
         text = re.sub(rf"<@!?{esc}>", f"<@{uid}>", text, count=1, flags=re.IGNORECASE)
-        if f"<@{uid}>" in text:  # đã sửa được dạng bịa -> khỏi xử lý dạng chữ trơn
+        if f"<@{uid}>" in text:
             continue
-        # (b) Tên CHỮ TRƠN 'thinh.nguyen2' ở ranh giới từ (không sau '@'/'<', không dính chữ) -> '<@id>'.
-        text = re.sub(
-            rf"(?<![\w@<]){esc}(?![\w>])", f"<@{uid}>", text, count=1, flags=re.IGNORECASE
-        )
+        # (b) Model viết '@Tên' (có @ nhưng KHÔNG phải mention thật -> Discord ra chữ rác có @).
+        # @ = ý ĐỊNH tag rõ ràng nên đổi '@Tên' -> '<@id>' kể cả tên không 'đặc trưng' (chỉ cần >=3
+        # ký tự, chừa @everyone/@here). Đây chính là ca '@ᴊᴀᴄᴋʏ ᴄʜᴜɴ' (tên hiển thị).
+        if len(nm) >= 3 and nm.lower() not in ("everyone", "here"):
+            new = re.sub(rf"(?<!\w)@{esc}(?!\w)", f"<@{uid}>", text, count=1, flags=re.IGNORECASE)
+            if new != text:
+                text = new
+                continue
+        # (c) Tên CHỮ TRƠN (không @) -> chỉ đổi nếu ĐẶC TRƯNG (tránh ping nhầm từ thường tiếng Việt).
+        if _distinctive(nm):
+            text = re.sub(
+                rf"(?<![\w@<]){esc}(?![\w>])", f"<@{uid}>", text, count=1, flags=re.IGNORECASE
+            )
     # PASS CUỐI — dọn MỌI mention BỊA còn sót: '<@...>' / '<@!...>' mà bên trong KHÔNG phải
     # toàn SỐ (Discord chỉ render mention khi là id số). Vd model tự bịa '<@rolt9>' (tên bot) hay
     # '<@tên-lạ>' -> ra chữ rác. Bỏ cặp '<@ >' để lại tên thường. Chừa role '<@&id>' (ký tự '&').
@@ -355,6 +371,8 @@ class AgentCog(commands.Cog):
             "member_count": getattr(g, "member_count", 0) or 0,
             "roles": [r.name for r in getattr(g, "roles", []) if r.name != "@everyone"][:50],
             "channels": [c.name for c in getattr(g, "channels", [])][:50],
+            # owner_id -> để stage từ chối ban/kick/timeout CHỦ SERVER ngay (không hiện nút xác nhận).
+            "owner_id": getattr(g, "owner_id", None),
         }
         bot_id = self.bot.user.id if self.bot.user else None
         target_user_ids = [u.id for u in message.mentions if u.id != bot_id]
