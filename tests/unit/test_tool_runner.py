@@ -61,6 +61,24 @@ async def test_runner_executes_tool_then_answers(db_session):
 
 
 @pytest.mark.asyncio
+async def test_runner_degrades_gracefully_on_empty_text(db_session):
+    # Reasoning model cạn token -> complete_raw trả text="" (allow_empty) -> runner trả câu
+    # fallback thân thiện, KHÔNG phun lỗi kỹ thuật "Model dùng hết token..." ra người dùng.
+    prov = FakeAIProvider(turns=[{"text": ""}], cost_usd=0.0)
+    gw = await _gw(db_session, prov)
+    out = await run_with_tools(
+        gateway=gw,
+        guild_discord_id=GID,
+        system="sys",
+        history=[],
+        user_text="làm gì đó đi",
+        ctx=ToolContext(guild_snapshot={}),
+        has_search=False,
+    )
+    assert out and "thử lại" in out.lower()
+
+
+@pytest.mark.asyncio
 async def test_runner_forces_answer_at_cap(db_session):
     turns = [
         {"tool_calls": [{"id": f"c{i}", "name": "current_time", "arguments": "{}"}]}

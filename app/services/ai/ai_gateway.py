@@ -113,6 +113,9 @@ class AIGateway:
             messages=messages,
             tools=tools,
             max_tokens=max_tokens or settings.AI_MAX_TOKENS,
+            # Vòng tool-calling: reasoning model cạn token -> trả text="" để ToolRunner degrade êm
+            # ("thử lại nhé"), KHÔNG ném lỗi kỹ thuật ra người dùng.
+            allow_empty=True,
         )
         await self.usage_repo.add_usage(
             guild.id,

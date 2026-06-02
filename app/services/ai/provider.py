@@ -42,6 +42,7 @@ class AIProvider(Protocol):
         history: list[dict] | None = None,
         messages: list[dict] | None = None,
         tools: list[dict] | None = None,
+        allow_empty: bool = False,
     ) -> AICompletion: ...
 
 
@@ -78,6 +79,7 @@ class FakeAIProvider:
         history: list[dict] | None = None,
         messages: list[dict] | None = None,
         tools: list[dict] | None = None,
+        allow_empty: bool = False,
     ) -> AICompletion:
         if self._turns:
             turn = self._turns.pop(0)
@@ -131,6 +133,7 @@ class LiteLLMProvider:
         history: list[dict] | None = None,
         messages: list[dict] | None = None,
         tools: list[dict] | None = None,
+        allow_empty: bool = False,
     ) -> AICompletion:
         import litellm  # lazy — giữ package optional cho test/deploy không key
 
@@ -192,8 +195,10 @@ class LiteLLMProvider:
             )
 
         content = (message.content or "").strip()
-        # Reasoning model tiêu hết token cho suy luận -> báo lỗi rõ (actionable).
-        if not content and getattr(message, "reasoning_content", None):
+        # Reasoning model tiêu hết token cho suy luận -> content rỗng. Single-shot (welcome/roast…)
+        # KHÔNG có fallback nên báo lỗi rõ (actionable). Vòng tool-calling (allow_empty=True) thì
+        # ĐỪNG ném: trả text="" để ToolRunner tự degrade êm ("thử lại nhé") thay vì phun lỗi kỹ thuật.
+        if not content and getattr(message, "reasoning_content", None) and not allow_empty:
             raise ValueError(
                 "Model dùng hết token cho phần suy luận mà chưa kịp trả lời — "
                 "tăng AI_MAX_TOKENS hoặc chọn model không-reasoning."

@@ -83,6 +83,58 @@ async def test_litellm_provider_maps_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_litellm_reasoning_empty_raises_single_shot_but_degrades_in_tool_loop(monkeypatch):
+    # Reasoning model cạn token -> content rỗng + có reasoning_content. Single-shot: ném lỗi rõ.
+    # Vòng tool (allow_empty=True): KHÔNG ném, trả text="" để runner tự degrade êm.
+    import sys
+    import types
+
+    class _Msg:
+        content = ""
+        reasoning_content = "nghĩ rất nhiều mà chưa ra..."
+        tool_calls = None
+
+    class _Choice:
+        message = _Msg()
+
+    class _Usage:
+        prompt_tokens = 5
+        completion_tokens = 9
+
+    class _Resp:
+        choices = [_Choice()]
+        usage = _Usage()
+
+    async def _acompletion(**kwargs):
+        return _Resp()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        types.SimpleNamespace(acompletion=_acompletion, completion_cost=lambda r: 0.0),
+    )
+    with pytest.raises(ValueError, match="suy luận"):  # single-shot -> lỗi actionable
+        await LiteLLMProvider().complete(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="k",
+            system="s",
+            prompt="p",
+            max_tokens=100,
+        )
+    out = await LiteLLMProvider().complete(  # vòng tool -> degrade êm
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        api_key="k",
+        system="s",
+        prompt="p",
+        max_tokens=100,
+        allow_empty=True,
+    )
+    assert out.text == ""
+
+
+@pytest.mark.asyncio
 async def test_litellm_provider_cost_failure_falls_back_to_zero(monkeypatch):
     import sys
     import types
