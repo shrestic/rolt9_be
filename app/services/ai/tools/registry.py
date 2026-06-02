@@ -61,10 +61,20 @@ _WEB_SEARCH_SPEC = {
     "type": "function",
     "function": {
         "name": "web_search",
-        "description": "Tra thông tin mới/thực tế trên internet. Dùng khi cần dữ kiện ngoài kiến thức.",
+        "description": (
+            "Tra thông tin mới/thực tế trên internet. Dùng khi cần dữ kiện ngoài kiến thức. "
+            "QUAN TRỌNG: với giá cả/tỷ giá/thời tiết/tin HIỆN TẠI, query chỉ dùng 'hôm nay' hoặc "
+            "'mới nhất' — TUYỆT ĐỐI ĐỪNG ghép NGÀY SỐ cụ thể (vd '2/6/2026') vào query: dễ trúng "
+            "bài báo NGÀY KHÁC (vd '6/2') có giá CŨ/SAI. Vd đúng: 'giá vàng SJC hôm nay'."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "Truy vấn tìm kiếm"}},
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Truy vấn tìm kiếm (KHÔNG ghép ngày số cho tin hiện tại)",
+                }
+            },
             "required": ["query"],
         },
     },
