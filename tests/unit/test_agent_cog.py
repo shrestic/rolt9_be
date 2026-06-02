@@ -132,10 +132,11 @@ def test_is_addressed_by_bot_role_mention():
 class _Member:
     """Thành viên giả cho guild.members trong test tag_known_members."""
 
-    def __init__(self, id, name=None, global_name=None):
+    def __init__(self, id, name=None, global_name=None, display_name=None):
         self.id = id
         self.name = name
         self.global_name = global_name
+        self.display_name = display_name
 
 
 def _guild_with(members):
@@ -150,6 +151,26 @@ def test_tag_known_members_username_to_mention():
     out = tag_known_members("Đạt = thằng thinh.nguyen2 đấy", g, bot_id=1)
     assert "<@42>" in out
     assert "thinh.nguyen2" not in out  # username đã được thay
+
+
+def test_tag_known_members_converts_at_display_name():
+    from app.bot.cogs.agent import tag_known_members
+
+    # Model viết '@ᴊᴀᴄᴋʏ ᴄʜᴜɴ' (dấu @ + tên hiển thị fancy, KHÔNG phải mention thật) -> '<@77>'.
+    g = _guild_with([_Member(77, name="jackychun", display_name="ᴊᴀᴄᴋʏ ᴄʜᴜɴ")])
+    out = tag_known_members("Báo giá vàng cho thằng @ᴊᴀᴄᴋʏ ᴄʜᴜɴ nha", g, bot_id=1)
+    assert "<@77>" in out
+    assert "@ᴊᴀᴄᴋʏ ᴄʜᴜɴ" not in out  # cái @ giả đã thành mention thật
+
+
+def test_tag_known_members_at_form_skips_everyone():
+    from app.bot.cogs.agent import tag_known_members
+
+    # '@everyone' KHÔNG bị biến thành mention 1 người (chừa các tag hệ thống).
+    g = _guild_with([_Member(5, name="everyone")])
+    out = tag_known_members("chào @everyone nhé", g, bot_id=1)
+    assert "<@5>" not in out
+    assert "@everyone" in out
 
 
 def test_tag_known_members_fixes_fabricated_mention():
