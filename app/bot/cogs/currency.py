@@ -112,7 +112,7 @@ class CurrencyCog(commands.Cog):
             gid = interaction.guild_id
             bal = await service.get_balance(guild_discord_id=gid, user_id=target.id)
             emoji = await _label(service, gid)
-            return f"{target.mention} có **{bal:,}** {emoji}"
+            return f"{target.mention} has **{bal:,}** {emoji}"
 
         await _run(interaction, do)
 
@@ -125,26 +125,26 @@ class CurrencyCog(commands.Cog):
             emoji = await _label(service, gid)
             if not res.claimed:
                 hrs, mins = divmod(res.retry_after_seconds // 60, 60)
-                return f"⏳ Đợi thêm {hrs}h {mins}m nữa."
+                return f"⏳ Wait another {hrs}h {mins}m."
             # First line: total amount + new balance.
-            lines = [f"+{res.amount:,} {emoji}! Số dư: **{res.balance:,}** {emoji}"]
+            lines = [f"+{res.amount:,} {emoji}! Balance: **{res.balance:,}** {emoji}"]
             # Streak line: show breakdown when there's a bonus, otherwise just
             # the chain length so the player always sees their progress.
             if res.streak_bonus:
                 lines.append(
-                    f"🔥 Chuỗi **{res.streak}** ngày "
+                    f"🔥 **{res.streak}**-day streak "
                     f"(base {res.base:,} + streak +{res.streak_bonus:,})."
                 )
             elif res.streak:
-                lines.append(f"🔥 Chuỗi **{res.streak}** ngày.")
+                lines.append(f"🔥 **{res.streak}**-day streak.")
             # Milestone line: congrats if one was just hit, otherwise a nudge
             # showing how many days remain before the next reward.
             if res.milestone_bonus:
                 lines.append(
-                    f"🎉 Mốc **{res.streak} ngày**! Thưởng **+{res.milestone_bonus:,}** {emoji}."
+                    f"🎉 **{res.streak}-day** milestone! Reward **+{res.milestone_bonus:,}** {emoji}."
                 )
             elif res.days_to_milestone is not None:
-                lines.append(f"⏭️ Còn **{res.days_to_milestone}** ngày tới mốc kế.")
+                lines.append(f"⏭️ **{res.days_to_milestone}** more days to the next milestone.")
             # Piggyback badge evaluation on the same session/transaction.
             # award_new is a silent no-op when badges are disabled or the guild
             # is not found, so this is always safe to call on the happy path.
@@ -154,7 +154,7 @@ class CurrencyCog(commands.Cog):
             for badge in new_badges:
                 # One line per newly unlocked badge — emoji + name gives enough
                 # context without needing to explain the unlock condition.
-                lines.append(f"🏅 Mở khóa: {badge.emoji} **{badge.name}**!")
+                lines.append(f"🏅 Unlocked: {badge.emoji} **{badge.name}**!")
             # Feed the daily reward into quests: coins earned + a daily claim tick.
             # Both events are recorded on the same session/transaction as the claim
             # itself, so they commit or roll back together.
@@ -188,17 +188,17 @@ class CurrencyCog(commands.Cog):
             info = await service.get_streak(guild_discord_id=gid, user_id=target.id)
             if not info.enabled:
                 # Streak feature is toggled off for this server.
-                return "Streak đang tắt trên server này."
+                return "Streak is turned off on this server."
             if info.current == 0:
-                return f"{target.mention} chưa có chuỗi nào. Gõ `/daily` để bắt đầu!"
+                return f"{target.mention} has no streak yet. Type `/daily` to start one!"
             lines = [
-                f"🔥 {target.mention} đang giữ chuỗi **{info.current}** ngày.",
-                f"🏆 Kỷ lục: **{info.longest}** ngày.",
+                f"🔥 {target.mention} is on a **{info.current}**-day streak.",
+                f"🏆 Record: **{info.longest}** days.",
             ]
             if info.days_to_milestone is not None:
-                lines.append(f"⏭️ Còn **{info.days_to_milestone}** ngày tới mốc kế.")
+                lines.append(f"⏭️ **{info.days_to_milestone}** more days to the next milestone.")
             else:
-                lines.append("👑 Đã đạt mốc cao nhất!")
+                lines.append("👑 Maxed out the top milestone!")
             return "\n".join(lines)
 
         await _run(interaction, do)
@@ -219,7 +219,7 @@ class CurrencyCog(commands.Cog):
                 amount=amount,
             )
             emoji = await _label(service, gid)
-            return f"Đã chuyển **{amount:,}** {emoji} cho {member.mention}."
+            return f"Sent **{amount:,}** {emoji} to {member.mention}."
 
         await _run(interaction, do)
 
@@ -231,7 +231,7 @@ class CurrencyCog(commands.Cog):
             rows, _ = await service.leaderboard(guild_discord_id=gid, limit=10, offset=0)
             emoji = await _label(service, gid)
             if not rows:
-                return "Chưa ai có tiền."
+                return "Nobody has any money yet."
             lines = [
                 f"**{i + 1}.** <@{r.user_id}> — {r.balance:,} {emoji}" for i, r in enumerate(rows)
             ]
@@ -254,7 +254,7 @@ class CurrencyCog(commands.Cog):
             gid = interaction.guild_id
             bal = await service.admin_add(guild_discord_id=gid, user_id=member.id, delta=amount)
             emoji = await _label(service, gid)
-            return f"Đã cộng **{amount:,}** {emoji} cho {member.mention} (số dư {bal:,})."
+            return f"Added **{amount:,}** {emoji} to {member.mention} (balance {bal:,})."
 
         await _run(interaction, do)
 
@@ -266,7 +266,7 @@ class CurrencyCog(commands.Cog):
             gid = interaction.guild_id
             bal = await service.admin_add(guild_discord_id=gid, user_id=member.id, delta=-amount)
             emoji = await _label(service, gid)
-            return f"Đã trừ **{amount:,}** {emoji} của {member.mention} (số dư {bal:,})."
+            return f"Took **{amount:,}** {emoji} from {member.mention} (balance {bal:,})."
 
         await _run(interaction, do)
 
@@ -275,6 +275,6 @@ class CurrencyCog(commands.Cog):
         async def do(service: CurrencyService) -> str:
             gid = interaction.guild_id
             await service.admin_set(guild_discord_id=gid, user_id=member.id, value=0)
-            return f"Đã reset ví {member.mention} về 0."
+            return f"Reset {member.mention}'s wallet to 0."
 
         await _run(interaction, do)

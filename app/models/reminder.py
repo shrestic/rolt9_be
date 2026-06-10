@@ -1,9 +1,9 @@
-"""Bảng `reminder` — nhắc hẹn đặt trước (báo thức).
+"""The `reminder` table — pre-scheduled reminders.
 
-Mỗi row là 1 lời nhắc: tới `remind_at` (lưu UTC) thì scheduler gửi vào `channel_id`,
-@ping những người trong `target_ids`. Lưu trong DB (KHÔNG phải trí nhớ AI) nên sống sót
-qua restart và cả tuần/tháng sau vẫn nhắc đúng. `fired` đánh dấu đã nhắc để không lặp.
-`target_ids` là JSON list các Discord user id (số) cần tag.
+Each row is one reminder: at `remind_at` (stored UTC), the scheduler posts to `channel_id`
+and @pings the people in `target_ids`. Stored in the DB (NOT AI memory), so it survives
+restarts and still fires correctly weeks/months later. `fired` marks it as already sent so
+it doesn't repeat. `target_ids` is a JSON list of Discord user ids (numbers) to tag.
 """
 
 import uuid
@@ -25,13 +25,13 @@ class Reminder(Base):
     )
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     creator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # Danh sách user id (số) cần @ping khi tới giờ. JSON cho gọn (portable SQLite + PG).
+    # List of user ids (numbers) to @ping when the time comes. JSON for compactness (portable SQLite + PG).
     target_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    # Smart reminder: nếu set, tới giờ bot TRA CỨU sống (web_search) + AI trả lời thật theo `task`
-    # (vd 'giá vàng hôm nay') thay vì chỉ echo `message`. NULL = reminder thường.
+    # Smart reminder: if set, at fire time the bot does a live LOOKUP (web_search) + a real AI answer for `task`
+    # (e.g. 'today's gold price') instead of just echoing `message`. NULL = a regular reminder.
     task: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Thời điểm nhắc — LƯU UTC (tz-aware). Index để query "cái nào tới giờ" nhanh.
+    # Reminder time — STORED UTC (tz-aware). Indexed for fast "which ones are due" queries.
     remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     fired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

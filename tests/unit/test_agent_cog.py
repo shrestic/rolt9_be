@@ -29,11 +29,11 @@ class _User:
 class _Ref:
     def __init__(self, mid, resolved=None):
         self.message_id = mid
-        self.resolved = resolved  # tin được reply tới (Message) nếu cache có
+        self.resolved = resolved  # the replied-to message (Message) if in cache
 
 
 class _Typing:
-    """Async context manager rỗng giả cho channel.typing()."""
+    """Empty fake async context manager for channel.typing()."""
 
     async def __aenter__(self):
         return self
@@ -74,7 +74,7 @@ class _Msg:
         self.channel = SimpleNamespace(id=10, send=AsyncMock(), typing=lambda: _Typing())
         self.clean_content = clean_content
         self.reply = AsyncMock(return_value=SimpleNamespace(id=555))
-        self.add_reaction = AsyncMock()  # để test reaction ⏳ khi bị throttle
+        self.add_reaction = AsyncMock()  # to test the ⏳ reaction when throttled
 
 
 # ---------- pure helpers ----------
@@ -88,35 +88,35 @@ def test_is_addressed_by_mention():
 
 def test_is_addressed_by_reply_to_bot_only():
     bot = _User(1)
-    # reply vào TIN CỦA BOT -> True
+    # reply to THE BOT'S message -> True
     ref_bot = _Ref(99, resolved=SimpleNamespace(author=_User(1)))
     assert is_addressed(_Msg(reference=ref_bot), bot) is True
-    # reply vào tin NGƯỜI KHÁC -> False (đây là con bug cũ: nhận mọi reply)
+    # reply to SOMEONE ELSE's message -> False (this was the old bug: accepting every reply)
     ref_other = _Ref(99, resolved=SimpleNamespace(author=_User(2)))
     assert is_addressed(_Msg(reference=ref_other), bot) is False
-    # reply nhưng không resolve được -> không tự nhận (tránh rep nhầm)
+    # reply but can't resolve -> don't auto-accept (avoids replying by mistake)
     assert is_addressed(_Msg(reference=_Ref(99)), bot) is False
-    assert is_addressed(_Msg(content="chào mọi người"), bot) is False
+    assert is_addressed(_Msg(content="hi everyone"), bot) is False
 
 
 def test_is_addressed_name_prefix_word_boundary():
     bot = _User(1, name="rolt9")
-    assert is_addressed(_Msg(content="rolt9 ơi"), bot) is True
-    assert is_addressed(_Msg(content="rolt9000 là gì"), bot) is False  # khớp nhầm -> chặn
+    assert is_addressed(_Msg(content="rolt9 hey"), bot) is True
+    assert is_addressed(_Msg(content="rolt9000 what is"), bot) is False  # false match -> blocked
 
 
 def test_is_addressed_by_name_text():
     bot = _User(1, name="rolt9")
-    # gõ "@rolt9 ..." dạng text (mention không thành) vẫn được nhận
-    assert is_addressed(_Msg(content="@rolt9 mấy giờ rồi?"), bot) is True
-    assert is_addressed(_Msg(content="rolt9 ơi giúp tí"), bot) is True
-    assert is_addressed(_Msg(content="nói chuyện bình thường"), bot) is False
+    # typing "@rolt9 ..." as text (mention didn't form) is still accepted
+    assert is_addressed(_Msg(content="@rolt9 what time is it?"), bot) is True
+    assert is_addressed(_Msg(content="rolt9 hey help me out"), bot) is True
+    assert is_addressed(_Msg(content="just chatting normally"), bot) is False
 
 
 def test_is_addressed_by_clean_content_role_render():
     bot = _User(1, name="rolt9")
-    # Mention ROLE -> content có "<@&..>" nhưng clean_content render thành "@rolt9"
-    msg = _Msg(content="<@&999> mấy giờ", clean_content="@rolt9 mấy giờ")
+    # Mention a ROLE -> content has "<@&..>" but clean_content renders as "@rolt9"
+    msg = _Msg(content="<@&999> what time", clean_content="@rolt9 what time")
     assert is_addressed(msg, bot) is True
 
 
@@ -130,7 +130,7 @@ def test_is_addressed_by_bot_role_mention():
 
 
 class _Member:
-    """Thành viên giả cho guild.members trong test tag_known_members."""
+    """Fake member for guild.members in the tag_known_members tests."""
 
     def __init__(self, id, name=None, global_name=None, display_name=None):
         self.id = id
@@ -146,29 +146,29 @@ def _guild_with(members):
 def test_tag_known_members_username_to_mention():
     from app.bot.cogs.agent import tag_known_members
 
-    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Đạt")])
-    # tên chữ trơn trong câu -> đổi thành <@id> để ping
-    out = tag_known_members("Đạt = thằng thinh.nguyen2 đấy", g, bot_id=1)
+    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Dat")])
+    # a plain username in the sentence -> turn it into <@id> to ping
+    out = tag_known_members("Dat = that thinh.nguyen2 guy", g, bot_id=1)
     assert "<@42>" in out
-    assert "thinh.nguyen2" not in out  # username đã được thay
+    assert "thinh.nguyen2" not in out  # the username was replaced
 
 
 def test_tag_known_members_converts_at_display_name():
     from app.bot.cogs.agent import tag_known_members
 
-    # Model viết '@ᴊᴀᴄᴋʏ ᴄʜᴜɴ' (dấu @ + tên hiển thị fancy, KHÔNG phải mention thật) -> '<@77>'.
+    # Model writes '@ᴊᴀᴄᴋʏ ᴄʜᴜɴ' (an @ + fancy display name, NOT a real mention) -> '<@77>'.
     g = _guild_with([_Member(77, name="jackychun", display_name="ᴊᴀᴄᴋʏ ᴄʜᴜɴ")])
-    out = tag_known_members("Báo giá vàng cho thằng @ᴊᴀᴄᴋʏ ᴄʜᴜɴ nha", g, bot_id=1)
+    out = tag_known_members("Report the gold price for @ᴊᴀᴄᴋʏ ᴄʜᴜɴ", g, bot_id=1)
     assert "<@77>" in out
-    assert "@ᴊᴀᴄᴋʏ ᴄʜᴜɴ" not in out  # cái @ giả đã thành mention thật
+    assert "@ᴊᴀᴄᴋʏ ᴄʜᴜɴ" not in out  # the fake @ became a real mention
 
 
 def test_tag_known_members_at_form_skips_everyone():
     from app.bot.cogs.agent import tag_known_members
 
-    # '@everyone' KHÔNG bị biến thành mention 1 người (chừa các tag hệ thống).
+    # '@everyone' is NOT turned into a single-person mention (leave system tags alone).
     g = _guild_with([_Member(5, name="everyone")])
-    out = tag_known_members("chào @everyone nhé", g, bot_id=1)
+    out = tag_known_members("hi @everyone", g, bot_id=1)
     assert "<@5>" not in out
     assert "@everyone" in out
 
@@ -176,39 +176,39 @@ def test_tag_known_members_at_form_skips_everyone():
 def test_tag_known_members_fixes_fabricated_mention():
     from app.bot.cogs.agent import tag_known_members
 
-    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Đạt")])
-    # Model BỊA '<@thinh.nguyen2>' (Discord ko render vì cần ID số) -> phải sửa thành '<@42>'.
-    out = tag_known_members("Đạt = thằng <@thinh.nguyen2> tên thật Đạt", g, bot_id=1)
+    g = _guild_with([_Member(42, name="thinh.nguyen2", global_name="Dat")])
+    # Model FABRICATES '<@thinh.nguyen2>' (Discord won't render it since it needs a numeric ID) -> must fix to '<@42>'.
+    out = tag_known_members("Dat = that <@thinh.nguyen2> real name Dat", g, bot_id=1)
     assert "<@42>" in out
     assert "<@thinh.nguyen2>" not in out
-    assert out.count("<@42>") == 1  # không nhân đôi
+    assert out.count("<@42>") == 1  # not duplicated
 
 
 def test_tag_known_members_fixes_fabricated_mention_bang_form():
     from app.bot.cogs.agent import tag_known_members
 
     g = _guild_with([_Member(42, name="thinh.nguyen2")])
-    out = tag_known_members("ê <@!thinh.nguyen2> ơi", g, bot_id=1)
-    assert out == "ê <@42> ơi"
+    out = tag_known_members("hey <@!thinh.nguyen2> there", g, bot_id=1)
+    assert out == "hey <@42> there"
 
 
 def test_tag_known_members_skips_short_common_names():
     from app.bot.cogs.agent import tag_known_members
 
-    # global_name 'Đạt' (3 ký tự, thuần chữ) KHÔNG đủ đặc trưng -> không tag (tránh ping nhầm).
-    g = _guild_with([_Member(7, name="abc", global_name="Đạt")])
-    out = tag_known_members("Hôm nay Đạt được mùa", g, bot_id=1)
-    assert out == "Hôm nay Đạt được mùa"  # giữ nguyên
+    # global_name 'Dat' (3 chars, plain letters) isn't distinctive enough -> don't tag (avoids mis-pinging).
+    g = _guild_with([_Member(7, name="abc", global_name="Dat")])
+    out = tag_known_members("Dat is having a good day today", g, bot_id=1)
+    assert out == "Dat is having a good day today"  # unchanged
 
 
 def test_tag_known_members_idempotent_and_no_double_tag():
     from app.bot.cogs.agent import tag_known_members
 
     g = _guild_with([_Member(42, name="thinh.nguyen2")])
-    # đã có sẵn <@42> -> không tự chèn thêm
-    assert tag_known_members("chào <@42> nhé", g, bot_id=1) == "chào <@42> nhé"
-    # không đụng vào mention sẵn của người khác / username nằm trong <@...>
-    out = tag_known_members("ping thinh.nguyen2 đi", g, bot_id=1)
+    # already has <@42> -> don't insert another
+    assert tag_known_members("hi <@42> there", g, bot_id=1) == "hi <@42> there"
+    # don't touch an existing mention of someone else / a username inside <@...>
+    out = tag_known_members("ping thinh.nguyen2", g, bot_id=1)
     assert out.count("<@42>") == 1
 
 
@@ -216,36 +216,36 @@ def test_tag_known_members_skips_bot_itself():
     from app.bot.cogs.agent import tag_known_members
 
     g = _guild_with([_Member(1, name="rolt9.bot")])
-    out = tag_known_members("gọi rolt9.bot xem", g, bot_id=1)
-    assert "<@1>" not in out  # chính bot -> không tag
+    out = tag_known_members("call rolt9.bot over", g, bot_id=1)
+    assert "<@1>" not in out  # the bot itself -> don't tag
 
 
 def test_tag_known_members_strips_fabricated_bot_mention():
     from app.bot.cogs.agent import tag_known_members
 
-    # Model tự bịa '<@rolt9>' (mention chính bot, không phải id số) -> Discord ra chữ rác.
-    # Phải bỏ cặp '<@ >', để lại 'rolt9' (không tag chính bot).
+    # Model fabricates '<@rolt9>' (a mention of the bot itself, not a numeric id) -> Discord shows junk text.
+    # Must drop the '<@ >' pair, leaving 'rolt9' (don't tag the bot itself).
     g = _guild_with([_Member(1, name="rolt9")])
-    out = tag_known_members("Alo alo, <@rolt9>! Mày gọi gì đấy?", g, bot_id=1)
+    out = tag_known_members("Hello hello, <@rolt9>! What are you calling about?", g, bot_id=1)
     assert "<@rolt9>" not in out
-    assert "rolt9" in out  # còn lại tên thường
+    assert "rolt9" in out  # the plain name remains
 
 
 def test_tag_known_members_strips_any_unknown_fabricated_mention():
     from app.bot.cogs.agent import tag_known_members
 
-    # Tên không có trong guild members mà model vẫn bịa '<@ai_do>' -> dọn về chữ thường.
+    # A name not in guild members that the model still fabricates as '<@someone>' -> clean back to plain text.
     g = _guild_with([])
-    out = tag_known_members("hỏi <@ai_do> đi nha", g, bot_id=1)
-    assert out == "hỏi ai_do đi nha"
+    out = tag_known_members("ask <@someone> about it", g, bot_id=1)
+    assert out == "ask someone about it"
 
 
 def test_tag_known_members_keeps_valid_id_and_role_mentions():
     from app.bot.cogs.agent import tag_known_members
 
     g = _guild_with([_Member(42, name="thinh.nguyen2")])
-    # '<@123>' (id số) và '<@&999>' (role) đều HỢP LỆ -> giữ nguyên, không bị dọn nhầm.
-    out = tag_known_members("chào <@123> và role <@&999> nhé", g, bot_id=1)
+    # '<@123>' (numeric id) and '<@&999>' (role) are both VALID -> keep them, don't clean by mistake.
+    out = tag_known_members("hi <@123> and role <@&999>", g, bot_id=1)
     assert "<@123>" in out and "<@&999>" in out
 
 
@@ -258,11 +258,11 @@ def test_cooldown_tracker():
 
 
 def test_cooldown_tracker_scoped_by_guild():
-    # Cùng 1 user nhưng khác guild -> cooldown độc lập, không chặn nhầm chéo server.
+    # Same user but different guild -> independent cooldown, no cross-server false blocking.
     t = CooldownTracker(AGENT_COOLDOWN)
-    t.mark(7, 42, now=100.0)  # user 42 ở guild 7
-    assert t.ready(7, 42, now=100.0) is False  # cùng (guild, user) -> đang cooldown
-    assert t.ready(8, 42, now=100.0) is True  # cùng user, guild khác -> KHÔNG bị chặn
+    t.mark(7, 42, now=100.0)  # user 42 in guild 7
+    assert t.ready(7, 42, now=100.0) is False  # same (guild, user) -> on cooldown
+    assert t.ready(8, 42, now=100.0) is True  # same user, different guild -> NOT blocked
 
 
 # ---------- on_message glue (patched session_scope + stub service) ----------
@@ -284,8 +284,8 @@ def _cog():
 
 
 async def _drain(cog):
-    """Đợi pool worker xử lý xong toàn bộ hàng đợi (on_message giờ chỉ XẾP HÀNG,
-    worker xử lý bất đồng bộ) — gọi trước khi assert kết quả respond/reply."""
+    """Wait for the pool workers to finish the whole queue (on_message now only ENQUEUES,
+    workers process asynchronously) — call before asserting respond/reply results."""
     await cog._queue.join()
 
 
@@ -293,7 +293,7 @@ async def _drain(cog):
 async def test_on_message_replies_and_remembers(monkeypatch):
     cid = uuid.uuid4()
     stub = MagicMock()
-    stub.respond = AsyncMock(return_value=(cid, "trả lời", []))
+    stub.respond = AsyncMock(return_value=(cid, "reply", []))
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
@@ -303,9 +303,9 @@ async def test_on_message_replies_and_remembers(monkeypatch):
     msg.reply.assert_awaited_once()
     stub.respond.assert_awaited_once()
     stub.remember.assert_awaited_once()
-    # bot_message_id lấy từ tin đã gửi (555)
+    # bot_message_id comes from the sent message (555)
     assert stub.remember.call_args.kwargs["bot_message_id"] == 555
-    # cog gom snapshot server (member_count + roles trừ @everyone) truyền vào respond
+    # the cog gathers a server snapshot (member_count + roles minus @everyone) and passes it to respond
     snap = stub.respond.call_args.kwargs["server_snapshot"]
     assert snap["member_count"] == 5
     assert snap["roles"] == ["Mod"]
@@ -317,7 +317,7 @@ async def test_on_message_ignores_not_addressed(monkeypatch):
     stub.respond = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
-    await cog.on_message(_Msg(author=_User(2)))  # không mention, không reply
+    await cog.on_message(_Msg(author=_User(2)))  # no mention, no reply
     stub.respond.assert_not_awaited()
 
 
@@ -334,7 +334,7 @@ async def test_on_message_ignores_bot_author(monkeypatch):
 @pytest.mark.asyncio
 async def test_on_message_none_result_no_reply(monkeypatch):
     stub = MagicMock()
-    stub.respond = AsyncMock(return_value=None)  # agent off / sai kênh
+    stub.respond = AsyncMock(return_value=None)  # agent off / wrong channel
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
@@ -348,7 +348,7 @@ async def test_on_message_none_result_no_reply(monkeypatch):
 @pytest.mark.asyncio
 async def test_on_message_value_error_replies_error(monkeypatch):
     stub = MagicMock()
-    stub.respond = AsyncMock(side_effect=ValueError("hết budget"))
+    stub.respond = AsyncMock(side_effect=ValueError("out of budget"))
     _patch(monkeypatch, stub)
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
@@ -360,9 +360,9 @@ async def test_on_message_value_error_replies_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_on_message_unexpected_error_still_replies_not_silent(monkeypatch):
-    # Lỗi bất ngờ (tool/model crash) -> VẪN báo 1 câu, KHÔNG im luôn (trước đây chỉ log rồi return).
+    # Unexpected error (tool/model crash) -> STILL reply with a line, DON'T go silent (previously just logged and returned).
     stub = MagicMock()
-    stub.respond = AsyncMock(side_effect=RuntimeError("tool nổ"))
+    stub.respond = AsyncMock(side_effect=RuntimeError("tool blew up"))
     _patch(monkeypatch, stub)
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
@@ -374,30 +374,30 @@ async def test_on_message_unexpected_error_still_replies_not_silent(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_on_message_marks_cooldown_before_processing(monkeypatch):
-    # Mark cooldown NGAY (trước respond): dù respond trả None / chậm, tin thứ 2 vẫn bị chặn.
+    # Mark cooldown IMMEDIATELY (before respond): even if respond returns None / is slow, the 2nd message is still blocked.
     stub = MagicMock()
-    stub.respond = AsyncMock(return_value=None)  # vd agent off / sai kênh
+    stub.respond = AsyncMock(return_value=None)  # e.g. agent off / wrong channel
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
     u = _User(2)
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
-    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # ngay sau -> cooldown chặn
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # right after -> cooldown blocks
     await _drain(cog)
-    assert stub.respond.await_count == 1  # lần 2 bị chặn dù lần 1 không trả lời
+    assert stub.respond.await_count == 1  # 2nd blocked even though the 1st didn't reply
 
 
 @pytest.mark.asyncio
 async def test_on_message_per_user_cap_drops_overflow(monkeypatch):
-    # 1 người chỉ được xếp tối đa AGENT_PER_USER_MAX lượt (đang chờ + đang chạy). Lượt thứ 3
-    # bị bỏ (⏳) NGAY, không nhồi đầy hàng đợi. Tắt cooldown để cô lập đúng cửa per-user.
+    # One person can have at most AGENT_PER_USER_MAX turns queued (pending + running). The 3rd
+    # is dropped (⏳) IMMEDIATELY, not stuffed into the queue. Disable cooldown to isolate the per-user gate.
     import asyncio
 
     gate = asyncio.Event()
     cid = uuid.uuid4()
 
     async def slow_respond(**kw):
-        await gate.wait()  # giữ các lượt đầu "đang chạy" để chiếm slot pending
+        await gate.wait()  # keep the first turns "running" to occupy the pending slots
         return (cid, "ok", [])
 
     stub = MagicMock()
@@ -405,16 +405,16 @@ async def test_on_message_per_user_cap_drops_overflow(monkeypatch):
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
-    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> chỉ còn cửa per-user
+    cog.cooldown = CooldownTracker(0.0)  # disable cooldown -> only the per-user gate remains
     u = _User(2)
-    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # lượt 1 -> pending=1
-    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # lượt 2 -> pending=2 (đầy slot)
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # turn 1 -> pending=1
+    await cog.on_message(_Msg(author=u, mentions=[_User(1)]))  # turn 2 -> pending=2 (slots full)
     msg3 = _Msg(author=u, mentions=[_User(1)])
-    await cog.on_message(msg3)  # lượt 3 -> pending đã 2 -> bị bỏ
+    await cog.on_message(msg3)  # turn 3 -> pending already 2 -> dropped
     gate.set()
     await _drain(cog)
-    assert stub.respond.await_count == 2  # chỉ 2 lượt đầu được xử lý
-    msg3.add_reaction.assert_awaited_once_with("⏳")  # lượt 3 bị tiết chế
+    assert stub.respond.await_count == 2  # only the first 2 turns processed
+    msg3.add_reaction.assert_awaited_once_with("⏳")  # turn 3 throttled
 
 
 @pytest.mark.asyncio
@@ -427,40 +427,40 @@ async def test_on_message_cooldown_blocks_second(monkeypatch):
     cog = _cog()
     u = _User(2)
     await cog.on_message(_Msg(author=u, mentions=[_User(1)]))
-    msg2 = _Msg(author=u, mentions=[_User(1)])  # ngay lập tức -> cooldown chặn
+    msg2 = _Msg(author=u, mentions=[_User(1)])  # immediately -> cooldown blocks
     await cog.on_message(msg2)
     await _drain(cog)
     assert stub.respond.await_count == 1
-    msg2.add_reaction.assert_awaited_once_with("⏳")  # báo bị throttle bằng reaction ⏳
+    msg2.add_reaction.assert_awaited_once_with("⏳")  # signal the throttle with a ⏳ reaction
 
 
 @pytest.mark.asyncio
 async def test_on_message_many_distinct_users_all_processed_no_throttle(monkeypatch):
-    # KỊCH BẢN LO NGẠI: nhiều người KHÁC NHAU cùng mention bot trong thời gian ngắn.
-    # Throttle là PER-USER (cooldown + per-user cap theo (guild,user)) -> người khác nhau
-    # KHÔNG chặn nhau; tất cả được XẾP HÀNG và xử lý hết, không ai bị ⏳.
+    # WORRYING SCENARIO: many DIFFERENT people mention the bot within a short window.
+    # Throttling is PER-USER (cooldown + per-user cap keyed by (guild,user)) -> different people
+    # DON'T block each other; all get QUEUED and processed, nobody hits ⏳.
     cid = uuid.uuid4()
     stub = MagicMock()
     stub.respond = AsyncMock(return_value=(cid, "ok", []))
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
-    # 10 người khác nhau (id 100..109), mỗi người 1 lệnh — nhiều hơn 3 worker để buộc xếp hàng.
+    # 10 different people (id 100..109), one command each — more than 3 workers to force queuing.
     msgs = [_Msg(author=_User(100 + i), mentions=[_User(1)]) for i in range(10)]
     for m in msgs:
         await cog.on_message(m)
     await _drain(cog)
-    assert stub.respond.await_count == 10  # cả 10 đều được xử lý (xếp hàng, không drop)
+    assert stub.respond.await_count == 10  # all 10 processed (queued, no drops)
     for m in msgs:
-        m.add_reaction.assert_not_awaited()  # KHÔNG ai bị tiết chế ⏳
+        m.add_reaction.assert_not_awaited()  # NOBODY throttled with ⏳
 
 
 @pytest.mark.asyncio
 async def test_on_message_concurrent_bans_all_call_tool(monkeypatch):
-    # Nhiều người khác nhau cùng bảo "ban" trong thời gian ngắn -> CẢ NHÓM đều gọi được tool
-    # (mỗi lượt stage 1 action phá -> gửi nút xác nhận). Không ai bị bỏ vì throttle.
+    # Many different people say "ban" within a short window -> the WHOLE GROUP can call the tool
+    # (each turn stages 1 destructive action -> sends a confirm button). Nobody is dropped by throttling.
     cid = uuid.uuid4()
-    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    danger = PendingAction("ban", True, "Ban 1 person", {"target_ids": [9], "reason": ""})
     stub = MagicMock()
     stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
     stub.remember = AsyncMock()
@@ -472,19 +472,19 @@ async def test_on_message_concurrent_bans_all_call_tool(monkeypatch):
     for m in msgs:
         await cog.on_message(m)
     await _drain(cog)
-    assert stub.respond.await_count == 6  # cả 6 lượt agent chạy (gọi tool ban)
-    assert sum(m.channel.send.await_count for m in msgs) == 6  # mỗi người 1 nút xác nhận
-    run_mock.assert_not_awaited()  # phá -> chờ ✅, chưa execute
+    assert stub.respond.await_count == 6  # all 6 agent turns run (call the ban tool)
+    assert sum(m.channel.send.await_count for m in msgs) == 6  # one confirm button per person
+    run_mock.assert_not_awaited()  # destructive -> wait for ✅, not executed yet
     for m in msgs:
-        m.add_reaction.assert_not_awaited()  # không ai bị ⏳
+        m.add_reaction.assert_not_awaited()  # nobody hits ⏳
 
 
 @pytest.mark.asyncio
 async def test_on_message_same_user_spam_bans_throttled(monkeypatch):
-    # NGƯỢC LẠI: CÙNG 1 người spam "ban" liên tục -> cooldown chỉ cho 1 lượt qua,
-    # các lượt sau bị ⏳ (đây là hành vi chống spam MONG MUỐN, không phải bug).
+    # CONVERSELY: the SAME person spamming "ban" repeatedly -> cooldown lets only 1 turn through,
+    # the rest get ⏳ (this is the DESIRED anti-spam behavior, not a bug).
     cid = uuid.uuid4()
-    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    danger = PendingAction("ban", True, "Ban 1 person", {"target_ids": [9], "reason": ""})
     stub = MagicMock()
     stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
     stub.remember = AsyncMock()
@@ -494,18 +494,18 @@ async def test_on_message_same_user_spam_bans_throttled(monkeypatch):
     u = _User(2)
     spam = [_Msg(author=u, mentions=[_User(1)]) for _ in range(5)]
     for m in spam:
-        await cog.on_message(m)  # bắn liền tay trong cùng cửa sổ cooldown
+        await cog.on_message(m)  # fired back-to-back within the same cooldown window
     await _drain(cog)
-    assert stub.respond.await_count == 1  # chỉ lượt đầu của họ được xử lý
+    assert stub.respond.await_count == 1  # only their first turn is processed
     throttled = sum(m.add_reaction.await_count for m in spam[1:])
-    assert throttled == 4  # 4 lượt spam sau đều bị ⏳
+    assert throttled == 4  # the 4 later spam turns all get ⏳
 
 
 @pytest.mark.asyncio
 async def test_on_message_overload_sheds_load_no_loss_no_crash(monkeypatch):
-    # KỊCH BẢN XẤU NHẤT: cả server spam liên tục không nghỉ, nhiều hơn sức chứa hàng đợi.
-    # Bảo đảm 3 tính chất: (1) KHÔNG sập/treo; (2) KHÔNG mất tin — mỗi tin HOẶC được xử lý
-    # HOẶC bị ⏳; (3) tin lọt vào hàng đợi VẪN được xử lý (respond/reply chạy đủ).
+    # WORST CASE: the whole server spams non-stop, more than the queue can hold.
+    # Guarantee 3 properties: (1) NO crash/hang; (2) NO lost messages — each is EITHER processed
+    # OR ⏳; (3) messages that make it into the queue ARE still processed (respond/reply run fully).
     import asyncio
 
     from app.bot.cogs.agent import AGENT_QUEUE_MAX, AGENT_WORKERS
@@ -514,28 +514,28 @@ async def test_on_message_overload_sheds_load_no_loss_no_crash(monkeypatch):
     cid = uuid.uuid4()
 
     async def slow(**kw):
-        await gate.wait()  # giữ worker bận để hàng đợi dồn lại -> ép chạm trần
-        return (cid, "trả lời", [])
+        await gate.wait()  # keep workers busy so the queue piles up -> force hitting the ceiling
+        return (cid, "reply", [])
 
     stub = MagicMock()
     stub.respond = AsyncMock(side_effect=slow)
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
     cog = _cog()
-    cog.cooldown = CooldownTracker(0.0)  # tắt cooldown -> cô lập đúng cửa "hàng đợi đầy"
-    # Mỗi người KHÁC NHAU (bỏ qua cooldown + per-user) để dồn được tối đa vào hàng đợi toàn cục.
-    total = AGENT_WORKERS + AGENT_QUEUE_MAX + 8  # dư 8 người -> chắc chắn tràn
+    cog.cooldown = CooldownTracker(0.0)  # disable cooldown -> isolate the "queue full" gate
+    # Each person is DIFFERENT (bypass cooldown + per-user) to pack the global queue as full as possible.
+    total = AGENT_WORKERS + AGENT_QUEUE_MAX + 8  # 8 extra people -> definitely overflows
     msgs = [_Msg(author=_User(1000 + i), mentions=[_User(1)]) for i in range(total)]
     for m in msgs:
-        await cog.on_message(m)  # (1) bắn dồn không nghỉ — không được raise/treo
+        await cog.on_message(m)  # (1) fired back-to-back non-stop — must not raise/hang
     gate.set()
     await _drain(cog)
 
-    dropped = sum(1 for m in msgs if m.add_reaction.await_count > 0)  # bị ⏳
-    processed = sum(1 for m in msgs if m.reply.await_count > 0)  # đã trả lời (gọi respond xong)
-    assert dropped >= 1  # (1+3) có shed khi quá tải -> hàng đợi KHÔNG phình vô hạn
-    assert dropped + processed == total  # (2) KHÔNG mất tin: mỗi tin hoặc xử lý hoặc ⏳
-    assert processed >= AGENT_QUEUE_MAX  # (3) phần lớn vẫn được xử lý đầy đủ (gọi respond)
+    dropped = sum(1 for m in msgs if m.add_reaction.await_count > 0)  # hit ⏳
+    processed = sum(1 for m in msgs if m.reply.await_count > 0)  # replied (respond finished)
+    assert dropped >= 1  # (1+3) sheds load when overloaded -> the queue does NOT grow unbounded
+    assert dropped + processed == total  # (2) NO lost messages: each is either processed or ⏳
+    assert processed >= AGENT_QUEUE_MAX  # (3) most are still processed fully (respond called)
 
 
 # ---------- actions (perms + pending handling) ----------
@@ -554,36 +554,36 @@ def test_perms_dict_and_confirm_perm_ok():
     )
     d = perms_dict(gp)
     assert d["manage_guild"] is True and d["ban_members"] is True and d["manage_roles"] is False
-    assert confirm_perm_ok("ban", d) is True  # cần ban_members -> có
-    assert confirm_perm_ok("create_role", d) is False  # cần manage_roles -> không
+    assert confirm_perm_ok("ban", d) is True  # needs ban_members -> has it
+    assert confirm_perm_ok("create_role", d) is False  # needs manage_roles -> doesn't have it
 
 
 @pytest.mark.asyncio
 async def test_on_message_executes_safe_action(monkeypatch):
     cid = uuid.uuid4()
     safe = PendingAction(
-        "toggle_plugin", False, "Bật welcome", {"plugin": "welcome", "enabled": True}
+        "toggle_plugin", False, "Enable welcome", {"plugin": "welcome", "enabled": True}
     )
     stub = MagicMock()
     stub.respond = AsyncMock(return_value=(cid, "ok", [safe]))
     stub.remember = AsyncMock()
     _patch(monkeypatch, stub)
-    run_mock = AsyncMock(return_value="Đã bật welcome.")
+    run_mock = AsyncMock(return_value="Enabled welcome.")
     monkeypatch.setattr(agent_mod, "run_action", run_mock)
     cog = _cog()
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
     await _drain(cog)
-    run_mock.assert_awaited_once()  # action an toàn -> chạy ngay
-    # Báo theo KẾT QUẢ THẬT, KHÔNG gửi prose "ok" của model (tránh khai khống)
+    run_mock.assert_awaited_once()  # safe action -> runs immediately
+    # Report the REAL RESULT, DON'T send the model's "ok" prose (avoids false claims)
     reply_text = msg.reply.call_args.args[0]
     assert "✅" in reply_text and "welcome" in reply_text.lower()
-    # remember lưu kết quả thật, không lưu "ok"
+    # remember stores the real result, not "ok"
     assert stub.remember.call_args.kwargs["assistant_text"] != "ok"
 
 
 async def _confirm_channel():
-    """Kênh giả: mỗi send() trả 1 'message' riêng có .edit (để kiểm tra nút cũ bị vô hiệu)."""
+    """Fake channel: each send() returns its own 'message' with .edit (to verify old buttons get disabled)."""
     sent = []
 
     async def send(content, view=None):
@@ -596,24 +596,26 @@ async def _confirm_channel():
 
 @pytest.mark.asyncio
 async def test_send_confirm_supersedes_old_same_target():
-    # Đổi lệnh phá cùng loại + cùng người (vd timeout 5p->10p) -> nút CŨ bị vô hiệu.
+    # Change a destructive command of the same kind + same person (e.g. timeout 5m->10m) -> the OLD button is disabled.
     cog = _cog()
     channel, sent = await _confirm_channel()
     msg = SimpleNamespace(channel=channel)
-    p5 = PendingAction("timeout", True, "Timeout 1 người 5 phút", {"target_ids": [9], "minutes": 5})
+    p5 = PendingAction(
+        "timeout", True, "Timeout 1 person 5 minutes", {"target_ids": [9], "minutes": 5}
+    )
     p10 = PendingAction(
-        "timeout", True, "Timeout 1 người 10 phút", {"target_ids": [9], "minutes": 10}
+        "timeout", True, "Timeout 1 person 10 minutes", {"target_ids": [9], "minutes": 10}
     )
     await cog._send_confirm(msg, p5)
     await cog._send_confirm(msg, p10)
-    sent[0].edit.assert_awaited_once()  # nút 5p bị sửa thành "đã thay"
-    assert "thay" in sent[0].edit.call_args.kwargs.get("content", "").lower()
-    sent[1].edit.assert_not_awaited()  # nút 10p còn nguyên
+    sent[0].edit.assert_awaited_once()  # the 5m button is edited to "replaced"
+    assert "replaced" in sent[0].edit.call_args.kwargs.get("content", "").lower()
+    sent[1].edit.assert_not_awaited()  # the 10m button stays intact
 
 
 @pytest.mark.asyncio
 async def test_send_confirm_keeps_old_for_different_target():
-    # Khác người -> KHÔNG đụng nút cũ (timeout A rồi timeout B = 2 nút độc lập).
+    # Different person -> DON'T touch the old button (timeout A then timeout B = 2 independent buttons).
     cog = _cog()
     channel, sent = await _confirm_channel()
     msg = SimpleNamespace(channel=channel)
@@ -626,22 +628,26 @@ async def test_send_confirm_keeps_old_for_different_target():
 
 @pytest.mark.asyncio
 async def test_confirm_resolve_clears_tracking():
-    # Bấm ✅/❌ -> gỡ khỏi sổ theo dõi, để lệnh sau KHÔNG ghi đè lên tin đã xử lý.
+    # Pressing ✅/❌ -> remove from the tracking book so a later command does NOT overwrite an already-handled message.
     cog = _cog()
     channel, sent = await _confirm_channel()
     msg = SimpleNamespace(channel=channel)
-    p = PendingAction("timeout", True, "Timeout 1 người 5 phút", {"target_ids": [9], "minutes": 5})
+    p = PendingAction(
+        "timeout", True, "Timeout 1 person 5 minutes", {"target_ids": [9], "minutes": 5}
+    )
     await cog._send_confirm(msg, p)
     key = cog._confirm_key(10, p)
     assert key in cog._pending_confirms
-    sent[0].view._resolve()  # mô phỏng BẤM nút -> view gọi on_resolve -> gỡ khỏi sổ
+    sent[
+        0
+    ].view._resolve()  # simulate PRESSING the button -> view calls on_resolve -> removes from the book
     assert key not in cog._pending_confirms
 
 
 @pytest.mark.asyncio
 async def test_on_message_destructive_sends_confirm(monkeypatch):
     cid = uuid.uuid4()
-    danger = PendingAction("ban", True, "Ban 1 người", {"target_ids": [9], "reason": ""})
+    danger = PendingAction("ban", True, "Ban 1 person", {"target_ids": [9], "reason": ""})
     stub = MagicMock()
     stub.respond = AsyncMock(return_value=(cid, "ok", [danger]))
     stub.remember = AsyncMock()
@@ -652,12 +658,12 @@ async def test_on_message_destructive_sends_confirm(monkeypatch):
     msg = _Msg(author=_User(2), mentions=[_User(1)])
     await cog.on_message(msg)
     await _drain(cog)
-    msg.channel.send.assert_awaited_once()  # gửi nút xác nhận
-    run_mock.assert_not_awaited()  # CHƯA execute (chờ ✅)
+    msg.channel.send.assert_awaited_once()  # sends the confirm button
+    run_mock.assert_not_awaited()  # NOT executed yet (waiting for ✅)
 
 
 class _HistMsg:
-    """Tin nhắn giả cho channel.history()."""
+    """Fake message for channel.history()."""
 
     def __init__(self, who, text):
         self.clean_content = text
@@ -690,10 +696,10 @@ class _HistChannel:
 
 @pytest.mark.asyncio
 async def test_collect_channel_context_orders_oldest_first():
-    # history() trả mới->cũ; helper phải đảo lại thành cũ->mới + format 'Tên: nội dung'
-    ch = _HistChannel([_HistMsg("An", "tin moi"), _HistMsg("Phong", "tin cu")])
+    # history() returns newest->oldest; the helper must reverse it to oldest->newest + format 'Name: content'
+    ch = _HistChannel([_HistMsg("An", "new message"), _HistMsg("Phong", "old message")])
     out = await agent_mod.collect_channel_context(ch, before=object())
-    assert out == "Phong: tin cu\nAn: tin moi"
+    assert out == "Phong: old message\nAn: new message"
 
 
 @pytest.mark.asyncio

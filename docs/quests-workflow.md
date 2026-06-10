@@ -1,79 +1,79 @@
-# Quests — Hướng dẫn & Workflow
+# Quests — Guide & Workflow
 
-Nhiệm vụ ngày/tuần do **admin tự tạo**. Member làm đủ tiến độ → gõ `/quests claim` nhận coin.
-
----
-
-## 1. Tính năng làm gì
-
-- Admin tạo nhiệm vụ qua dashboard: đặt **mục tiêu** (kiếm coin / điểm danh), **chu kỳ** (ngày/tuần), **target**, **coin thưởng**.
-- Member chat (kiếm coin thụ động) hoặc `/daily` → tiến độ nhiệm vụ tự tăng.
-- Đủ tiến độ → `/quests claim` nhận hết coin một lần.
-- Tiến độ **reset theo chu kỳ**: daily reset 0h UTC, weekly reset thứ 2 0h UTC.
-
-> **Phụ thuộc:** Quests cần **Currency bật** (mục tiêu đếm coin/điểm danh, thưởng = coin). Bật Currency trước.
+Daily/weekly quests that **admins create themselves**. Members make enough progress → type `/quests claim` to receive coins.
 
 ---
 
-## 2. Cho admin — tạo nhiệm vụ (Dashboard)
+## 1. What this feature does
 
-Vào **Dashboard → server → Quests**. Mỗi nhiệm vụ gồm:
+- Admins create quests via the dashboard: set an **objective** (earn coins / check-in), a **period** (daily/weekly), a **target**, and a **coin reward**.
+- Members chat (passive coin earning) or `/daily` → quest progress increases automatically.
+- Enough progress → `/quests claim` collects all coins at once.
+- Progress **resets per period**: daily resets at 00:00 UTC, weekly resets Monday 00:00 UTC.
 
-| Trường | Ý nghĩa |
+> **Dependency:** Quests require **Currency enabled** (objectives count coins/check-ins, rewards = coins). Enable Currency first.
+
+---
+
+## 2. For admins — creating quests (Dashboard)
+
+Go to **Dashboard → server → Quests**. Each quest has:
+
+| Field | Meaning |
 |---|---|
-| **Name** | Tên hiển thị (vd "Chăm chỉ hằng ngày") |
-| **Description** | Mô tả (tùy chọn) |
-| **Period** | `daily` (reset mỗi ngày) hoặc `weekly` (reset mỗi tuần) |
-| **Objective** | `Kiếm coin` (cộng dồn coin nhận) hoặc `Điểm danh` (đếm số lần /daily) |
-| **Target** | Tiến độ cần đạt (1–100.000) |
-| **Reward coins** | Coin thưởng khi hoàn thành (0–1.000.000) |
-| **Enabled** | Bật/tắt nhiệm vụ |
+| **Name** | Display name (e.g. "Daily grind") |
+| **Description** | Description (optional) |
+| **Period** | `daily` (resets each day) or `weekly` (resets each week) |
+| **Objective** | `Earn coins` (accumulate coins received) or `Check-in` (count /daily claims) |
+| **Target** | Progress required (1–100,000) |
+| **Reward coins** | Coins rewarded on completion (0–1,000,000) |
+| **Enabled** | Turn the quest on/off |
 
-Tạo / sửa / xóa / bật-tắt thoải mái. Tắt nhiệm vụ → không hiện với member, không tính tiến độ nữa.
+Create / edit / delete / toggle freely. Disabling a quest → it doesn't show to members and no longer tracks progress.
 
-**Ví dụ bộ nhiệm vụ gợi ý:**
-- `daily` · Kiếm coin · target 200 · thưởng 50 → "Kiếm 200 coin hôm nay".
-- `daily` · Điểm danh · target 1 · thưởng 30 → "Điểm danh hôm nay".
-- `weekly` · Điểm danh · target 5 · thưởng 300 → "Điểm danh 5 ngày tuần này".
-- `weekly` · Kiếm coin · target 2000 · thưởng 500 → "Kiếm 2000 coin tuần này".
+**Suggested quest set example:**
+- `daily` · Earn coins · target 200 · reward 50 → "Earn 200 coins today".
+- `daily` · Check-in · target 1 · reward 30 → "Check in today".
+- `weekly` · Check-in · target 5 · reward 300 → "Check in 5 days this week".
+- `weekly` · Earn coins · target 2000 · reward 500 → "Earn 2000 coins this week".
 
 ---
 
-## 3. Cho member — lệnh Discord
+## 3. For members — Discord commands
 
-| Lệnh | Việc |
+| Command | What it does |
 |---|---|
-| `/quests list` | Xem nhiệm vụ + thanh tiến độ + trạng thái (đang làm / ✅ sẵn sàng / ☑️ đã nhận) |
-| `/quests claim` | Nhận **tất cả** nhiệm vụ đã đủ tiến độ, báo tổng coin |
+| `/quests list` | View quests + progress bars + status (in progress / ✅ ready / ☑️ claimed) |
+| `/quests claim` | Claim **all** quests that have enough progress, reporting the total coins |
 
-Tiến độ tăng tự động khi: **chat** (mỗi tin ăn coin → cộng vào quest "Kiếm coin"), **`/daily`** (cộng coin nhận + 1 lần điểm danh).
+Progress increases automatically when: **chatting** (each coin-earning message → adds to "Earn coins" quests), **`/daily`** (adds the coins received + 1 check-in).
 
 ---
 
-## 4. Cơ chế bên trong (cho dev)
+## 4. Internals (for devs)
 
 ```
-Member chat → xp_listener → currency.grant_message_reward(amount)
+Member chats → xp_listener → currency.grant_message_reward(amount)
                               └→ QuestService.record_event("earn_coins", amount)
 
 /daily → CurrencyCog.daily → claim_daily
             └→ QuestService.record_event("earn_coins", res.amount)
             └→ QuestService.record_event("daily_claim", 1)
 
-/quests claim → QuestService.claim (atomic try_claim mỗi quest → WalletRepository.add_balance)
+/quests claim → QuestService.claim (atomic try_claim per quest → WalletRepository.add_balance)
 ```
 
-- **Period key**: daily = ngày UTC (`2026-05-30`), weekly = ISO week (`2026-W22`). Tiến độ lưu theo `period_key` → qua kỳ là row mới, tự về 0.
-- **Atomic**: `increment` cộng dồn trong SQL (không lost-update); `try_claim` là guarded UPDATE (`progress>=target AND claimed=false`) → không nhận 2 lần.
-- **Decoupled**: QuestService đọc qua repos, thưởng qua `WalletRepository.add_balance` trực tiếp (không gọi CurrencyService).
-- **Bảng**: `guild_quest` (định nghĩa), `user_quest_progress` (tiến độ per user/quest/kỳ, unique `(quest_id,user_id,period_key)`).
-- **Hot path**: ghi nhận earn_coins mỗi tin ăn coin = 1 SELECT (enabled earn quests, indexed) + UPDATE/quest. Chấp nhận v1.
+- **Period key**: daily = UTC date (`2026-05-30`), weekly = ISO week (`2026-W22`). Progress is stored by `period_key` → a new period gets a new row, auto-resetting to 0.
+- **Atomic**: `increment` accumulates in SQL (no lost-update); `try_claim` is a guarded UPDATE (`progress>=target AND claimed=false`) → can't claim twice.
+- **Decoupled**: QuestService reads through repos, rewards via `WalletRepository.add_balance` directly (does not call CurrencyService).
+- **Tables**: `guild_quest` (definitions), `user_quest_progress` (progress per user/quest/period, unique `(quest_id,user_id,period_key)`).
+- **Hot path**: recording earn_coins per coin-earning message = 1 SELECT (enabled earn quests, indexed) + UPDATE/quest. Accepted for v1.
 
-REST CRUD: `GET/POST /guilds/{id}/quests`, `PATCH/DELETE /guilds/{id}/quests/{quest_id}` (gate `require_managed_guild`). PATCH là partial update (chỉ field gửi lên mới đổi).
+REST CRUD: `GET/POST /guilds/{id}/quests`, `PATCH/DELETE /guilds/{id}/quests/{quest_id}` (gated by `require_managed_guild`). PATCH is a partial update (only the fields sent are changed).
 
 ---
 
-## 5. Vận hành
+## 5. Operation
 
-- **Sau khi thêm migration mà stack đang chạy:** `docker compose exec api alembic upgrade head` (uvicorn `--reload` KHÔNG chạy migration). Quests migration: `f6a7b8c9d0e1`.
-- **Giới hạn v1 (chấp nhận):** sửa target khi member đang làm → tính theo target mới; row kỳ cũ không dọn; quests vô dụng nếu currency tắt.
+- **After adding a migration while the stack is running:** `docker compose exec api alembic upgrade head` (uvicorn `--reload` does NOT run migrations). Quests migration: `f6a7b8c9d0e1`.
+- **v1 limits (accepted):** editing the target while members are in progress → counts against the new target; old-period rows are not cleaned up; quests are useless if currency is off.

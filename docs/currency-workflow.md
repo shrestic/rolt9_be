@@ -140,7 +140,7 @@ CurrencyService.claim_daily(now=now)               app/services/currency/currenc
                           current_streak = new_streak, longest_streak = new_longest
                WHERE … AND (last_daily_at IS NULL OR last_daily_at < cutoff)
       ▼
-   claimed?  → "+130 🪙 … 🔥 Chuỗi 3 ngày … 🎉 Mốc 7 ngày! +200"
+   claimed?  → "+130 🪙 … 🔥 3-day streak … 🎉 7-day milestone! +200"
    already claimed today (0 rows) → "wait Xh Ym"  (retry_after = time to next UTC midnight)
 ```
 

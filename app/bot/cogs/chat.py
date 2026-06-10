@@ -45,7 +45,7 @@ class ChatCog(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.CommandOnCooldown):
             secs = round(error.retry_after, 1)
-            msg = f"⏳ Chờ chút — đợi {secs}s nữa."
+            msg = f"⏳ Hold on — wait {secs}s more."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
@@ -53,8 +53,10 @@ class ChatCog(commands.Cog):
             return
         raise error
 
-    @app_commands.command(name="chat", description="Trò chuyện với bot (AI, theo cá tính server).")
-    @app_commands.describe(message="Lời nhắn của bạn")
+    @app_commands.command(
+        name="chat", description="Chat with the bot (AI, in the server's persona)."
+    )
+    @app_commands.describe(message="Your message")
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 8.0)
     async def chat(self, interaction: discord.Interaction, message: str) -> None:

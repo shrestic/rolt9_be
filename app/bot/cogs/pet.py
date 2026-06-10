@@ -55,12 +55,12 @@ def _render(status: PetStatus) -> str:
     lines = [
         f"{status.stage_emoji}{status.mood_emoji} **{status.name}** • Lv {status.level} "
         f"({status.stage_name})",
-        f"🍖 No  {_bar(status.hunger)}",
-        f"🎾 Vui {_bar(status.happiness)}",
+        f"🍖 Fed   {_bar(status.hunger)}",
+        f"🎾 Happy {_bar(status.happiness)}",
     ]
     if status.hunger <= 20 or status.happiness <= 20:
         # Warn the user before stats bottom out and the pet gets sad.
-        lines.append("\nPet đang cần được quan tâm — cho ăn / chơi với nó đi!")
+        lines.append("\nYour pet needs some love — go feed it / play with it!")
     return "\n".join(lines)
 
 
@@ -72,11 +72,11 @@ def _growth_suffix(res: PetActionResult) -> str:
     """
     if res.evolved:
         return (
-            f"\n✨ **{res.status.name}** tiến hóa thành "
+            f"\n✨ **{res.status.name}** evolved into "
             f"{res.status.stage_name} {res.status.stage_emoji}!"
         )
     if res.leveled_up:
-        return f"\n🎉 **{res.status.name}** lên Lv {res.status.level}!"
+        return f"\n🎉 **{res.status.name}** reached Lv {res.status.level}!"
     return ""
 
 
@@ -87,9 +87,9 @@ class PetCog(commands.Cog):
 
     # Group all pet subcommands under `/pet` — guild_only so user IDs
     # are always scoped to a server (DMs have no guild_id).
-    pet = app_commands.Group(name="pet", description="Thú cưng của server", guild_only=True)
+    pet = app_commands.Group(name="pet", description="The server's pet", guild_only=True)
 
-    @pet.command(name="status", description="Xem pet của server.")
+    @pet.command(name="status", description="View the server's pet.")
     async def pet_status(self, interaction: discord.Interaction) -> None:
         # Defer first (up to 15 min to reply), then open DB session.
         await interaction.response.defer()
@@ -99,12 +99,12 @@ class PetCog(commands.Cog):
 
         # Short-circuit: pet feature disabled or not yet configured.
         if status is None or not status.enabled:
-            await interaction.followup.send("Server chưa bật pet.")
+            await interaction.followup.send("This server hasn't enabled the pet yet.")
             return
 
         await interaction.followup.send(_render(status))
 
-    @pet.command(name="feed", description="Cho pet ăn (tốn coin).")
+    @pet.command(name="feed", description="Feed the pet (costs coins).")
     async def pet_feed(self, interaction: discord.Interaction) -> None:
         # Defer first, then attempt to feed inside a DB session.
         await interaction.response.defer()
@@ -115,8 +115,8 @@ class PetCog(commands.Cog):
                 )
             # Show new hunger stat and remaining balance so the user knows the cost.
             msg = (
-                f"🍖 Cho {res.status.name} ăn! No: **{res.status.hunger}/100** "
-                f"(số dư {res.balance:,} 🪙)"
+                f"🍖 Fed {res.status.name}! Fed: **{res.status.hunger}/100** "
+                f"(balance {res.balance:,} 🪙)"
             ) + _growth_suffix(res)
             await interaction.followup.send(msg)
         except ValueError as exc:
@@ -124,7 +124,7 @@ class PetCog(commands.Cog):
             # Ephemeral so the error is private — no need to clutter the channel.
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)
 
-    @pet.command(name="play", description="Chơi với pet (miễn phí).")
+    @pet.command(name="play", description="Play with the pet (free).")
     async def pet_play(self, interaction: discord.Interaction) -> None:
         # Defer first, then attempt to play inside a DB session.
         await interaction.response.defer()
@@ -133,7 +133,7 @@ class PetCog(commands.Cog):
                 res = await _build_service(session).play(
                     guild_discord_id=interaction.guild_id, user_id=interaction.user.id
                 )
-            msg = f"🎾 Chơi với {res.status.name}! Vui: **{res.status.happiness}/100**"
+            msg = f"🎾 Played with {res.status.name}! Happy: **{res.status.happiness}/100**"
             msg += _growth_suffix(res)
             await interaction.followup.send(msg)
         except ValueError as exc:

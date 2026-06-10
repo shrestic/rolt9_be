@@ -1,6 +1,6 @@
-"""Probe slang: câu LÓNG / MƠ HỒ tiếng Việt -> model có hiểu & gọi đúng tool không.
-Một số câu mơ hồ (tống cổ = kick hay ban?) nên 'expected' là TẬP tool chấp nhận được.
-Chạy full loop ≤4 bước, execute giả (không đụng Discord thật)."""
+"""Probe slang: SLANG / AMBIGUOUS English phrases -> does the model understand & call the right tool?
+Some phrases are ambiguous (boot = kick or ban?) so 'expected' is a SET of acceptable tools.
+Runs the full loop (<=4 steps) with a fake execute (does not touch real Discord)."""
 
 import asyncio
 import sys
@@ -18,36 +18,36 @@ from app.services.ai.tools.registry import parse_args, tool_specs
 GUILD_DISCORD_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 1480247310813499412
 MAX_STEPS = 4
 
-# (mô tả, câu lóng, {tool chấp nhận được})
+# (description, slang phrase, {acceptable tools})
 CASES = [
-    ("im mồm = mute", "cho thằng @kia im mồm đi", {"timeout"}),
-    ("câm 5 phút", "câm mồm thằng @ồn lại 5 phút giùm", {"timeout"}),
-    ("đuổi cổ = kick", "đuổi cổ thằng @toàn ra ngoài", {"kick"}),
-    ("tống cổ = kick/ban", "tống cổ @toxic đi cho khuất mắt tao", {"kick", "ban"}),
-    ("cấm cửa = ban", "cấm cửa vĩnh viễn thằng @spam này", {"ban"}),
-    ("thả ra = unban", "thả thằng BadGuy123 ra đi, tội nó", {"unban"}),
-    ("mở mồm lại = unmute", "mở mồm cho @Đạt lại đi nó ngoan rồi", {"untimeout"}),
-    ("phong chức = assign", "phong cho @An lên làm VIP đi", {"assign_role"}),
-    ("tước chức = remove", "tước cái chức Mod của thằng @An đi", {"remove_role"}),
-    ("bonk = timeout", "bonk thằng @toxic 30 phút cho chừa", {"timeout"}),
-    ("dẹp role = delete", "dẹp cái role rác Newbie kia đi", {"delete_role"}),
-    ("đẻ role = create", "đẻ cho anh em cái role tên Gánh Team", {"create_role"}),
-    ("server đông ko = info", "nay server đông người ko bot", {"server_info"}),
-    ("ghi lóng = remember", "ghi giùm: thằng @Bình hay đi trễ deadline", {"remember"}),
-    ("bật game xu", "bật cái trò kiếm xu currency lên cho vui", {"toggle_plugin"}),
-    ("nhốt = timeout", "nhốt thằng @quậy lại 1 tiếng", {"timeout"}),
-    ("trảm = kick/ban", "trảm thằng @phá đám này giùm cái", {"kick", "ban"}),
+    ("shut up = mute", "shut @kia up for a bit", {"timeout"}),
+    ("zip it 5 min", "zip it on @noisy for 5 mins would ya", {"timeout"}),
+    ("boot out = kick", "boot @toan out of here", {"kick"}),
+    ("get outta sight = kick/ban", "get @toxic outta my sight for good", {"kick", "ban"}),
+    ("lock out = ban", "lock @spam out permanently", {"ban"}),
+    ("let back in = unban", "let BadGuy123 back in, poor guy", {"unban"}),
+    ("give a voice back = unmute", "give @Dat his voice back, he's behaving now", {"untimeout"}),
+    ("hand a rank = assign", "hand @An the VIP rank already", {"assign_role"}),
+    ("strip the rank = remove", "strip the Mod rank off @An", {"remove_role"}),
+    ("bonk = timeout", "bonk @toxic for 30 mins so he learns", {"timeout"}),
+    ("trash role = delete", "trash that junk Newbie role", {"delete_role"}),
+    ("spin up role = create", "spin up a role called Carry Squad for us", {"create_role"}),
+    ("server busy? = info", "is the server packed today bot", {"server_info"}),
+    ("jot down = remember", "jot this down: @Binh always misses deadlines", {"remember"}),
+    ("turn on coin game", "fire up that coin currency game for fun", {"toggle_plugin"}),
+    ("lock up = timeout", "lock @rowdy up for an hour", {"timeout"}),
+    ("nuke = kick/ban", "nuke this troublemaker @disrupt for me", {"kick", "ban"}),
 ]
 
 
 def fake_execute(name: str, _args: dict) -> str:
     if name == "server_info":
-        return "Roles: VIP, Mod, Member, Newbie. Thành viên: 42. Kênh: general."
+        return "Roles: VIP, Mod, Member, Newbie. Members: 42. Channels: general."
     if name == "remember":
-        return "Đã ghi nhớ."
+        return "Noted."
     if name == "current_time":
         return "2026-06-01 10:00 UTC"
-    return f"Đã chuẩn bị hành động {name}. Chờ admin xác nhận/thực thi."
+    return f"Staged action {name}. Waiting for admin confirmation/execution."
 
 
 async def main():
@@ -65,7 +65,7 @@ async def main():
 
         ok = 0
         for desc, phrase, accept in CASES:
-            system = build_system(cfg.persona or "", "", "Đạt", memory_doc, "")
+            system = build_system(cfg.persona or "", "", "Dat", memory_doc, "")
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": phrase},
@@ -93,11 +93,11 @@ async def main():
             if any(e in seq for e in accept):
                 ok += 1
             print(f"{hit} [{desc}] “{phrase}”")
-            print(f"    tool: {seq or '(không gọi)'}   (chấp nhận: {accept})")
+            print(f"    tool: {seq or '(no call)'}   (accepted: {accept})")
             if not seq:
-                print(f"    bot nói: {final_text}")
+                print(f"    bot said: {final_text}")
             print()
-        print(f"== Hiểu đúng: {ok}/{len(CASES)} ==")
+        print(f"== Understood correctly: {ok}/{len(CASES)} ==")
 
 
 if __name__ == "__main__":

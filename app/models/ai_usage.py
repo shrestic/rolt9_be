@@ -1,8 +1,8 @@
-"""Usage AI của guild trong một tháng UTC: token (hiển thị) + cost USD (chặn budget).
+"""Guild AI usage within a single UTC month: tokens (for display) + cost USD (for budget enforcement).
 
-Một row mỗi (guild, month). `tokens` và `cost_usd` được cộng atomic sau mỗi lần
-gọi gateway; gateway đọc cost tháng hiện tại để so với budget. Sang tháng mới =
-`period_key` mới nên usage tự reset, không cần dọn dẹp.
+One row per (guild, month). `tokens` and `cost_usd` are incremented atomically after
+each gateway call; the gateway reads the current month's cost to compare against the
+budget. A new month means a new `period_key`, so usage self-resets — no cleanup needed.
 """
 
 import uuid

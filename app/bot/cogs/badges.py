@@ -39,7 +39,7 @@ class BadgesCog(commands.Cog):
         self.bot = bot
         self.discord_io = discord_io
 
-    @app_commands.command(name="badges", description="Xem huy hiệu thành tựu.")
+    @app_commands.command(name="badges", description="View your achievement badges.")
     @app_commands.guild_only()
     async def badges(
         self, interaction: discord.Interaction, member: discord.Member | None = None
@@ -63,22 +63,22 @@ class BadgesCog(commands.Cog):
 
         # Badges feature is toggled per-guild; short-circuit if it's off.
         if not enabled:
-            await interaction.followup.send("Badges đang tắt trên server này.")
+            await interaction.followup.send("Badges are turned off on this server.")
             return
 
-        lines = [f"**Huy hiệu của {target.mention}**"]
+        lines = [f"**{target.mention}'s badges**"]
 
         if earned:
-            lines.append("\n🏅 **Đã đạt**")
+            lines.append("\n🏅 **Earned**")
             # Each earned entry is (BadgeDef, datetime) — we show name + description
             # but not the earned timestamp to keep the message concise.
             lines += [f"{b.emoji} **{b.name}** — {b.description}" for b, _ in earned]
         else:
             # Motivational nudge when the member hasn't earned anything yet.
-            lines.append("\nChưa mở khóa badge nào — chăm chat & điểm danh nhé!")
+            lines.append("\nNo badges unlocked yet — keep chatting & checking in!")
 
         if locked:
-            lines.append("\n🔒 **Chưa đạt**")
+            lines.append("\n🔒 **Locked**")
             # Locked badges shown without bold name — visually subdued vs earned.
             lines += [f"{b.emoji} {b.name} — {b.description}" for b in locked]
 

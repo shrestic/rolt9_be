@@ -97,8 +97,8 @@ async def test_put_sets_key_and_hides_it(seed):
     assert body["enabled"] is True
     assert body["provider"] == "openai"
     assert body["has_key"] is True
-    assert body["key_hint"] == "cret"  # 4 ký tự cuối
-    assert "api_key" not in body  # không lộ key
+    assert body["key_hint"] == "cret"  # last 4 characters
+    assert "api_key" not in body  # don't expose the key
     assert float(body["monthly_budget_usd"]) == 12.5
 
 
@@ -125,7 +125,7 @@ async def test_put_invalid_provider_model_is_422(seed):
 async def test_put_empty_key_clears_it(seed):
     client, _ = await seed()
     _mock_owned()
-    # đặt key trước
+    # set the key first
     client.put(
         _url(),
         json={
@@ -137,7 +137,7 @@ async def test_put_empty_key_clears_it(seed):
             "api_key": "sk-abc1234",
         },
     )
-    # gửi "" để xóa
+    # send "" to clear it
     r = client.put(
         _url(),
         json={

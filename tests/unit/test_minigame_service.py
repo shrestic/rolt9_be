@@ -99,8 +99,8 @@ async def test_slots_jackpot(db_session):
 
 
 @pytest.mark.asyncio
-async def test_taixiu(db_session):
+async def test_over_under(db_session):
     gid, svc = await _setup(db_session, rng=_Rng(ints=[6, 4, 1]), balance=1000)
-    res = await svc.play_taixiu(guild_discord_id=GID, user_id=1, bet=100, choice="tai")
+    res = await svc.play_over_under(guild_discord_id=GID, user_id=1, bet=100, choice="over")
     assert res.won is True
     assert res.balance == 1090

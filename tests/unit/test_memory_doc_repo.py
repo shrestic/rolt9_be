@@ -23,13 +23,13 @@ async def test_get_default_empty(db_session):
 async def test_append_and_dedup(db_session):
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.append_note(gid, "gọi An là thằng loz")
-    await repo.append_note(gid, "An nói trống không")
-    await repo.append_note(gid, "gọi An là thằng loz")  # trùng -> bỏ
+    await repo.append_note(gid, "call An a jerk")
+    await repo.append_note(gid, "An talks without honorifics")
+    await repo.append_note(gid, "call An a jerk")  # duplicate -> dropped
     await db_session.commit()
     doc = await repo.get_doc(gid)
-    assert doc.count("gọi An là thằng loz") == 1
-    assert "An nói trống không" in doc
+    assert doc.count("call An a jerk") == 1
+    assert "An talks without honorifics" in doc
     assert doc.startswith("- ")
 
 
@@ -38,21 +38,21 @@ async def test_cap_drops_oldest(db_session):
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
     for i in range(400):
-        await repo.append_note(gid, f"fact số {i} " + "x" * 20)
+        await repo.append_note(gid, f"fact no {i} " + "x" * 20)
     await db_session.commit()
     doc = await repo.get_doc(gid)
     assert len(doc) <= MEMORY_DOC_CAP
-    assert "fact số 399" in doc  # mới nhất còn
-    assert "fact số 0 " not in doc  # cũ nhất bị cắt
+    assert "fact no 399" in doc  # newest kept
+    assert "fact no 0 " not in doc  # oldest trimmed
 
 
 @pytest.mark.asyncio
 async def test_set_and_clear(db_session):
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.set_doc(gid, "## Luật\n- không spam")
+    await repo.set_doc(gid, "## Rules\n- no spam")
     await db_session.commit()
-    assert "không spam" in await repo.get_doc(gid)
+    assert "no spam" in await repo.get_doc(gid)
     await repo.clear(gid)
     await db_session.commit()
     assert await repo.get_doc(gid) == ""
@@ -62,28 +62,30 @@ async def test_set_and_clear(db_session):
 async def test_remove_notes_deletes_matching(db_session):
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.append_note(gid, '<@945> (Jacky) có biệt danh "ngọc gà"')
-    await repo.append_note(gid, "thinh.nguyen2 tên thật là Đạt")
-    await repo.append_note(gid, "ngọc gà thích chơi Valorant")
+    await repo.append_note(gid, '<@945> (Jacky) has the nickname "golden chick"')
+    await repo.append_note(gid, "thinh.nguyen2's real name is Dat")
+    await repo.append_note(gid, "golden chick likes playing Valorant")
     await db_session.commit()
 
-    removed = await repo.remove_notes(gid, "ngọc gà")  # xoá 2 dòng chứa 'ngọc gà'
+    removed = await repo.remove_notes(
+        gid, "golden chick"
+    )  # delete 2 lines containing 'golden chick'
     await db_session.commit()
     assert len(removed) == 2
     doc = await repo.get_doc(gid)
-    assert "ngọc gà" not in doc.lower()
-    assert "thinh.nguyen2" in doc  # dòng không khớp -> giữ nguyên
+    assert "golden chick" not in doc.lower()
+    assert "thinh.nguyen2" in doc  # non-matching line -> kept
 
 
 @pytest.mark.asyncio
 async def test_remove_notes_no_match_returns_empty(db_session):
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.append_note(gid, "gọi An là sếp")
+    await repo.append_note(gid, "call An the boss")
     await db_session.commit()
-    removed = await repo.remove_notes(gid, "không-có-gì-khớp")
+    removed = await repo.remove_notes(gid, "nothing-matches")
     assert removed == []
-    assert "gọi An là sếp" in await repo.get_doc(gid)  # không đụng doc
+    assert "call An the boss" in await repo.get_doc(gid)  # doc untouched
 
 
 @pytest.mark.asyncio
@@ -94,11 +96,11 @@ async def test_clear_deletes_row_not_just_empty(db_session):
 
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.append_note(gid, "gọi An là sếp")
+    await repo.append_note(gid, "call An the boss")
     await db_session.commit()
     await repo.clear(gid)
     await db_session.commit()
-    # XOÁ HẲN record, không để row doc rỗng
+    # FULLY delete the record, don't leave an empty doc row
     cnt = await db_session.scalar(
         select(func.count()).select_from(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == gid)
     )
@@ -114,9 +116,11 @@ async def test_remove_all_notes_deletes_row(db_session):
 
     gid = await _guild(db_session)
     repo = MemoryDocRepository(db_session)
-    await repo.append_note(gid, "biệt danh ngọc gà")
+    await repo.append_note(gid, "nickname golden chick")
     await db_session.commit()
-    await repo.remove_notes(gid, "ngọc gà")  # xoá dòng cuối -> row trống -> xoá luôn record
+    await repo.remove_notes(
+        gid, "golden chick"
+    )  # delete the last line -> empty row -> delete the record too
     await db_session.commit()
     cnt = await db_session.scalar(
         select(func.count()).select_from(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == gid)
@@ -130,6 +134,6 @@ async def test_append_after_clear_recreates(db_session):
     repo = MemoryDocRepository(db_session)
     await repo.append_note(gid, "x")
     await repo.clear(gid)
-    await repo.append_note(gid, "ghi lại sau khi xoá")  # _row tạo lại row mới
+    await repo.append_note(gid, "written again after clearing")  # _row recreates a new row
     await db_session.commit()
-    assert "ghi lại sau khi xoá" in await repo.get_doc(gid)
+    assert "written again after clearing" in await repo.get_doc(gid)

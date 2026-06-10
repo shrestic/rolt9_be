@@ -1,4 +1,4 @@
-"""Data access cho `agent_message` — lịch sử hội thoại Claw Agent. Flush; commit ở boundary."""
+"""Data access for `agent_message` — Claw Agent conversation history. Flush; commit at boundary."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -45,12 +45,13 @@ class AgentMessageRepository:
         within: timedelta,
         now: datetime,
     ) -> uuid.UUID | None:
-        """Cuộc gần nhất của đúng (guild, kênh, người) NẾU lượt cuối còn trong `within`.
+        """Most recent conversation of the exact (guild, channel, person) IF the last turn is still within `within`.
 
-        Dùng khi user nhắn tiếp mà KHÔNG reply: thay vì mở cuộc mới sạch trơn, ta nối
-        lại cuộc vừa nói cho tự nhiên. Im lặng quá `within` -> trả None để mở cuộc mới.
-        So thời gian ở Python (chuẩn hoá naive->UTC) để chạy đúng cả SQLite lẫn Postgres,
-        không phụ thuộc số học datetime ở tầng DB.
+        Used when the user sends another message WITHOUT replying: instead of opening a
+        brand-new conversation, we reattach to the one they were just having, which feels
+        natural. Silent for longer than `within` -> return None to open a new conversation.
+        Compare time in Python (normalize naive->UTC) so it works on both SQLite and Postgres,
+        not depending on datetime arithmetic at the DB layer.
         """
         r = await self.session.execute(
             select(AgentMessage.conversation_id, AgentMessage.created_at)
@@ -68,7 +69,7 @@ class AgentMessageRepository:
         conversation_id, created_at = row
         if created_at is None:
             return None
-        # SQLite trả naive (UTC ngầm), Postgres trả tz-aware -> chuẩn hoá về UTC rồi so.
+        # SQLite returns naive (implicitly UTC), Postgres returns tz-aware -> normalize to UTC then compare.
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
         if now - created_at > within:
@@ -78,22 +79,22 @@ class AgentMessageRepository:
     async def recent_turns(
         self, conversation_id: uuid.UUID, *, limit: int, char_cap: int
     ) -> list[dict]:
-        """N lượt mới nhất của cuộc, trả về thứ tự thời gian TĂNG dần, cắt theo char_cap."""
+        """The N most recent turns of the conversation, returned in ASCENDING time order, capped by char_cap."""
         r = await self.session.execute(
             select(AgentMessage)
             .where(AgentMessage.conversation_id == conversation_id)
             .order_by(desc(AgentMessage.id))
             .limit(limit)
         )
-        rows = list(r.scalars().all())  # mới -> cũ
+        rows = list(r.scalars().all())  # newest -> oldest
         out: list[dict] = []
         total = 0
-        for row in rows:  # đi từ mới nhất, cộng tới khi vượt cap
+        for row in rows:  # walk from newest, accumulate until over cap
             total += len(row.content)
             if total > char_cap and out:
                 break
             out.append({"role": row.role, "content": row.content})
-        out.reverse()  # về thứ tự tăng dần
+        out.reverse()  # back to ascending order
         return out
 
     async def conversation_of(self, discord_message_id: int) -> uuid.UUID | None:
@@ -105,7 +106,7 @@ class AgentMessageRepository:
         return r.scalar_one_or_none()
 
     async def delete_older_than(self, cutoff: datetime) -> int:
-        """Xoá các lượt có created_at < cutoff (dọn rác định kỳ). Trả số dòng đã xoá."""
+        """Delete turns with created_at < cutoff (periodic cleanup). Returns the number of rows deleted."""
         res = await self.session.execute(
             delete(AgentMessage).where(AgentMessage.created_at < cutoff)
         )

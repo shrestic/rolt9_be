@@ -1,15 +1,18 @@
-"""Bảng `agent_message` — lịch sử hội thoại ngắn hạn của Claw Agent.
+"""The `agent_message` table — short-term conversation history of the Claw Agent.
 
-Mỗi row là 1 lượt (user hoặc assistant), gom theo `conversation_id`. Lượt assistant
-lưu `discord_message_id` để khi user reply vào tin bot, ta tra ngược ra cuộc hội
-thoại để nối tiếp. PK `id` là số nguyên tự tăng → thứ tự chèn xác định (KHÔNG dựa
-created_at vì trong 1 transaction Postgres mọi now() bằng nhau). Chỉ nạp N lượt gần
-nhất vào prompt; row cũ vẫn nằm lại (chưa dọn).
+Each row is one turn (user or assistant), grouped by `conversation_id`. Assistant
+turns store `discord_message_id` so that when a user replies to a bot message, we can
+trace back to the conversation to continue it. PK `id` is an autoincrement integer →
+deterministic insertion order (NOT based on created_at, because within a single
+Postgres transaction every now() is equal). Only the N most recent turns are loaded
+into the prompt; old rows remain (not cleaned up yet).
 
-`channel_id` + `user_discord_id` được gắn vào MỌI lượt của cuộc (kể cả lượt assistant,
-nó mang theo kênh/người mà bot đang trả lời). Nhờ vậy khi user nhắn tiếp mà KHÔNG reply,
-ta vẫn tra được "cuộc gần nhất của (kênh, người) trong X phút" để nối tiếp tự nhiên
-(xem `AgentMessageRepository.latest_conversation`). Cả hai nullable để tương thích row cũ.
+`channel_id` + `user_discord_id` are attached to EVERY turn of the conversation
+(including assistant turns, which carry the channel/person the bot is replying to).
+This way, when a user sends another message WITHOUT replying, we can still look up
+"the most recent conversation of (channel, person) within X minutes" to continue
+naturally (see `AgentMessageRepository.latest_conversation`). Both are nullable for
+compatibility with old rows.
 """
 
 import uuid
@@ -36,7 +39,7 @@ class AgentMessage(Base):
     __tablename__ = "agent_message"
     __table_args__ = (
         CheckConstraint("role in ('user','assistant')", name="ck_agent_message_role"),
-        # Tra "cuộc gần nhất của (kênh, người)" — lọc theo 3 cột, sắp theo id giảm dần.
+        # Look up "the most recent conversation of (channel, person)" — filter by 3 columns, order by id descending.
         Index(
             "ix_agent_message_guild_channel_user",
             "guild_id",
@@ -55,7 +58,7 @@ class AgentMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     discord_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
-    # Kênh + người của cuộc — để nối cuộc gần nhất khi user không reply (window-based).
+    # Channel + person of the conversation — to continue the most recent conversation when the user doesn't reply (window-based).
     channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     user_discord_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

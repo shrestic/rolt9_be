@@ -2,7 +2,7 @@ from app.services.ai.catalog import AI_CATALOG, is_valid
 
 
 def test_catalog_has_expected_providers():
-    # Bộ provider whitelist (gồm DeepSeek — rẻ). Mỗi cái có label + model không rỗng.
+    # Provider whitelist (including DeepSeek — cheap). Each has a label + non-empty models.
     assert {"anthropic", "openai", "gemini", "deepseek", "groq", "mistral", "xai"} <= set(
         AI_CATALOG
     )
@@ -18,6 +18,6 @@ def test_is_valid_accepts_known_pair():
 
 
 def test_is_valid_rejects_unknown():
-    assert is_valid("anthropic", "gpt-5.5") is False  # model sai provider
+    assert is_valid("anthropic", "gpt-5.5") is False  # model from the wrong provider
     assert is_valid("nope", "claude-haiku-4-5") is False
     assert is_valid("", "") is False

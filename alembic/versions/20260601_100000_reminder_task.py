@@ -1,8 +1,8 @@
-"""Reminder: thêm cột `task` cho "smart reminder" (tới giờ thì TRA web + AI trả lời thật)
+"""Reminder: add `task` column for "smart reminder" (at the due time, SEARCH the web + AI gives a real answer)
 
-Khi user hẹn kiểu "5h chiều show giá vàng", reminder không chỉ echo chữ tĩnh mà phải
-TRA CỨU sống (web_search) rồi AI trả lời lúc tới giờ. `task` = truy vấn cần tra; NULL =
-reminder thường (chỉ nhắc `message`). Nullable -> mọi row cũ vẫn hợp lệ.
+When a user schedules something like "5pm show gold price", the reminder must not just echo
+static text but do a live LOOKUP (web_search) and have the AI answer at the due time. `task` = the
+query to look up; NULL = a normal reminder (only pings `message`). Nullable -> all old rows stay valid.
 
 Revision ID: f8a9b0c1d2e3
 Revises: f4a5b6c7d8e9

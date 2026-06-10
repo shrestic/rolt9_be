@@ -31,19 +31,19 @@ class BadgeDef:
 # Order matters only for display (it's the order /badges and the catalog show).
 BADGES: list[BadgeDef] = [
     # --- Level (from level_for_xp(total_xp)) ---
-    BadgeDef("level_5", "Tân binh", "🥉", "Đạt level 5", "level", 5),
-    BadgeDef("level_10", "Kỳ cựu", "🥈", "Đạt level 10", "level", 10),
-    BadgeDef("level_25", "Lão làng", "🥇", "Đạt level 25", "level", 25),
-    BadgeDef("level_50", "Huyền thoại", "👑", "Đạt level 50", "level", 50),
+    BadgeDef("level_5", "Rookie", "🥉", "Reach level 5", "level", 5),
+    BadgeDef("level_10", "Veteran", "🥈", "Reach level 10", "level", 10),
+    BadgeDef("level_25", "Old Hand", "🥇", "Reach level 25", "level", 25),
+    BadgeDef("level_50", "Legend", "👑", "Reach level 50", "level", 50),
     # --- Streak (longest_streak) ---
-    BadgeDef("streak_7", "Chuyên cần", "🔥", "Giữ streak 7 ngày", "longest_streak", 7),
-    BadgeDef("streak_30", "Bền bỉ", "⚡", "Giữ streak 30 ngày", "longest_streak", 30),
-    BadgeDef("streak_100", "Sắt đá", "💎", "Giữ streak 100 ngày", "longest_streak", 100),
-    BadgeDef("streak_365", "Bất tử", "🏆", "Giữ streak 365 ngày", "longest_streak", 365),
+    BadgeDef("streak_7", "Diligent", "🔥", "Hold a 7-day streak", "longest_streak", 7),
+    BadgeDef("streak_30", "Persistent", "⚡", "Hold a 30-day streak", "longest_streak", 30),
+    BadgeDef("streak_100", "Iron-Willed", "💎", "Hold a 100-day streak", "longest_streak", 100),
+    BadgeDef("streak_365", "Immortal", "🏆", "Hold a 365-day streak", "longest_streak", 365),
     # --- Wealth (balance) ---
-    BadgeDef("wealth_1k", "Rủng rỉnh", "💰", "Tích lũy 1.000 coin", "balance", 1_000),
-    BadgeDef("wealth_10k", "Đại gia", "💵", "Tích lũy 10.000 coin", "balance", 10_000),
-    BadgeDef("wealth_100k", "Tài phiệt", "🤑", "Tích lũy 100.000 coin", "balance", 100_000),
+    BadgeDef("wealth_1k", "Flush", "💰", "Stockpile 1,000 coins", "balance", 1_000),
+    BadgeDef("wealth_10k", "Big Shot", "💵", "Stockpile 10,000 coins", "balance", 10_000),
+    BadgeDef("wealth_100k", "Tycoon", "🤑", "Stockpile 100,000 coins", "balance", 100_000),
 ]
 
 _BY_KEY = {b.key: b for b in BADGES}

@@ -1,9 +1,9 @@
-"""Subscription: thêm `message` (nhắc cá nhân lặp lại) + cho `topic` nullable
+"""Subscription: add `message` (repeating personal reminder) + make `topic` nullable
 
-Trước đây subscription CHỈ có chế độ 'topic + web_search' -> "mỗi ngày 5h30 hú tao đi về"
-bị model nhét vào topic='hú đi về' rồi tra web ra tin rác. Thêm `message`: nếu set, tới giờ
-chỉ PING câu đó hằng ngày (không web_search). Mỗi đăng ký là 1 trong 2: message (nhắc tĩnh)
-HOẶC topic (tra tin). `topic` chuyển nullable để row chỉ-message hợp lệ.
+Previously a subscription ONLY had the 'topic + web_search' mode -> "every day at 5:30 ping me to head home"
+got stuffed by the model into topic='ping to head home' and then web search returned junk news. Add `message`:
+if set, at the due time it just PINGS that line daily (no web_search). Each subscription is one of two: message
+(static reminder) OR topic (news lookup). `topic` becomes nullable so a message-only row is valid.
 
 Revision ID: aa11bb22cc33
 Revises: f8a9b0c1d2e3

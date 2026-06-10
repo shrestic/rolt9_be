@@ -17,7 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # guild_ai_config: thêm provider/model/api_key_enc/monthly_budget_usd.
+    # guild_ai_config: add provider/model/api_key_enc/monthly_budget_usd.
     op.add_column(
         "guild_ai_config",
         sa.Column("provider", sa.String(length=32), nullable=False, server_default=""),
@@ -36,12 +36,12 @@ def upgrade() -> None:
             server_default="5.0",
         ),
     )
-    # Đổi check constraint token -> USD (drop cũ, drop cột cũ, tạo check mới).
+    # Change check constraint token -> USD (drop old one, drop old column, create new check).
     op.drop_constraint("ck_ai_budget_nonneg", "guild_ai_config", type_="check")
     op.drop_column("guild_ai_config", "monthly_token_budget")
     op.create_check_constraint("ck_ai_budget_nonneg", "guild_ai_config", "monthly_budget_usd >= 0")
 
-    # ai_usage: thêm cost_usd + check.
+    # ai_usage: add cost_usd + check.
     op.add_column(
         "ai_usage",
         sa.Column(

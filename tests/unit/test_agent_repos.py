@@ -54,7 +54,7 @@ async def test_conversation_of(db_session):
 
 @pytest.mark.asyncio
 async def test_latest_conversation_continues_recent(db_session):
-    # Lượt gần đây của đúng (guild, kênh, user) -> trả về cuộc đó để nối tiếp.
+    # A recent turn for the exact (guild, channel, user) -> return that conversation to continue.
     gid = await _guild(db_session)
     repo = AgentMessageRepository(db_session)
     cid = uuid.uuid4()
@@ -72,7 +72,7 @@ async def test_latest_conversation_continues_recent(db_session):
 
 @pytest.mark.asyncio
 async def test_latest_conversation_none_when_stale(db_session):
-    # Lượt cuối quá cũ (ngoài window) -> không nối, trả None (mở cuộc mới).
+    # Last turn too old (outside the window) -> don't continue, return None (open a new conversation).
     gid = await _guild(db_session)
     repo = AgentMessageRepository(db_session)
     cid = uuid.uuid4()
@@ -101,7 +101,7 @@ async def test_latest_conversation_none_when_stale(db_session):
 
 @pytest.mark.asyncio
 async def test_latest_conversation_scoped_by_channel_and_user(db_session):
-    # Cùng guild nhưng khác kênh / khác người -> không được nối nhầm cuộc.
+    # Same guild but different channel / different person -> must not wrongly continue a conversation.
     gid = await _guild(db_session)
     repo = AgentMessageRepository(db_session)
     cid = uuid.uuid4()

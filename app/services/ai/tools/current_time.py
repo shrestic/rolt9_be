@@ -1,4 +1,4 @@
-"""Tool current_time — giờ/ngày UTC."""
+"""Tool current_time — current UTC time/date."""
 
 from datetime import UTC, datetime
 

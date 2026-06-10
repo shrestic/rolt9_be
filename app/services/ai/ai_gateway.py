@@ -1,9 +1,9 @@
-"""AIGateway — cửa duy nhất mọi feature AI gọi qua.
+"""AIGateway — the single door every AI feature calls through.
 
-Kiểm soát chi phí TRƯỚC khi tiêu tiền: guild phải bật AI, phải có API key +
-provider + model (BYO-key, KHÔNG fallback key global), và chi phí USD tháng UTC
-hiện tại phải dưới budget. Sau đó giải mã key, gọi provider, rồi ghi token + cost.
-Repo flush; session-scope của caller commit.
+Controls cost BEFORE spending money: the guild must have AI enabled, must have an API key +
+provider + model (BYO-key, NO global key fallback), and the USD cost for the current UTC month
+must be under budget. After that it decrypts the key, calls the provider, then records tokens + cost.
+The repo flushes; the caller's session-scope commits.
 """
 
 from datetime import UTC, datetime
@@ -17,7 +17,7 @@ from app.services.ai.provider import AIProvider
 
 
 def month_key(now: datetime) -> str:
-    """Khóa năm-tháng UTC, vd '2026-05' — chu kỳ reset budget."""
+    """UTC year-month key, e.g. '2026-05' — the budget reset cycle."""
     return now.strftime("%Y-%m")
 
 
@@ -47,18 +47,22 @@ class AIGateway:
     ) -> str:
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("Server isn't registered with the bot yet.")
         cfg = await self.config_repo.get(guild.id)
         if cfg is None or not cfg.enabled:
-            raise ValueError("AI chưa được bật trên server này.")
-        # BYO-key: thiếu key/provider/model => AI coi như chưa cấu hình (no global fallback).
+            raise ValueError("AI isn't enabled on this server yet.")
+        # BYO-key: missing key/provider/model => AI counts as unconfigured (no global fallback).
         if cfg.api_key_enc is None or not cfg.provider or not cfg.model:
-            raise ValueError("AI chưa được cấu hình — vào dashboard nhập API key và chọn model.")
-        # Hàng rào chi phí theo USD.
+            raise ValueError(
+                "AI isn't configured yet — head to the dashboard, enter an API key and pick a model."
+            )
+        # USD cost guardrail.
         pk = month_key(now or datetime.now(UTC))
         spent = await self.usage_repo.cost_this_period(guild.id, pk)
         if spent >= cfg.monthly_budget_usd:
-            raise ValueError("Hết ngân sách AI tháng này rồi — tăng budget hoặc đợi tháng sau.")
+            raise ValueError(
+                "Out of AI budget for this month — bump the budget or wait til next month."
+            )
         api_key = decrypt_str(cfg.api_key_enc)
         result = await self.provider.complete(
             provider=cfg.provider,
@@ -76,7 +80,7 @@ class AIGateway:
             cost_usd=result.cost_usd,
         )
         if not result.text:
-            raise ValueError("Model trả về nội dung rỗng.")
+            raise ValueError("Model returned empty content.")
         return result.text
 
     async def complete_raw(
@@ -88,21 +92,25 @@ class AIGateway:
         max_tokens: int | None = None,
         now: datetime | None = None,
     ):
-        """Một bước của vòng tool-calling: cùng guard (enabled/key/budget) + ghi usage,
-        nhưng nhận `messages` (gồm cả tool results) + `tools`, trả AICompletion thô
-        (text hoặc tool_calls). Loop sống ở ToolRunner."""
+        """One step of the tool-calling loop: same guard (enabled/key/budget) + usage logging,
+        but takes `messages` (including tool results) + `tools`, returns the raw AICompletion
+        (text or tool_calls). The loop itself lives in ToolRunner."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("Server isn't registered with the bot yet.")
         cfg = await self.config_repo.get(guild.id)
         if cfg is None or not cfg.enabled:
-            raise ValueError("AI chưa được bật trên server này.")
+            raise ValueError("AI isn't enabled on this server yet.")
         if cfg.api_key_enc is None or not cfg.provider or not cfg.model:
-            raise ValueError("AI chưa được cấu hình — vào dashboard nhập API key và chọn model.")
+            raise ValueError(
+                "AI isn't configured yet — head to the dashboard, enter an API key and pick a model."
+            )
         pk = month_key(now or datetime.now(UTC))
         spent = await self.usage_repo.cost_this_period(guild.id, pk)
         if spent >= cfg.monthly_budget_usd:
-            raise ValueError("Hết ngân sách AI tháng này rồi — tăng budget hoặc đợi tháng sau.")
+            raise ValueError(
+                "Out of AI budget for this month — bump the budget or wait til next month."
+            )
         api_key = decrypt_str(cfg.api_key_enc)
         result = await self.provider.complete(
             provider=cfg.provider,
@@ -113,8 +121,8 @@ class AIGateway:
             messages=messages,
             tools=tools,
             max_tokens=max_tokens or settings.AI_MAX_TOKENS,
-            # Vòng tool-calling: reasoning model cạn token -> trả text="" để ToolRunner degrade êm
-            # ("thử lại nhé"), KHÔNG ném lỗi kỹ thuật ra người dùng.
+            # Tool-calling loop: if a reasoning model runs out of tokens -> return text="" so ToolRunner
+            # degrades gracefully ("give it another go"), instead of throwing a technical error at the user.
             allow_empty=True,
         )
         await self.usage_repo.add_usage(

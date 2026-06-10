@@ -52,18 +52,18 @@ class KarmaService:
     ) -> GiveResult:
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("This server isn't registered with the bot.")
         cfg = await self.config_repo.get(guild.id)
         if cfg is None or not cfg.enabled:
-            raise ValueError("Karma chưa được bật trên server này.")
+            raise ValueError("Karma isn't enabled on this server.")
         if giver_id == receiver_id:
-            raise ValueError("Bạn không thể tự khen mình.")
+            raise ValueError("You can't give karma to yourself.")
         now = _as_utc(now or datetime.now(UTC))
         granted = await self.grant_repo.try_grant(
             guild.id, giver_id, receiver_id, now=now, cutoff=now - GRANT_COOLDOWN
         )
         if not granted:
-            raise ValueError("Bạn đã khen người này hôm nay rồi — thử lại sau nhé.")
+            raise ValueError("You already gave this person karma today — try again later.")
         points = await self.karma_repo.add_point(guild.id, receiver_id)
         rank = await self.karma_repo.rank_of(guild.id, receiver_id)
         return GiveResult(receiver_points=points, receiver_rank=rank or 1)

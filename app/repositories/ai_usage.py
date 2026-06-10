@@ -1,8 +1,8 @@
-"""Data access cho `ai_usage` — đếm token + chi phí USD per-guild theo tháng.
+"""Data access for `ai_usage` — count tokens + USD cost per-guild per month.
 
-`add_usage` dùng increment atomic kiểu ví (`tokens = tokens + n`, `cost_usd =
-cost_usd + c` trong SQL) để các call AI song song không mất số liệu. Chỉ flush;
-commit ở boundary.
+`add_usage` uses a wallet-style atomic increment (`tokens = tokens + n`, `cost_usd =
+cost_usd + c` in SQL) so concurrent AI calls don't lose figures. Flush only;
+commit at boundary.
 """
 
 import uuid
@@ -19,7 +19,7 @@ class AIUsageRepository:
         self.session = session
 
     async def tokens_this_period(self, guild_id: uuid.UUID, period_key: str) -> int:
-        """Token đã dùng trong `period_key` (0 nếu chưa có row)."""
+        """Tokens used in `period_key` (0 if no row yet)."""
         r = await self.session.execute(
             select(AIUsage.tokens).where(
                 AIUsage.guild_id == guild_id, AIUsage.period_key == period_key
@@ -29,7 +29,7 @@ class AIUsageRepository:
         return int(row) if row is not None else 0
 
     async def cost_this_period(self, guild_id: uuid.UUID, period_key: str) -> Decimal:
-        """Chi phí USD đã dùng trong `period_key` (Decimal('0') nếu chưa có row)."""
+        """USD cost used in `period_key` (Decimal('0') if no row yet)."""
         r = await self.session.execute(
             select(AIUsage.cost_usd).where(
                 AIUsage.guild_id == guild_id, AIUsage.period_key == period_key
@@ -53,7 +53,7 @@ class AIUsageRepository:
     async def add_usage(
         self, guild_id: uuid.UUID, period_key: str, *, tokens: int, cost_usd: float
     ) -> None:
-        """Cộng dồn token + chi phí USD vào usage của tháng (increment atomic)."""
+        """Accumulate tokens + USD cost into the month's usage (atomic increment)."""
         await self._get_or_create(guild_id, period_key)
         stmt = (
             update(AIUsage)

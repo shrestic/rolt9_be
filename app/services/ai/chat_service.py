@@ -10,8 +10,7 @@ from app.repositories.guild import GuildRepository
 from app.services.ai.ai_gateway import AIGateway
 
 DEFAULT_PERSONA = (
-    "Bạn là một bot Discord thân thiện, vui vẻ và hữu ích. Trả lời ngắn gọn, "
-    "tự nhiên bằng tiếng Việt."
+    "You are a friendly, fun, and helpful Discord bot. Answer briefly and " "naturally in English."
 )
 
 
@@ -26,11 +25,11 @@ class ChatService:
     async def chat(self, *, guild_discord_id: int, message: str) -> str:
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("This server hasn't registered with the bot yet.")
         cfg = await self.config_repo.get(guild.id)
         persona = (cfg.persona if cfg and cfg.persona else "") or DEFAULT_PERSONA
-        # Để gateway dùng settings.AI_MAX_TOKENS (đủ rộng cho model reasoning);
-        # hardcode 400 trước đây làm model thinking như DeepSeek trả về rỗng.
+        # Let the gateway use settings.AI_MAX_TOKENS (wide enough for reasoning models);
+        # the old hardcoded 400 made thinking models like DeepSeek return empty.
         return await self.gateway.complete(
             guild_discord_id=guild_discord_id,
             system=persona,

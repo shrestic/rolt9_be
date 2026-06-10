@@ -1,7 +1,7 @@
-"""Data access cho bảng `reminder` (nhắc hẹn).
+"""Data access for the `reminder` table (reminders).
 
-`due` lấy các lời nhắc tới giờ & chưa bắn (scheduler gọi mỗi phút). `create` ghi lời nhắc
-mới (remind_at đã là UTC). Commit ở boundary (session_scope) — repo chỉ flush.
+`due` fetches reminders that are due & not yet fired (scheduler calls every minute). `create` writes a
+new reminder (remind_at is already UTC). Commit at boundary (session_scope) — the repo only flushes.
 """
 
 import uuid
@@ -42,7 +42,7 @@ class ReminderRepository:
         return row
 
     async def due(self, now: datetime, limit: int = 50) -> list[Reminder]:
-        """Các lời nhắc đã tới giờ (remind_at <= now) và chưa bắn — cũ nhất trước."""
+        """Reminders that are due (remind_at <= now) and not yet fired — oldest first."""
         res = await self.session.execute(
             select(Reminder)
             .where(Reminder.fired.is_(False), Reminder.remind_at <= now)
@@ -58,7 +58,7 @@ class ReminderRepository:
         await self.session.flush()
 
     async def pending_for_guild(self, guild_id: uuid.UUID) -> list[Reminder]:
-        """Các lời nhắc còn chờ của 1 server (để hiện danh sách / huỷ)."""
+        """Pending reminders of a server (to list / cancel)."""
         res = await self.session.execute(
             select(Reminder)
             .where(Reminder.guild_id == guild_id, Reminder.fired.is_(False))
@@ -67,7 +67,7 @@ class ReminderRepository:
         return list(res.scalars().all())
 
     async def cancel(self, reminder_id: int, guild_id: uuid.UUID) -> bool:
-        """Huỷ 1 lời nhắc còn chờ của server. Trả True nếu huỷ được."""
+        """Cancel a pending reminder of the server. Returns True if it was cancelled."""
         row = await self.session.get(Reminder, reminder_id)
         if row is not None and row.guild_id == guild_id and not row.fired:
             await self.session.delete(row)
@@ -83,7 +83,7 @@ class ReminderRepository:
         remind_at: datetime | None = None,
         message: str | None = None,
     ) -> Reminder | None:
-        """Sửa giờ và/hoặc nội dung 1 lời nhắc còn chờ. Chỉ đổi field được truyền. Trả row đã sửa."""
+        """Edit the time and/or content of a pending reminder. Only changes the fields passed. Returns the edited row."""
         row = await self.session.get(Reminder, reminder_id)
         if row is None or row.guild_id != guild_id or row.fired:
             return None

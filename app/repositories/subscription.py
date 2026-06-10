@@ -1,4 +1,4 @@
-"""Data access cho `subscription` (đăng ký nhận tin định kỳ). Flush; commit ở boundary."""
+"""Data access for `subscription` (subscription to recurring messages). Flush; commit at boundary."""
 
 import datetime
 import uuid
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.subscription import Subscription
 
-_UNSET = object()  # phân biệt 'không sửa' với 'sửa thành None' (vd reset last_run_on)
+_UNSET = object()  # distinguish 'don't change' from 'change to None' (e.g. reset last_run_on)
 
 
 class SubscriptionRepository:
@@ -42,12 +42,12 @@ class SubscriptionRepository:
         return row
 
     async def active_all(self) -> list[Subscription]:
-        """Mọi đăng ký đang bật (mọi guild) — scheduler lọc 'tới giờ' trong Python."""
+        """All active subscriptions (every guild) — the scheduler filters 'due now' in Python."""
         res = await self.session.execute(select(Subscription).where(Subscription.active.is_(True)))
         return list(res.scalars().all())
 
     async def active_for_creator(self, guild_id: uuid.UUID, creator_id: int) -> list[Subscription]:
-        """Đăng ký đang bật CỦA một người trong 1 guild (để liệt kê / huỷ)."""
+        """Active subscriptions OF one person in a guild (to list / cancel)."""
         res = await self.session.execute(
             select(Subscription)
             .where(
@@ -66,7 +66,7 @@ class SubscriptionRepository:
         await self.session.flush()
 
     async def cancel(self, sub_id: int, guild_id: uuid.UUID) -> bool:
-        """Huỷ (xoá) 1 đăng ký của guild. Trả True nếu xoá được."""
+        """Cancel (delete) a subscription of the guild. Returns True if it was deleted."""
         row = await self.session.get(Subscription, sub_id)
         if row is not None and row.guild_id == guild_id:
             await self.session.delete(row)
@@ -85,8 +85,8 @@ class SubscriptionRepository:
         message: str | None = None,
         last_run_on=_UNSET,
     ) -> Subscription | None:
-        """Sửa giờ và/hoặc nội dung (topic kiểu tin / message kiểu nhắc) 1 đăng ký. Chỉ đổi field
-        được truyền. `last_run_on` dùng sentinel nên truyền None là RESET (lịch mới hiệu lực). Trả row."""
+        """Edit the time and/or content (topic for news-style / message for reminder-style) of a subscription. Only changes the
+        fields passed. `last_run_on` uses a sentinel, so passing None is a RESET (new schedule takes effect). Returns the row."""
         row = await self.session.get(Subscription, sub_id)
         if row is None or row.guild_id != guild_id:
             return None

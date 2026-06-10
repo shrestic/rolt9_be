@@ -41,7 +41,7 @@ async def _svc(db_session, *, enabled=True):
         guild_repo=GuildRepository(db_session),
         config_repo=AIConfigRepository(db_session),
         usage_repo=AIUsageRepository(db_session),
-        provider=FakeAIProvider(text="- điểm 1\n- điểm 2"),
+        provider=FakeAIProvider(text="- point 1\n- point 2"),
     )
     return SummarizerService(gateway=gw)
 
@@ -49,8 +49,8 @@ async def _svc(db_session, *, enabled=True):
 @pytest.mark.asyncio
 async def test_summarize_returns_text(db_session):
     svc = await _svc(db_session)
-    out = await svc.summarize(guild_discord_id=GID, transcript="An: hi\nBình: yo")
-    assert "điểm 1" in out
+    out = await svc.summarize(guild_discord_id=GID, transcript="An: hi\nBinh: yo")
+    assert "point 1" in out
 
 
 @pytest.mark.asyncio
@@ -85,15 +85,15 @@ async def test_collect_transcript_skips_bots_and_empty_and_orders_old_to_new():
     channel = SimpleNamespace(
         history=_FakeHistory(
             [
-                _msg("Bình", "tin mới"),
+                _msg("Binh", "newer message"),
                 _msg("Bot", "spam", bot=True),
                 _msg("An", "   "),  # empty
-                _msg("An", "tin cũ"),
+                _msg("An", "older message"),
             ]
         )
     )
     transcript = await _collect_transcript(channel, 10)
-    assert transcript == "An: tin cũ\nBình: tin mới"
+    assert transcript == "An: older message\nBinh: newer message"
 
 
 # ---------- cog ----------
@@ -126,13 +126,13 @@ def _interaction():
 @pytest.mark.asyncio
 async def test_summarize_command_replies(monkeypatch):
     stub = MagicMock()
-    stub.summarize = AsyncMock(return_value="- tóm tắt")
+    stub.summarize = AsyncMock(return_value="- summary")
     _patch(monkeypatch, stub)
     cog = SummarizerCog(MagicMock(), MagicMock())
     inter = _interaction()
     await cog.summarize.callback(cog, inter, 30)
     msg = inter.followup.send.call_args.args[0]
-    assert "tóm tắt" in msg
+    assert "summary" in msg
 
 
 @pytest.mark.asyncio
@@ -145,5 +145,5 @@ async def test_summarize_empty_channel(monkeypatch):
     inter.channel = SimpleNamespace(history=_FakeHistory([]))
     await cog.summarize.callback(cog, inter, 30)
     msg = inter.followup.send.call_args.args[0]
-    assert "Không có tin" in msg
+    assert "No messages" in msg
     stub.summarize.assert_not_awaited()

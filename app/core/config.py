@@ -28,18 +28,18 @@ class Settings(BaseSettings):
     DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/discord/callback"
     BOT_INVITE_URL: str = Field(default="")
 
-    # AI — BYO-key per-guild (xem ai_gateway). ANTHROPIC_API_KEY deprecated (không
-    # còn fallback). AI_MAX_TOKENS phải đủ rộng cho model reasoning (DeepSeek,
-    # o-series…) vì chúng tiêu token cho phần suy luận trước khi trả lời.
+    # AI — BYO-key per-guild (see ai_gateway). ANTHROPIC_API_KEY deprecated (no
+    # more fallback). AI_MAX_TOKENS must be wide enough for reasoning models (DeepSeek,
+    # o-series…) since they spend tokens on reasoning before answering.
     ANTHROPIC_API_KEY: str = Field(default="")
     AI_MODEL: str = "claude-haiku-4-5-20251001"
-    # 200k: trần OUTPUT rộng để reasoning model (deepseek v4 pro/flash) KHÔNG đốt sạch token
-    # vào phần suy luận rồi trả rỗng ("Model dùng hết token cho phần suy luận"). max_tokens chỉ
-    # là TRẦN — model xong là dừng, đặt cao không tốn thêm tiền nếu nó trả lời ngắn.
+    # 200k: a wide OUTPUT ceiling so reasoning models (deepseek v4 pro/flash) do NOT burn all the tokens
+    # on reasoning and return empty ("Model used up all tokens on reasoning"). max_tokens is just
+    # a CEILING — the model stops when done, setting it high costs nothing extra if it answers briefly.
     AI_MAX_TOKENS: int = 200000
-    # Claw Agent tools: web search qua Tavily (key global, bot trả). Rỗng = tắt web_search.
+    # Claw Agent tools: web search via Tavily (global key, bot pays). Empty = disable web_search.
     TAVILY_API_KEY: str = Field(default="")
-    # WC Predict — football-data.org free tier (có competition World Cup). Rỗng = tắt sync.
+    # WC Predict — football-data.org free tier (has the World Cup competition). Empty = disable sync.
     FOOTBALL_DATA_API_KEY: str = Field(default="")
 
     # Tokens

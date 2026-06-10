@@ -43,21 +43,23 @@ class KarmaCog(commands.Cog):
 
     # Group all karma subcommands under `/karma` — guild_only so user IDs
     # are always scoped to a server (DMs have no guild_id).
-    karma = app_commands.Group(name="karma", description="Điểm uy tín cộng đồng", guild_only=True)
+    karma = app_commands.Group(
+        name="karma", description="Community reputation points", guild_only=True
+    )
 
-    @karma.command(name="give", description="Trao 1 karma cho thành viên.")
+    @karma.command(name="give", description="Give 1 karma to a member.")
     async def karma_give(self, interaction: discord.Interaction, member: discord.Member) -> None:
         # Defer first so the interaction doesn't time out while we hit the DB.
         await interaction.response.defer()
 
         # Cog-level guard: bots can't hold karma (they don't have intent).
         if member.bot:
-            await interaction.followup.send("❌ Không thể trao karma cho bot.", ephemeral=True)
+            await interaction.followup.send("❌ Can't give karma to a bot.", ephemeral=True)
             return
 
         # Cog-level guard: self-voting is meaningless and gamed easily.
         if member.id == interaction.user.id:
-            await interaction.followup.send("❌ Bạn không thể tự khen mình.", ephemeral=True)
+            await interaction.followup.send("❌ You can't hype yourself up.", ephemeral=True)
             return
 
         try:
@@ -69,15 +71,15 @@ class KarmaCog(commands.Cog):
                 )
             # Show receiver's new total and rank so the kudos feel meaningful.
             await interaction.followup.send(
-                f"⭐ +1 karma cho {member.mention}! Họ có **{res.receiver_points}** karma "
-                f"(hạng #{res.receiver_rank})."
+                f"⭐ +1 karma to {member.mention}! They now have **{res.receiver_points}** karma "
+                f"(rank #{res.receiver_rank})."
             )
         except ValueError as exc:
             # Service raises ValueError for: karma disabled, cooldown not expired.
             # Ephemeral so the error is private — no need to clutter the channel.
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)
 
-    @karma.command(name="view", description="Xem karma của bạn hoặc người khác.")
+    @karma.command(name="view", description="View your karma or someone else's.")
     async def karma_view(
         self, interaction: discord.Interaction, member: discord.Member | None = None
     ) -> None:
@@ -91,12 +93,12 @@ class KarmaCog(commands.Cog):
             )
 
         # Rank is None when the user has never received karma (no row yet).
-        rank = f" (hạng #{standing.rank})" if standing.rank else ""
+        rank = f" (rank #{standing.rank})" if standing.rank else ""
         await interaction.followup.send(
-            f"⭐ {target.mention} có **{standing.points}** karma{rank}."
+            f"⭐ {target.mention} has **{standing.points}** karma{rank}."
         )
 
-    @karma.command(name="top", description="Bảng xếp hạng karma.")
+    @karma.command(name="top", description="Karma leaderboard.")
     async def karma_top(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
@@ -106,7 +108,7 @@ class KarmaCog(commands.Cog):
             )
 
         if not rows:
-            await interaction.followup.send("Chưa ai có karma.")
+            await interaction.followup.send("Nobody has any karma yet.")
             return
 
         # Format each row as "#{rank} @mention — N ⭐" for easy scanning.

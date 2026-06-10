@@ -1,4 +1,4 @@
-"""Data access cho wc_prediction. upsert theo (guild,match,user,bet_type) — sửa kèo = update."""
+"""Data access for wc_prediction. upsert by (guild,match,user,bet_type) — editing a bet = update."""
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,7 @@ class WCPredictionRepository:
             )
         else:
             row.pick = pick
-            row.points = None  # đổi kèo -> chấm lại sau
+            row.points = None  # bet changed -> rescore later
         await self.session.flush()
 
     async def for_match(self, match_id: int) -> list[WCPrediction]:
@@ -58,7 +58,7 @@ class WCPredictionRepository:
         await self.session.flush()
 
     async def leaderboard(self, guild_id) -> list[tuple[int, int]]:
-        """[(user_discord_id, tổng điểm)] giảm dần — cho BXH (Phase 3)."""
+        """[(user_discord_id, total points)] descending — for the leaderboard (Phase 3)."""
         from sqlalchemy import func
 
         res = await self.session.execute(

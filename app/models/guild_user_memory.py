@@ -1,8 +1,8 @@
-"""Bảng `guild_user_memory` — trí nhớ dài hạn per-user-per-guild của Claw Agent.
+"""The `guild_user_memory` table — per-user-per-guild long-term SERVER MEMORY of the Claw Agent.
 
-Một row mỗi (guild, user). `facts` là danh sách dòng (mỗi dòng 1 fact), do bot tự
-rút sau mỗi lượt (auto-extract) và cap lại. Riêng tư: chỉ phạm vi guild; user tự
-xoá bằng /claw-forget.
+One row per (guild, user). `facts` is a list of lines (one fact per line), which the bot
+extracts itself after each turn (auto-extract) and caps. Private: scoped to the guild only;
+users delete their own with /claw-forget.
 """
 
 import uuid

@@ -1,6 +1,6 @@
-"""Chấm điểm dự đoán WC — PURE, không I/O. Điểm theo độ khó kèo (spec)."""
+"""Scoring for WC predictions — PURE, no I/O. Points scale with bet difficulty (spec)."""
 
-# Điểm khi đoán ĐÚNG, theo độ khó (sai = 0, không âm).
+# Points awarded for a CORRECT pick, by difficulty (wrong = 0, never negative).
 POINTS = {"1x2": 1, "ou": 1, "ah": 2, "cs": 5}
 
 
@@ -22,7 +22,7 @@ def score(
     handicap_team: str | None = None,
     handicap_line: float | None = None,
 ) -> int:
-    """Trả điểm cho 1 dự đoán dựa trên kết quả thật. Đúng -> POINTS[bet_type]; sai/push -> 0."""
+    """Return the points for one prediction given the real result. Correct -> POINTS[bet_type]; wrong/push -> 0."""
     pts = POINTS.get(bet_type, 0)
     if not pts:
         return 0

@@ -32,9 +32,9 @@ def test_get_ai_provider_returns_litellm():
 
 @pytest.mark.asyncio
 async def test_litellm_provider_maps_response(monkeypatch):
-    """LiteLLMProvider ghép 'provider/model', truyền key, map usage -> AICompletion.
+    """LiteLLMProvider joins 'provider/model', passes the key, maps usage -> AICompletion.
 
-    Mock litellm để không gọi mạng — verify mapping + an toàn khi completion_cost lỗi.
+    Mock litellm to avoid network calls — verify mapping + safety when completion_cost fails.
     """
     import sys
     import types
@@ -76,7 +76,7 @@ async def test_litellm_provider_maps_response(monkeypatch):
     assert captured["model"] == "openai/gpt-4o-mini"
     assert captured["api_key"] == "sk-x"
     assert captured["max_tokens"] == 100
-    assert out.text == "hi there"  # đã strip
+    assert out.text == "hi there"  # stripped
     assert out.input_tokens == 11
     assert out.output_tokens == 22
     assert out.cost_usd == 0.0123
@@ -84,14 +84,14 @@ async def test_litellm_provider_maps_response(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_litellm_reasoning_empty_raises_single_shot_but_degrades_in_tool_loop(monkeypatch):
-    # Reasoning model cạn token -> content rỗng + có reasoning_content. Single-shot: ném lỗi rõ.
-    # Vòng tool (allow_empty=True): KHÔNG ném, trả text="" để runner tự degrade êm.
+    # Reasoning model runs out of tokens -> empty content + has reasoning_content. Single-shot: raise a clear error.
+    # Tool loop (allow_empty=True): does NOT raise, returns text="" so the runner degrades gracefully.
     import sys
     import types
 
     class _Msg:
         content = ""
-        reasoning_content = "nghĩ rất nhiều mà chưa ra..."
+        reasoning_content = "thinking really hard but no answer yet..."
         tool_calls = None
 
     class _Choice:
@@ -113,7 +113,7 @@ async def test_litellm_reasoning_empty_raises_single_shot_but_degrades_in_tool_l
         "litellm",
         types.SimpleNamespace(acompletion=_acompletion, completion_cost=lambda r: 0.0),
     )
-    with pytest.raises(ValueError, match="suy luận"):  # single-shot -> lỗi actionable
+    with pytest.raises(ValueError, match="reasoning"):  # single-shot -> actionable error
         await LiteLLMProvider().complete(
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -122,7 +122,7 @@ async def test_litellm_reasoning_empty_raises_single_shot_but_degrades_in_tool_l
             prompt="p",
             max_tokens=100,
         )
-    out = await LiteLLMProvider().complete(  # vòng tool -> degrade êm
+    out = await LiteLLMProvider().complete(  # tool loop -> degrades gracefully
         provider="deepseek",
         model="deepseek-v4-pro",
         api_key="k",
@@ -173,7 +173,7 @@ async def test_litellm_provider_cost_failure_falls_back_to_zero(monkeypatch):
         prompt="p",
         max_tokens=10,
     )
-    assert out.cost_usd == 0.0  # lỗi cost -> 0, không crash
+    assert out.cost_usd == 0.0  # cost error -> 0, no crash
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_fake_provider_scripted_tool_calls():
     p = FakeAIProvider(
         turns=[
             {"tool_calls": [{"id": "c1", "name": "web_search", "arguments": '{"query":"x"}'}]},
-            {"text": "kết quả cuối"},
+            {"text": "final result"},
         ]
     )
     first = await p.complete(
@@ -250,7 +250,7 @@ async def test_fake_provider_scripted_tool_calls():
         messages=[],
         tools=None,
     )
-    assert second.text == "kết quả cuối"
+    assert second.text == "final result"
     assert second.tool_calls is None
 
 

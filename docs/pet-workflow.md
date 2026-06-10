@@ -1,75 +1,74 @@
-# Server Pet — Hướng dẫn & Workflow
+# Server Pet — Guide & Workflow
 
-Mỗi server nuôi **một con pet chung** (Tamagotchi tập thể). Cả cộng đồng cùng cho ăn / chơi để giữ pet no & vui và nuôi nó lớn lên.
-
----
-
-## 1. Tính năng làm gì
-
-- **1 pet/server**, ai cũng góp tay nuôi.
-- 2 chỉ số **No (hunger)** + **Vui (happiness)**, mỗi cái 0–100, **tự tụt theo thời gian**.
-- **Cho ăn** (tốn coin) → +No. **Chơi** (miễn phí, cooldown 1h/người) → +Vui.
-- Mỗi lần chăm → pet +XP → **lên level → tiến hóa** (🥚 Trứng → 🐣 Non → 🐤 Nhỡ → 🦅 Trưởng thành).
-- Bỏ bê → thanh tụt về 0, pet hiện mặt buồn 😿 nhưng **không chết** — chăm lại là hồi.
-- **Thuần cảm xúc/khoe** — pet không cho buff; niềm vui là cùng nuôi lớn.
-
-> **Phụ thuộc:** Currency bật (cho ăn tốn coin). Chơi vẫn được khi currency tắt.
+Each server raises **one shared pet** (a collective Tamagotchi). The whole community feeds/plays together to keep the pet full & happy and grow it up.
 
 ---
 
-## 2. Cho admin — Dashboard → server → Pet
+## 1. What this feature does
 
-| Trường | Ý nghĩa | Mặc định |
+- **1 pet/server**, everyone pitches in to raise it.
+- 2 stats — **Hunger** + **Happiness**, each 0–100, **decaying over time**.
+- **Feed** (costs coins) → +Hunger. **Play** (free, 1h cooldown/person) → +Happiness.
+- Each care action → pet +XP → **levels up → evolves** (🥚 Egg → 🐣 Hatchling → 🐤 Juvenile → 🦅 Adult).
+- Neglect → bars drop to 0, the pet shows a sad face 😿 but **doesn't die** — caring again revives it.
+- **Pure emotion/show-off** — the pet grants no buffs; the joy is raising it together.
+
+> **Dependency:** Currency enabled (feeding costs coins). Play still works when currency is off.
+
+---
+
+## 2. For admins — Dashboard → server → Pet
+
+| Field | Meaning | Default |
 |---|---|---|
-| **Enabled** | Bật/tắt pet | off |
-| **Name** | Tên pet (1–32 ký tự) | "Pet" |
-| **Feed cost** | Coin mỗi lần cho ăn | 10 |
-| **Feed amount** | +No mỗi lần ăn (1–100) | 30 |
-| **Play amount** | +Vui mỗi lần chơi (1–100) | 30 |
-| **Decay per day** | Mỗi thanh tụt /ngày (0–100) | 20 |
+| **Enabled** | Turn the pet on/off | off |
+| **Name** | Pet name (1–32 chars) | "Pet" |
+| **Feed cost** | Coins per feed | 10 |
+| **Feed amount** | +Hunger per feed (1–100) | 30 |
+| **Play amount** | +Happiness per play (1–100) | 30 |
+| **Decay per day** | How much each bar drops /day (0–100) | 20 |
 
-Decay 20/ngày nghĩa là thanh đầy (100) sẽ về 0 sau ~5 ngày không ai chăm.
+Decay 20/day means a full bar (100) reaches 0 after ~5 days with no one caring for it.
 
 ---
 
-## 3. Cho member — lệnh Discord
+## 3. For members — Discord commands
 
-| Lệnh | Việc |
+| Command | What it does |
 |---|---|
-| `/pet status` | Xem pet: emoji giai đoạn + tâm trạng, 2 thanh No/Vui, level |
-| `/pet feed` | Cho ăn (tốn coin) → +No. Thiếu coin → ❌ |
-| `/pet play` | Chơi (miễn phí, đợi 1h giữa các lần) → +Vui |
+| `/pet status` | View the pet: stage emoji + mood, the 2 Hunger/Happiness bars, level |
+| `/pet feed` | Feed (costs coins) → +Hunger. Insufficient coins → ❌ |
+| `/pet play` | Play (free, wait 1h between plays) → +Happiness |
 
-Lên level / tiến hóa sẽ được báo ngay trong reply feed/play: "🎉 lên Lv X" / "✨ tiến hóa thành …".
+Level-ups / evolutions are reported right in the feed/play reply: "🎉 reached Lv X" / "✨ evolved into …".
 
 ---
 
-## 4. Cơ chế bên trong (cho dev)
+## 4. Internals (for devs)
 
 ```
 /pet feed → PetCog → PetService.feed
-  ├─ settle decay (theo giờ từ last_decay_at, sàn 0)
-  ├─ WalletRepository.add_balance(-feed_cost)   ← thiếu tiền → ValueError, KHÔNG đổi thanh
+  ├─ settle decay (by hours since last_decay_at, floor 0)
+  ├─ WalletRepository.add_balance(-feed_cost)   ← insufficient → ValueError, bars UNCHANGED
   ├─ hunger = min(100, hunger + feed_amount); xp += 5
   └─ save_state(..., last_decay_at=now)
 
-/pet play → cooldown 1h (PetCooldownRepository.try_play, atomic) → settle → +Vui → save
+/pet play → 1h cooldown (PetCooldownRepository.try_play, atomic) → settle → +Happiness → save
 
-/pet status / REST GET status → settle (TÍNH, không ghi) → trả về
+/pet status / REST GET status → settle (COMPUTE, no write) → return
 ```
 
-- **Decay lazy**: tính lúc đọc/tương tác, **không có job nền**. `last_decay_at` chỉ advance khi feed/play; read luôn tính tương đối từ nó → hiển thị luôn đúng, GET không ghi (không side-effect).
-- **Atomic**: `try_play` là guarded UPDATE (cooldown trong WHERE) → không lách được cooldown; feed trừ coin qua guarded `add_balance` → không âm.
-- **An toàn**: trừ coin TRƯỚC khi cộng No → charge fail thì thanh không tăng. Cả hai trong cùng transaction (`session_scope`) → rollback chung.
-- **Decoupled**: PetService đọc qua repos, trừ coin qua `WalletRepository` trực tiếp (không gọi CurrencyService).
-- **Level/stage thuần**: `pet_logic.pet_level(xp)` (50 XP/level), `stage_for(level)` (mốc 1/5/15/30), `mood_for` (avg 70/40/10).
-- **Bảng**: `guild_pet` (state+config, 1 row/guild), `user_pet_cooldown` (cooldown chơi per-user).
+- **Lazy decay**: computed on read/interaction, **no background job**. `last_decay_at` only advances on feed/play; a read always computes relative to it → the display is always correct, and GET doesn't write (no side-effect).
+- **Atomic**: `try_play` is a guarded UPDATE (cooldown in the WHERE) → the cooldown can't be bypassed; feed deducts coins via the guarded `add_balance` → never negative.
+- **Safe**: deduct coins BEFORE adding Hunger → if the charge fails the bar doesn't increase. Both run in the same transaction (`session_scope`) → rolled back together.
+- **Pure level/stage**: `pet_logic.pet_level(xp)` (50 XP/level), `stage_for(level)` (thresholds 1/5/15/30), `mood_for` (avg 70/40/10).
+- **Tables**: `guild_pet` (state+config, 1 row/guild), `user_pet_cooldown` (per-user play cooldown).
 
-REST: GET/PUT `/guilds/{id}/pet/settings`, GET `/guilds/{id}/pet/status` (gate `require_managed_guild`).
+REST: GET/PUT `/guilds/{id}/pet/settings`, GET `/guilds/{id}/pet/status` (gated by `require_managed_guild`).
 
 ---
 
-## 5. Vận hành
+## 5. Operation
 
-- **Thêm migration lúc stack đang chạy:** `docker compose exec api alembic upgrade head` (uvicorn --reload KHÔNG chạy migration). Pet migration: `a7b8c9d0e1f2`.
-- **Giới hạn v1 (chấp nhận):** pet không chết; không buff (không lỗ hổng farm); decay tính lazy; alt-farm play vô hại (không reward).
+- **Adding a migration while the stack is running:** `docker compose exec api alembic upgrade head` (uvicorn --reload does NOT run migrations). Pet migration: `a7b8c9d0e1f2`.
+- **v1 limits (accepted):** the pet doesn't die; no buffs (no farming exploit); decay is computed lazily; alt-farming play is harmless (no reward).

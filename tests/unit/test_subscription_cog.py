@@ -23,8 +23,8 @@ async def test_fire_due_runs_only_due_and_marks(monkeypatch):
     from zoneinfo import ZoneInfo
 
     today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
-    due = SimpleNamespace(id=1, hour=0, minute=0, last_run_on=None)  # luôn tới giờ
-    notdue = SimpleNamespace(id=2, hour=0, minute=0, last_run_on=today)  # đã chạy hôm nay
+    due = SimpleNamespace(id=1, hour=0, minute=0, last_run_on=None)  # always due
+    notdue = SimpleNamespace(id=2, hour=0, minute=0, last_run_on=today)  # already ran today
     repo = MagicMock()
     repo.active_all = AsyncMock(return_value=[due, notdue])
     repo.mark_ran = AsyncMock()
@@ -34,7 +34,7 @@ async def test_fire_due_runs_only_due_and_marks(monkeypatch):
     cog._run = AsyncMock()
     await cog._fire_due(datetime.now(UTC))
 
-    cog._run.assert_awaited_once()  # chỉ cái due
+    cog._run.assert_awaited_once()  # only the due one
     repo.mark_ran.assert_awaited_once_with(1, ANY)
 
 
@@ -44,24 +44,24 @@ async def test_run_posts_digest(monkeypatch):
     bot = MagicMock()
     bot.get_channel = lambda cid: ch
     cog = SubscriptionCog(bot, MagicMock())
-    sub = SimpleNamespace(id=1, channel_id=10, guild_id="pk", topic="chứng khoán")
+    sub = SimpleNamespace(id=1, channel_id=10, guild_id="pk", topic="stocks")
 
     cfg = SimpleNamespace(enabled=True, persona="")
     monkeypatch.setattr(
         sub_mod, "AIConfigRepository", lambda s: SimpleNamespace(get=AsyncMock(return_value=cfg))
     )
-    monkeypatch.setattr(sub_mod, "run_web_search", AsyncMock(return_value="VN-Index tăng 1%..."))
-    gw = SimpleNamespace(complete=AsyncMock(return_value="📊 Chứng khoán hôm nay tăng"))
+    monkeypatch.setattr(sub_mod, "run_web_search", AsyncMock(return_value="VN-Index up 1%..."))
+    gw = SimpleNamespace(complete=AsyncMock(return_value="📊 Stocks are up today"))
     monkeypatch.setattr(sub_mod, "_gateway", lambda s: gw)
 
     await cog._run(sub, MagicMock())
 
-    # ĐẢM BẢO thực sự GỌI TOOL web_search (tra sống theo topic) + AI tóm tắt, rồi mới đăng.
+    # ENSURE it actually CALLS the web_search TOOL (live lookup by topic) + AI summarizes, then posts.
     sub_mod.run_web_search.assert_awaited_once()
-    assert "chứng khoán" in sub_mod.run_web_search.call_args.args[0].lower()
+    assert "stocks" in sub_mod.run_web_search.call_args.args[0].lower()
     gw.complete.assert_awaited_once()
     ch.send.assert_awaited_once()
-    assert "Chứng khoán hôm nay" in ch.send.call_args.args[0]
+    assert "Stocks are up today" in ch.send.call_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -76,27 +76,29 @@ async def test_run_skips_when_websearch_fails(monkeypatch):
     monkeypatch.setattr(
         sub_mod, "AIConfigRepository", lambda s: SimpleNamespace(get=AsyncMock(return_value=cfg))
     )
-    monkeypatch.setattr(sub_mod, "run_web_search", AsyncMock(return_value="Tra web thất bại."))
+    # NOTE: "failed" is one of the failure sentinels run_web_search returns ("Web search failed.");
+    # keep it so the skip path triggers.
+    monkeypatch.setattr(sub_mod, "run_web_search", AsyncMock(return_value="Web search failed."))
     await cog._run(sub, MagicMock())
-    ch.send.assert_not_awaited()  # web hỏng -> không đăng
+    ch.send.assert_not_awaited()  # web lookup failed -> don't post
 
 
 @pytest.mark.asyncio
 async def test_run_message_mode_pings_without_websearch(monkeypatch):
-    # Đăng ký kiểu NHẮC CÁ NHÂN (message): tới giờ chỉ PING creator, KHÔNG gọi web_search/AI.
+    # PERSONAL reminder (message) type subscription: when due, just PING the creator, do NOT call web_search/AI.
     ch = SimpleNamespace(send=AsyncMock(), guild=SimpleNamespace(id=123))
     bot = MagicMock()
     bot.get_channel = lambda cid: ch
     cog = SubscriptionCog(bot, MagicMock())
     sub = SimpleNamespace(
-        id=1, channel_id=10, guild_id="pk", topic=None, message="Đi về thôi!", creator_id=42
+        id=1, channel_id=10, guild_id="pk", topic=None, message="Let's head home!", creator_id=42
     )
     web = AsyncMock()
     monkeypatch.setattr(sub_mod, "run_web_search", web)
 
     await cog._run(sub, MagicMock())
 
-    web.assert_not_awaited()  # KHÔNG tra web cho nhắc cá nhân
+    web.assert_not_awaited()  # do NOT search the web for a personal reminder
     ch.send.assert_awaited_once()
     sent = ch.send.call_args.args[0]
-    assert "<@42>" in sent and "Đi về thôi!" in sent  # ping đúng người + đúng câu
+    assert "<@42>" in sent and "Let's head home!" in sent  # ping the right person + the right line

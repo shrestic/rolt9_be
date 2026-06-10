@@ -18,20 +18,18 @@ async def _guild(session):
 async def test_create_and_active_queries(db_session):
     gid = await _guild(db_session)
     repo = SubscriptionRepository(db_session)
-    await repo.create(
-        guild_id=gid, channel_id=1, creator_id=42, topic="chứng khoán", hour=8, minute=0
-    )
+    await repo.create(guild_id=gid, channel_id=1, creator_id=42, topic="stocks", hour=8, minute=0)
     await db_session.commit()
     assert len(await repo.active_all()) == 1
     assert len(await repo.active_for_creator(gid, 42)) == 1
-    assert await repo.active_for_creator(gid, 99) == []  # người khác -> rỗng
+    assert await repo.active_for_creator(gid, 99) == []  # someone else -> empty
 
 
 @pytest.mark.asyncio
 async def test_mark_ran_and_cancel(db_session):
     gid = await _guild(db_session)
     repo = SubscriptionRepository(db_session)
-    s = await repo.create(guild_id=gid, channel_id=1, creator_id=42, topic="vàng", hour=8, minute=0)
+    s = await repo.create(guild_id=gid, channel_id=1, creator_id=42, topic="gold", hour=8, minute=0)
     await db_session.commit()
 
     await repo.mark_ran(s.id, date(2026, 6, 1))

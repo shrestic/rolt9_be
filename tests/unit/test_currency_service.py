@@ -258,7 +258,7 @@ async def test_get_streak_reports_current_and_longest(db_session):
 @pytest.mark.asyncio
 async def test_reenable_streak_restarts_from_one(db_session):
     """Regression: disabling streak while active should drop the chain to 0 so
-    that re-enabling starts fresh at 1 (spec decision #6: "bật lại → đếm từ đầu")
+    that re-enabling starts fresh at 1 (spec decision #6: "re-enable -> count from the start")
     rather than resuming the frozen count.
 
     Steps:

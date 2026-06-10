@@ -147,7 +147,7 @@ class CurrencyService:
             # Streak disabled: grant base only and drop the chain to 0. We still
             # stamp last_daily_at (the UPDATE always does) so the daily reset
             # keeps working; resetting to 0 means re-enabling later restarts the
-            # chain from scratch (spec decision #6: "bật lại → đếm từ đầu"),
+            # chain from scratch (spec decision #6: "re-enable → count from scratch"),
             # rather than resuming the frozen count. longest_streak is preserved
             # by the max() below, so the all-time record survives.
             new_streak = 0

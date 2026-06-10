@@ -1,13 +1,13 @@
-"""LLM provider abstraction — nơi duy nhất nói chuyện với vendor AI.
+"""LLM provider abstraction — the single place that talks to the AI vendor.
 
-v2: dùng LiteLLM để gọi ~100 provider cùng một format (`acompletion`) và lấy chi
-phí USD sẵn (`completion_cost`). Provider STATELESS: key/provider/model truyền theo
-từng lần gọi (per-guild, lấy từ DB), không còn singleton-theo-env như v1.
+v2: uses LiteLLM to call ~100 providers through one format (`acompletion`) and get the
+USD cost for free (`completion_cost`). The provider is STATELESS: key/provider/model are
+passed per call (per-guild, pulled from the DB), no more env-based singleton like v1.
 
-- `AIProvider`: interface phần còn lại của app phụ thuộc.
-- `LiteLLMProvider`: thật, import litellm lazily (giữ package optional cho test).
-- `FakeAIProvider`: stand-in tất định cho test (không mạng).
-- `get_ai_provider()`: trả LiteLLMProvider dùng chung (stateless -> share an toàn).
+- `AIProvider`: the interface the rest of the app depends on.
+- `LiteLLMProvider`: the real one, imports litellm lazily (keeps the package optional for tests).
+- `FakeAIProvider`: a deterministic stand-in for tests (no network).
+- `get_ai_provider()`: returns a shared LiteLLMProvider (stateless -> safe to share).
 """
 
 import logging
@@ -19,14 +19,18 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AICompletion:
-    """Một phản hồi model + token + chi phí USD (cho budget per-guild)."""
+    """One model response + tokens + USD cost (for the per-guild budget)."""
 
     text: str
     input_tokens: int
     output_tokens: int
-    cost_usd: float  # từ litellm.completion_cost(); 0.0 nếu không tính được
-    tool_calls: list[dict] | None = None  # [{id, name, arguments(str json)}] khi model gọi tool
-    raw_message: dict | None = None  # assistant message (kèm tool_calls) để nối vào messages
+    cost_usd: float  # from litellm.completion_cost(); 0.0 if it can't be computed
+    tool_calls: list[dict] | None = (
+        None  # [{id, name, arguments(str json)}] when the model calls a tool
+    )
+    raw_message: dict | None = (
+        None  # assistant message (with tool_calls) to append back into messages
+    )
 
 
 class AIProvider(Protocol):
@@ -47,9 +51,9 @@ class AIProvider(Protocol):
 
 
 class FakeAIProvider:
-    """Provider tất định cho test — không bao giờ chạm mạng."""
+    """Deterministic provider for tests — never touches the network."""
 
-    available = True  # giữ cho back-compat với test cũ; gateway v2 không dùng
+    available = True  # kept for back-compat with old tests; gateway v2 doesn't use it
 
     def __init__(
         self,
@@ -63,8 +67,8 @@ class FakeAIProvider:
         self._in = input_tokens
         self._out = output_tokens
         self._cost = cost_usd
-        # turns: kịch bản nhiều lượt cho tool-calling test, mỗi phần tử là
-        # {"tool_calls": [...]} hoặc {"text": "..."}; mỗi complete() lấy 1 phần tử.
+        # turns: a multi-turn script for tool-calling tests, each element is
+        # {"tool_calls": [...]} or {"text": "..."}; each complete() pops one element.
         self._turns = list(turns) if turns else None
 
     async def complete(
@@ -119,7 +123,7 @@ class FakeAIProvider:
 
 
 class LiteLLMProvider:
-    """Provider thật. Import litellm lazily; key/model truyền per-call (per-guild)."""
+    """The real provider. Imports litellm lazily; key/model passed per-call (per-guild)."""
 
     async def complete(
         self,
@@ -135,10 +139,10 @@ class LiteLLMProvider:
         tools: list[dict] | None = None,
         allow_empty: bool = False,
     ) -> AICompletion:
-        import litellm  # lazy — giữ package optional cho test/deploy không key
+        import litellm  # lazy — keeps the package optional for tests/keyless deploys
 
         _register_custom_prices(litellm)
-        # `messages` truyền sẵn (vòng tool-calling) thì dùng nguyên; else dựng từ system/history/prompt.
+        # If `messages` is already supplied (tool-calling loop), use it as-is; else build from system/history/prompt.
         if messages is None:
             messages = [{"role": "system", "content": system}]
             if history:
@@ -149,24 +153,24 @@ class LiteLLMProvider:
             "api_key": api_key,
             "messages": messages,
             "max_tokens": max_tokens,
-            # Tải cao -> DeepSeek hay 429/timeout tạm; retry để đỡ văng ❌ ra người dùng.
+            # Under heavy load -> DeepSeek often 429s/times-out briefly; retry so we don't spit ❌ at the user.
             "num_retries": 2,
-            # Cap mỗi call để 1 call treo không giữ DB connection mãi (cạn pool khi đông).
+            # Cap per call so one hung call doesn't hold a DB connection forever (drains the pool under load).
             "timeout": 90,
         }
         if tools:
             kwargs["tools"] = tools
         resp = await litellm.acompletion(**kwargs)
-        # completion_cost có thể raise/trả 0 với model lạ — bọc lại, fallback 0.0.
+        # completion_cost may raise/return 0 for unknown models — wrap it, fall back to 0.0.
         try:
             cost = float(litellm.completion_cost(resp))
-        except Exception:  # noqa: BLE001 — không để lỗi tính tiền làm hỏng request
+        except Exception:  # noqa: BLE001 — don't let a cost-calc error break the request
             log.warning("litellm.completion_cost failed for %s/%s", provider, model)
             cost = 0.0
         usage = resp.usage
         message = resp.choices[0].message
 
-        # Model gọi tool -> trả tool_calls + raw_message (để nối vào messages cho bước sau).
+        # Model called a tool -> return tool_calls + raw_message (to append into messages for the next step).
         raw_tool_calls = getattr(message, "tool_calls", None)
         if raw_tool_calls:
             tool_calls = [
@@ -195,16 +199,17 @@ class LiteLLMProvider:
             )
 
         content = (message.content or "").strip()
-        # Reasoning model tiêu hết token cho suy luận -> content rỗng. Single-shot (welcome/roast…)
-        # KHÔNG có fallback nên báo lỗi rõ (actionable). Vòng tool-calling (allow_empty=True) thì
-        # ĐỪNG ném: trả text="" để ToolRunner tự degrade êm ("thử lại nhé") thay vì phun lỗi kỹ thuật.
+        # A reasoning model burned all its tokens on reasoning -> empty content. Single-shot (welcome/roast…)
+        # has NO fallback, so raise a clear (actionable) error. The tool-calling loop (allow_empty=True)
+        # must NOT throw: return text="" so ToolRunner degrades gracefully ("give it another go") instead of
+        # spewing a technical error.
         if not content and getattr(message, "reasoning_content", None) and not allow_empty:
             raise ValueError(
-                "Model dùng hết token cho phần suy luận mà chưa kịp trả lời — "
-                "tăng AI_MAX_TOKENS hoặc chọn model không-reasoning."
+                "The model used up all its tokens on reasoning before it could answer — "
+                "bump AI_MAX_TOKENS or pick a non-reasoning model."
             )
-        # Content rỗng-thường: KHÔNG raise ở đây — trả text="" để caller quyết
-        # (gateway.complete single-shot sẽ raise; vòng tool sẽ fallback nhẹ nhàng).
+        # Ordinary empty content: do NOT raise here — return text="" and let the caller decide
+        # (gateway.complete single-shot will raise; the tool loop falls back gently).
         return AICompletion(
             text=content,
             input_tokens=usage.prompt_tokens,
@@ -213,9 +218,9 @@ class LiteLLMProvider:
         )
 
 
-# Giá custom cho model litellm CHƯA có trong bảng giá built-in (model quá mới),
-# để completion_cost() tính được USD → budget guard hoạt động. Đơn vị: USD / 1
-# token (= giá_per_1M / 1_000_000). Nguồn: DeepSeek pricing, tháng 5/2026
+# Custom prices for litellm models NOT yet in the built-in price table (too new),
+# so completion_cost() can compute USD → the budget guard works. Unit: USD / 1
+# token (= price_per_1M / 1_000_000). Source: DeepSeek pricing, May 2026
 # (flash $0.14/$0.28, pro $0.435/$0.87 per 1M cache-miss in/out).
 _CUSTOM_PRICES = {
     "deepseek/deepseek-v4-flash": {
@@ -236,14 +241,14 @@ _prices_registered = False
 
 
 def _register_custom_prices(litellm) -> None:
-    """Nạp giá custom vào litellm một lần (idempotent). Lỗi -> bỏ qua, không crash."""
+    """Load custom prices into litellm once (idempotent). On error -> skip, don't crash."""
     global _prices_registered
     if _prices_registered:
         return
     try:
         litellm.register_model(_CUSTOM_PRICES)
         _prices_registered = True
-    except Exception:  # noqa: BLE001 — thiếu giá chỉ làm cost=0, không được làm hỏng call
+    except Exception:  # noqa: BLE001 — missing prices just make cost=0, must not break the call
         log.warning("litellm.register_model failed for custom prices")
 
 
@@ -251,9 +256,9 @@ _provider: AIProvider | None = None
 
 
 def get_ai_provider() -> AIProvider:
-    """Trả LiteLLMProvider dùng chung process-wide (stateless nên share an toàn).
+    """Return a process-wide shared LiteLLMProvider (stateless, so safe to share).
 
-    Giữ tên hàm cũ để 5 cog (roast/summarizer/ask/chat/welcome) không phải đổi.
+    Keeps the old function name so the 5 cogs (roast/summarizer/ask/chat/welcome) don't have to change.
     """
     global _provider
     if _provider is None:

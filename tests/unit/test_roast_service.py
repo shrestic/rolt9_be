@@ -33,7 +33,7 @@ async def _setup(db_session):
         guild_repo=GuildRepository(db_session),
         config_repo=AIConfigRepository(db_session),
         usage_repo=AIUsageRepository(db_session),
-        provider=FakeAIProvider(text="Cùn như cái cùi bắp.", input_tokens=5, output_tokens=8),
+        provider=FakeAIProvider(text="Blunt as a corn cob.", input_tokens=5, output_tokens=8),
     )
     return gid, RoastService(gateway=gw)
 
@@ -42,7 +42,7 @@ async def _setup(db_session):
 async def test_roast_returns_text(db_session):
     _, svc = await _setup(db_session)
     text = await svc.roast(guild_discord_id=GID, target_name="An")
-    assert text == "Cùn như cái cùi bắp."
+    assert text == "Blunt as a corn cob."
 
 
 @pytest.mark.asyncio

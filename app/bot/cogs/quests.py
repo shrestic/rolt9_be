@@ -52,9 +52,9 @@ class QuestsCog(commands.Cog):
 
     # Group all quest subcommands under `/quests` — guild_only so user IDs
     # are always scoped to a server (DMs have no guild_id).
-    quests = app_commands.Group(name="quests", description="Nhiệm vụ ngày/tuần", guild_only=True)
+    quests = app_commands.Group(name="quests", description="Daily/weekly quests", guild_only=True)
 
-    @quests.command(name="list", description="Xem nhiệm vụ và tiến độ.")
+    @quests.command(name="list", description="View quests and progress.")
     async def quests_list(self, interaction: discord.Interaction) -> None:
         # Defer first (up to 15 min to reply), then open DB session.
         await interaction.response.defer()
@@ -66,30 +66,30 @@ class QuestsCog(commands.Cog):
 
         # Short-circuit: server hasn't configured any quests yet.
         if not views:
-            await interaction.followup.send("Server chưa có nhiệm vụ nào.")
+            await interaction.followup.send("This server has no quests yet.")
             return
 
-        lines = ["**📜 Nhiệm vụ**"]
+        lines = ["**📜 Quests**"]
         for v in views:
             # Tag label distinguishes daily vs weekly quests at a glance.
             tag = "daily" if v.quest.period == "daily" else "weekly"
 
             if v.claimed:
                 # Already collected this period — show ticked checkbox.
-                status = "☑️ Đã nhận"
+                status = "☑️ Claimed"
             elif v.completed:
                 # Completed but not yet claimed — highlight reward to prompt /claim.
-                status = f"✅ Sẵn sàng (+{v.quest.reward_coins:,} 🪙)"
+                status = f"✅ Ready (+{v.quest.reward_coins:,} 🪙)"
             else:
                 # In-progress — show visual bar so users know how far they are.
                 status = _bar(v.progress, v.target)
 
             lines.append(f"`{tag}` **{v.quest.name}** — {status}")
 
-        lines.append("\nGõ `/quests claim` để nhận thưởng.")
+        lines.append("\nType `/quests claim` to grab your rewards.")
         await interaction.followup.send("\n".join(lines))
 
-    @quests.command(name="claim", description="Nhận thưởng các nhiệm vụ đã xong.")
+    @quests.command(name="claim", description="Claim rewards for completed quests.")
     async def quests_claim(self, interaction: discord.Interaction) -> None:
         # Defer first, then claim-all completed quests in one DB transaction.
         await interaction.response.defer()
@@ -101,11 +101,11 @@ class QuestsCog(commands.Cog):
 
         # Nothing ready to collect — nudge user to complete quests first.
         if result.claimed_count == 0:
-            await interaction.followup.send("Chưa có nhiệm vụ nào sẵn sàng để nhận.")
+            await interaction.followup.send("No quests are ready to claim yet.")
             return
 
         # Success: show total coins earned and which quests were completed.
         joined = ", ".join(result.names)
         await interaction.followup.send(
-            f"🎉 Nhận **{result.claimed_count}** nhiệm vụ: +**{result.total_coins:,}** 🪙! ({joined})"
+            f"🎉 Claimed **{result.claimed_count}** quests: +**{result.total_coins:,}** 🪙! ({joined})"
         )

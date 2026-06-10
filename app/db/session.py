@@ -7,8 +7,8 @@ from app.core.config import settings
 engine = create_async_engine(
     settings.SQLALCHEMY_DATABASE_URI,
     pool_pre_ping=True,
-    # Mỗi lượt agent GIỮ 1 connection suốt 8-20s (qua các LLM call) -> nhiều người mention
-    # cùng lúc dễ cạn pool mặc định (~15). Nới rộng để chịu tải đồng thời.
+    # Each agent turn HOLDS one connection for 8-20s (across the LLM calls) -> many people
+    # mentioning at once can easily exhaust the default pool (~15). Widen it to handle concurrent load.
     pool_size=20,
     max_overflow=30,
     pool_timeout=30,

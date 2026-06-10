@@ -1,9 +1,10 @@
-"""Bảng `subscription` — đăng ký nhận tin ĐỊNH KỲ hằng ngày (vd 'tin chứng khoán 8h sáng').
+"""The `subscription` table — a RECURRING daily subscription (e.g. 'stock news at 8am').
 
-Khác `reminder` (một lần): subscription LẶP mỗi ngày và lấy tin TƯƠI mỗi lần (web search +
-AI tóm tắt). Tới giờ HH:MM (giờ VN) scheduler đăng vào `channel_id`. `last_run_on` = ngày VN
-chạy gần nhất, để mỗi ngày chỉ đăng 1 lần. `active=False` (hoặc xoá) khi user bảo ngừng.
-`topic` là free-text nên đăng ký được bất cứ chủ đề gì (chứng khoán, vàng, thời tiết, bóng đá...).
+Unlike `reminder` (one-shot): a subscription REPEATS every day and fetches FRESH content each
+time (web search + AI summary). At HH:MM (Vietnam time), the scheduler posts to `channel_id`.
+`last_run_on` = the most recent Vietnam-time run date, so it posts only once per day.
+`active=False` (or deleted) when the user asks to stop. `topic` is free-text, so any subject
+can be subscribed to (stocks, gold, weather, football...).
 """
 
 import datetime
@@ -25,15 +26,17 @@ class Subscription(Base):
     )
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     creator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # Mỗi đăng ký là 1 trong 2 chế độ:
-    #  - topic   != None: tới giờ TRA WEB + AI tóm tắt (bản tin định kỳ, vd 'giá vàng').
-    #  - message != None: tới giờ chỉ PING câu đó (nhắc cá nhân lặp lại, vd 'đi về').
+    # Each subscription is one of two modes:
+    #  - topic   != None: at fire time, SEARCH THE WEB + AI summary (a recurring bulletin, e.g. 'gold price').
+    #  - message != None: at fire time, just PING that text (a repeating personal reminder, e.g. 'go home').
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    hour: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-23, giờ VN đăng mỗi ngày
+    hour: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # 0-23, Vietnam time to post each day
     minute: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
-    # Ngày VN chạy gần nhất — để mỗi ngày chỉ đăng 1 lần (None = chưa chạy lần nào).
+    # Most recent Vietnam-time run date — so it posts only once per day (None = never run).
     last_run_on: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

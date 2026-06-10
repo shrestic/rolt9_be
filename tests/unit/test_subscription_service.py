@@ -32,5 +32,5 @@ def test_is_due_true_next_day_after_prior_run():
 
 
 def test_build_digest_system_includes_topic():
-    s = build_digest_system("Bạn là bot.", "tin chứng khoán")
-    assert "tin chứng khoán" in s and "TRA WEB" in s
+    s = build_digest_system("You are a bot.", "stock news")
+    assert "stock news" in s and "WEB SEARCH" in s

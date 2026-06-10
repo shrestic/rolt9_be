@@ -1,65 +1,65 @@
-# Mini-games — Hướng dẫn & Workflow
+# Mini-games — Guide & Workflow
 
-Ba trò cá cược coin: **coinflip**, **tài xỉu**, **nổ hũ**. Là sink tiêu coin (nhà cái ~5%) chống lạm phát.
-
----
-
-## 1. Tính năng làm gì
-
-- Member cược coin vào 3 trò may rủi. Thắng → nhận thưởng, thua → mất cược.
-- **Nhà cái ~5%**: trung bình người chơi lỗ nhẹ → coin bị rút khỏi nền kinh tế (cân với việc kiếm coin từ chat/daily/quest).
-- **Phụ thuộc:** Currency bật (cược/thưởng đều là coin).
+Three coin-betting games: **coinflip**, **over/under** (3-dice), **slots**. They are a coin sink (house edge ~5%) to fight inflation.
 
 ---
 
-## 2. Cho admin — Dashboard → server → Mini-games
+## 1. What this feature does
 
-| Trường | Ý nghĩa | Mặc định |
+- Members bet coins on 3 games of chance. Win → get a payout, lose → lose the bet.
+- **House edge ~5%**: on average players lose a little → coins are pulled out of the economy (balancing the coins earned from chat/daily/quest).
+- **Dependency:** Currency enabled (bets/payouts are all coins).
+
+---
+
+## 2. For admins — Dashboard → server → Mini-games
+
+| Field | Meaning | Default |
 |---|---|---|
-| **Enable** | Bật/tắt mini-games | off |
-| **Min bet** | Cược tối thiểu | 10 |
-| **Max bet** | Cược tối đa | 10.000 |
+| **Enable** | Turn mini-games on/off | off |
+| **Min bet** | Minimum bet | 10 |
+| **Max bet** | Maximum bet | 10,000 |
 
-Nhà cái (~5%) cố định trong code, không chỉnh qua FE.
+The house edge (~5%) is fixed in code, not adjustable via the FE.
 
 ---
 
-## 3. Cho member — lệnh Discord
+## 3. For members — Discord commands
 
-| Lệnh | Việc |
+| Command | What it does |
 |---|---|
-| `/game flip <bet> <Ngửa\|Sấp>` | Tung đồng xu 50/50 → thắng ×1.9 |
-| `/game taixiu <bet> <Tài\|Xỉu>` | Tổng 3 xúc xắc; Xỉu ≤10, Tài ≥11 → thắng ×1.9 |
-| `/game slots <bet>` | Nổ hũ: 3 giống = jackpot ×10, 2 giống = ×1.6 |
+| `/game flip <bet> <Heads\|Tails>` | Flip a coin 50/50 → win ×1.9 |
+| `/game overunder <bet> <Over\|Under>` | Sum of 3 dice; Under ≤10, Over ≥11 → win ×1.9 |
+| `/game slots <bet>` | Slots: 3 matching = jackpot ×10, 2 matching = ×1.6 |
 
-- Cược phải trong khoảng min/max và ≤ số dư (else ❌).
-- **Cooldown 3s/người/lệnh** (chống spam) → ⏳ nếu bấm nhanh.
+- The bet must be within min/max and ≤ your balance (else ❌).
+- **3s cooldown/person/command** (anti-spam) → ⏳ if you click too fast.
 
-Ví dụ: `🎲 4+5+2=11 (Tài) — 🎉 Thắng! +90 🪙 (số dư 1.290)` · `🎰 💎💎💎 — 🎉 Thắng! +900 🪙` · `🪙 Sấp — 😢 Thua 100 🪙 (số dư 900)`.
+Examples: `🎲 4+5+2=11 (Over) — 🎉 Win! +90 🪙 (balance 1,290)` · `🎰 💎💎💎 — 🎉 Win! +900 🪙` · `🪙 Tails — 😢 Lost 100 🪙 (balance 900)`.
 
 ---
 
-## 4. Cơ chế bên trong (cho dev)
+## 4. Internals (for devs)
 
 ```
-/game flip → MinigameCog (cooldown 3s) → MinigameService._play
+/game flip → MinigameCog (3s cooldown) → MinigameService._play
   ├─ enabled? bet ∈ [min,max]?
-  ├─ WalletRepository.add_balance(-bet)   ← trừ cược; thiếu tiền → ValueError, KHÔNG chơi
+  ├─ WalletRepository.add_balance(-bet)   ← deduct the bet; insufficient → ValueError, NO play
   ├─ outcome = minigame_logic.play_*(rng, bet, choice)
-  └─ thắng → add_balance(+payout)         ← cùng transaction
+  └─ win → add_balance(+payout)           ← same transaction
 ```
 
-- **Logic thuần** `minigame_logic.py`: nhận `random.Random` bơm vào → test tất định (seed). Hệ số ~5% nhà cái (coinflip/taixiu ×1.9, slots ×10/×1.6 — EV ghi trong docstring).
-- **Atomic & an toàn**: trừ cược TRƯỚC (guarded `add_balance`, không âm) → charge fail thì không chơi; credit thắng cùng transaction → không tạo/mất coin.
-- **Cooldown**: `@app_commands.checks.cooldown(1, 3.0)` in-memory (reset khi bot restart) + `cog_app_command_error` render ⏳.
-- **Decoupled**: MinigameService dùng `WalletRepository` trực tiếp (không gọi CurrencyService).
-- **Không bảng per-user** — 1 ván chỉ là biến động ví. Config: `guild_minigame_config` (enabled, min_bet, max_bet).
+- **Pure logic** `minigame_logic.py`: takes an injected `random.Random` → deterministic tests (seeded). Multipliers give a ~5% house edge (coinflip/taixiu ×1.9, slots ×10/×1.6 — EV documented in the docstring).
+- **Atomic & safe**: deduct the bet FIRST (guarded `add_balance`, never negative) → if the charge fails there's no play; credit the win in the same transaction → no coins created/lost.
+- **Cooldown**: `@app_commands.checks.cooldown(1, 3.0)` in-memory (resets on bot restart) + `cog_app_command_error` renders ⏳.
+- **Decoupled**: MinigameService uses `WalletRepository` directly (does not call CurrencyService).
+- **No per-user table** — one round is just a wallet movement. Config: `guild_minigame_config` (enabled, min_bet, max_bet).
 
-REST: GET/PUT `/guilds/{id}/minigame/settings` (gate `require_managed_guild`).
+REST: GET/PUT `/guilds/{id}/minigame/settings` (gated by `require_managed_guild`).
 
 ---
 
-## 5. Vận hành
+## 5. Operation
 
-- **Thêm migration lúc stack chạy:** `docker compose exec api alembic upgrade head`. Minigame migration: `c9d0e1f2a3b4`.
-- **Giới hạn v1 (chấp nhận):** RNG `random.Random` (không cryptographic, đủ cho game vui); cooldown in-memory mất khi restart; nhà cái cố định ~5%.
+- **Adding a migration while the stack is running:** `docker compose exec api alembic upgrade head`. Minigame migration: `c9d0e1f2a3b4`.
+- **v1 limits (accepted):** RNG is `random.Random` (not cryptographic, fine for a fun game); the in-memory cooldown is lost on restart; the house edge is fixed at ~5%.

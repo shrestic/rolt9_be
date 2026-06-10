@@ -71,10 +71,10 @@ async def _svc(db_session, *, persona="", enabled=True):
 
 @pytest.mark.asyncio
 async def test_chat_uses_custom_persona(db_session):
-    svc, provider = await _svc(db_session, persona="Bạn là mèo máy nói trống không.")
+    svc, provider = await _svc(db_session, persona="You are a curt robot cat.")
     out = await svc.chat(guild_discord_id=GID, message="hi")
     assert out == "ok"
-    assert provider.last_system == "Bạn là mèo máy nói trống không."
+    assert provider.last_system == "You are a curt robot cat."
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ def test_cog_registers_command():
 @pytest.mark.asyncio
 async def test_chat_command_replies(monkeypatch):
     stub = MagicMock()
-    stub.chat = AsyncMock(return_value="Xin chào!")
+    stub.chat = AsyncMock(return_value="Hello!")
 
     @contextlib.asynccontextmanager
     async def fake_scope():
@@ -114,4 +114,4 @@ async def test_chat_command_replies(monkeypatch):
     inter.response = SimpleNamespace(defer=AsyncMock(), is_done=MagicMock(return_value=True))
     inter.followup = SimpleNamespace(send=AsyncMock())
     await cog.chat.callback(cog, inter, "hi")
-    assert "Xin chào!" in inter.followup.send.call_args.args[0]
+    assert "Hello!" in inter.followup.send.call_args.args[0]

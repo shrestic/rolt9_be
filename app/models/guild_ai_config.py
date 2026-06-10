@@ -1,9 +1,10 @@
-"""Cấu hình AI per-guild (BYO-key v2).
+"""Per-guild AI config (BYO-key v2).
 
-Một row mỗi guild (PK = guild_id), tắt mặc định. Server tự nhập API key (lưu mã
-hóa Fernet ở `api_key_enc`), chọn `provider`/`model` từ catalog, và bị chặn theo
-`monthly_budget_usd` (USD/tháng) — gateway từ chối khi cost tháng vượt trần. Chưa
-nhập key/provider/model => AI coi như chưa cấu hình (không fallback key global).
+One row per guild (PK = guild_id), off by default. The server enters its own API key
+(stored Fernet-encrypted in `api_key_enc`), picks a `provider`/`model` from the catalog,
+and is gated by `monthly_budget_usd` (USD/month) — the gateway rejects calls when the
+month's cost exceeds the cap. Without a key/provider/model, AI is treated as
+unconfigured (no fallback to a global key).
 """
 
 import uuid
@@ -35,29 +36,29 @@ class GuildAIConfig(Base):
         UUID(as_uuid=True), ForeignKey("guilds.id", ondelete="CASCADE"), primary_key=True
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Provider/model từ catalog (vd "anthropic" / "claude-haiku-4-5"). "" = chưa chọn.
+    # Provider/model from the catalog (e.g. "anthropic" / "claude-haiku-4-5"). "" = not chosen yet.
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    # API key của server, mã hóa Fernet. NULL = chưa nhập (AI tắt, không fallback global).
+    # The server's API key, Fernet-encrypted. NULL = not entered (AI off, no global fallback).
     api_key_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    # Trần chi phí USD/tháng. Gateway chặn khi cost tháng >= giá trị này.
+    # Cost cap in USD/month. The gateway blocks when the month's cost >= this value.
     monthly_budget_usd: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=5.0)
-    # Persona server-wide cho /chat. "" = persona thân thiện mặc định (ChatService).
+    # Server-wide persona for /chat. "" = default friendly persona (ChatService).
     persona: Mapped[str] = mapped_column(String(2000), nullable=False, default="")
-    # Claw Agent (hội thoại on_message). Toggle riêng, độc lập với `enabled`.
+    # Claw Agent (on_message conversation). Separate toggle, independent of `enabled`.
     agent_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Nếu set → agent chỉ trả lời trong kênh này; NULL = mọi kênh.
+    # If set → the agent only replies in this channel; NULL = any channel.
     agent_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # Cho phép Claw Agent gọi tool (web search + tra cứu). Admin tắt để khỏi tốn search.
+    # Allow the Claw Agent to call tools (web search + lookups). Admins turn off to avoid search costs.
     tools_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # Cho phép Claw Agent làm HÀNH ĐỘNG server (role/mod/toggle). Opt-in, mặc định tắt.
+    # Allow the Claw Agent to perform server ACTIONS (role/mod/toggle). Opt-in, off by default.
     actions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Server Companion AI — bot tự quan sát & buông câu (proactive). Opt-in.
+    # Server Companion AI — the bot observes and chimes in on its own (proactive). Opt-in.
     companion_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     companion_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     companion_cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=45)
-    # Thời điểm (UTC) bot companion POST gần nhất — LƯU DB để cooldown SỐNG SÓT qua restart/deploy
-    # (trước đây giữ trong RAM nên mỗi lần restart là quên -> spam lại). NULL = chưa post lần nào.
+    # Timestamp (UTC) of the companion bot's most recent POST — STORED in DB so the cooldown SURVIVES restart/deploy
+    # (previously kept in RAM, so each restart forgot it -> re-spammed). NULL = never posted.
     companion_last_post_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -71,7 +71,7 @@ def _fake_interaction(user_id=1):
 
 @pytest.mark.asyncio
 async def test_daily_reply_mentions_streak(monkeypatch):
-    """When streak_bonus > 0, reply must contain 'Chuỗi' and the day count."""
+    """When streak_bonus > 0, reply must contain 'streak' and the day count."""
     stub = MagicMock()
     stub.claim_daily = AsyncMock(
         return_value=DailyResult(
@@ -91,13 +91,13 @@ async def test_daily_reply_mentions_streak(monkeypatch):
     inter = _fake_interaction()
     await cog.daily.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "Chuỗi" in msg
+    assert "streak" in msg
     assert "3" in msg
 
 
 @pytest.mark.asyncio
 async def test_daily_reply_shows_milestone(monkeypatch):
-    """When milestone_bonus > 0, reply must contain 'Mốc' and the bonus amount."""
+    """When milestone_bonus > 0, reply must contain 'milestone' and the bonus amount."""
     stub = MagicMock()
     stub.claim_daily = AsyncMock(
         return_value=DailyResult(
@@ -117,7 +117,7 @@ async def test_daily_reply_shows_milestone(monkeypatch):
     inter = _fake_interaction()
     await cog.daily.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "Mốc" in msg
+    assert "milestone" in msg
     assert "200" in msg
 
 
@@ -144,7 +144,7 @@ async def test_streak_command_renders_current_and_longest(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_streak_command_disabled(monkeypatch):
-    """When streak feature is disabled on the server, reply must contain 'tắt'."""
+    """When streak feature is disabled on the server, reply must contain 'off'."""
     stub = MagicMock()
     stub.get_streak = AsyncMock(
         return_value=StreakInfo(current=0, longest=0, days_to_milestone=None, enabled=False)
@@ -154,7 +154,7 @@ async def test_streak_command_disabled(monkeypatch):
     inter = _fake_interaction()
     await cog.streak.callback(cog, inter, None)
     msg = inter.followup.send.call_args.args[0]
-    assert "tắt" in msg
+    assert "off" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ async def test_daily_appends_new_badge(monkeypatch):
     inter = _fake_interaction()
     await cog.daily.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "Rủng rỉnh" in msg  # the new badge name
+    assert "Flush" in msg  # the new badge name
 
 
 # ---------------------------------------------------------------------------

@@ -42,13 +42,13 @@ def _member(uid=2, bot=False):
 @pytest.mark.asyncio
 async def test_roast_replies(monkeypatch):
     stub = MagicMock()
-    stub.roast = AsyncMock(return_value="Lầy như đất sét.")
+    stub.roast = AsyncMock(return_value="Dull as a lump of clay.")
     _patch(monkeypatch, stub)
     cog = RoastCog(MagicMock(), MagicMock())
     inter = _interaction()
     await cog.roast.callback(cog, inter, _member(2))
     msg = inter.followup.send.call_args.args[0]
-    assert "Lầy như đất sét." in msg
+    assert "Dull as a lump of clay." in msg
 
 
 @pytest.mark.asyncio
@@ -67,7 +67,7 @@ async def test_roast_bot_rejected(monkeypatch):
 @pytest.mark.asyncio
 async def test_roast_error_friendly(monkeypatch):
     stub = MagicMock()
-    stub.roast = AsyncMock(side_effect=ValueError("AI chưa được bật"))
+    stub.roast = AsyncMock(side_effect=ValueError("AI is not enabled yet"))
     _patch(monkeypatch, stub)
     cog = RoastCog(MagicMock(), MagicMock())
     inter = _interaction()

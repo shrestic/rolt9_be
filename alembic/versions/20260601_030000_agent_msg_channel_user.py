@@ -1,7 +1,7 @@
-"""Agent message: thêm channel_id + user_discord_id để nối cuộc theo (kênh, người)
+"""Agent message: add channel_id + user_discord_id to thread conversations by (channel, user)
 
-Cho phép nối tiếp cuộc gần nhất khi user nhắn tiếp mà không reply (window-based,
-xem AgentMessageRepository.latest_conversation). Cả hai nullable -> row cũ vẫn hợp lệ.
+Allows continuing the most recent conversation when a user keeps messaging without replying
+(window-based, see AgentMessageRepository.latest_conversation). Both nullable -> old rows stay valid.
 
 Revision ID: e3f4a5b6c7d8
 Revises: d2e3f4a5b6c7
@@ -22,7 +22,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("agent_message", sa.Column("channel_id", sa.BigInteger(), nullable=True))
     op.add_column("agent_message", sa.Column("user_discord_id", sa.BigInteger(), nullable=True))
-    # Tra "cuộc gần nhất của (kênh, người)" — lọc theo 3 cột rồi sắp theo id.
+    # Look up "most recent conversation of (channel, user)" — filter by 3 columns then order by id.
     op.create_index(
         "ix_agent_message_guild_channel_user",
         "agent_message",

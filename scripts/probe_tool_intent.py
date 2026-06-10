@@ -1,8 +1,8 @@
-"""Probe: câu văn end-user (tiếng Việt) -> model chọn tool nào.
+"""Probe: end-user English phrasing -> which tool does the model pick?
 
-Chạy live qua gateway.complete_raw với FULL tool specs (gồm actions) trên 1 guild
-đã cấu hình key, để xem model có map đúng ý người dùng sang đúng tool + args không.
-KHÔNG thực thi action — chỉ in ra tool model định gọi.
+Runs live via gateway.complete_raw with the FULL tool specs (including actions) on a guild
+that has a key configured, to see whether the model maps user intent to the right tool + args.
+Does NOT execute the action -- only prints the tool the model intends to call.
 """
 
 import asyncio
@@ -22,24 +22,24 @@ from app.services.ai.tools.registry import tool_specs
 
 GUILD_DISCORD_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 1480247310813499412
 
-# (mô tả, câu end-user, tool kỳ vọng)
+# (description, end-user phrase, expected tool)
 CASES = [
-    ("tạo role", "tạo cho tao role tên VIP màu đỏ đi", "create_role"),
-    ("gán role", "gán role VIP cho @Đạt với", "assign_role"),
-    ("gỡ role", "gỡ cái role Mod của @Đạt ra", "remove_role"),
-    ("xóa role", "xóa luôn role VIP khỏi server đi", "delete_role"),
-    ("bật plugin", "bật cái plugin tính level lên cho tao", "toggle_plugin"),
-    ("tắt plugin", "tắt welcome đi đừng chào nữa", "toggle_plugin"),
-    ("bật currency", "mở hệ thống tiền tệ currency lên", "toggle_plugin"),
-    ("kick", "kick thằng @spammer ra khỏi server giùm", "kick"),
-    ("ban", "ban @toxic vĩnh viễn cho tao", "ban"),
-    ("unban", "gỡ ban cho thằng BadGuy123 đi, nó hối lỗi rồi", "unban"),
-    ("timeout/mute", "mute mồm thằng @ồn ào 15 phút", "timeout"),
-    ("untimeout/unmute", "gỡ mute cho @Đạt đi nó im rồi", "untimeout"),
-    ("server info", "server mình có bao nhiêu thành viên rồi nhỉ", "server_info"),
-    ("giờ", "giờ là mấy giờ rồi bot", "current_time"),
-    ("remember", "từ nay gọi @An là thằng loz nha bot", "remember"),
-    ("chat thường (KHÔNG tool)", "chào bot hôm nay khỏe không", "(không gọi tool)"),
+    ("create role", "make me a role called VIP in red", "create_role"),
+    ("assign role", "slap the VIP role on @Dat would ya", "assign_role"),
+    ("remove role", "take the Mod role off @Dat", "remove_role"),
+    ("delete role", "just nuke the VIP role from the server", "delete_role"),
+    ("enable plugin", "turn on the leveling plugin for me", "toggle_plugin"),
+    ("disable plugin", "kill the welcome thing, stop greeting people", "toggle_plugin"),
+    ("enable currency", "fire up the currency economy system", "toggle_plugin"),
+    ("kick", "kick @spammer outta the server for me", "kick"),
+    ("ban", "ban @toxic for good", "ban"),
+    ("unban", "unban BadGuy123, he's sorry now", "unban"),
+    ("timeout/mute", "mute @noisy for 15 mins", "timeout"),
+    ("untimeout/unmute", "unmute @Dat, he's quiet now", "untimeout"),
+    ("server info", "how many members does our server have now", "server_info"),
+    ("time", "hey bot what time is it", "current_time"),
+    ("remember", "from now on call @An a dumbass, got it bot", "remember"),
+    ("plain chat (NO tool)", "yo bot how's it going today", "(no tool call)"),
 ]
 
 
@@ -54,15 +54,15 @@ async def main():
         guild = await GuildRepository(session).get_by_discord_id(GUILD_DISCORD_ID)
         cfg = await AIConfigRepository(session).get(guild.id)
         memory_doc = await MemoryDocRepository(session).get_doc(guild.id)
-        # build_system cần các repo? Không — chỉ cần persona/facts/doc.
-        _ = (AgentMessageRepository, UserMemoryRepository)  # giữ import gọn
+        # Does build_system need these repos? No -- it only needs persona/facts/doc.
+        _ = (AgentMessageRepository, UserMemoryRepository)  # keep imports tidy
 
         specs = tool_specs(has_search=bool(cfg.tools_enabled), include_actions=True)
         print(f"== Guild {GUILD_DISCORD_ID} | model={cfg.model} | {len(specs)} tools ==\n")
 
         ok = 0
         for desc, phrase, expected in CASES:
-            system = build_system(cfg.persona or "", "", "Đạt", memory_doc, "")
+            system = build_system(cfg.persona or "", "", "Dat", memory_doc, "")
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": phrase},
@@ -72,22 +72,22 @@ async def main():
                     guild_discord_id=GUILD_DISCORD_ID, messages=messages, tools=specs
                 )
             except Exception as e:  # noqa: BLE001
-                print(f"[LỖI] {desc!r}: {e}")
+                print(f"[ERROR] {desc!r}: {e}")
                 continue
             if res.tool_calls:
                 got = res.tool_calls[0]["name"]
                 args = res.tool_calls[0]["arguments"]
             else:
-                got = "(không gọi tool)"
+                got = "(no tool call)"
                 args = (res.text or "")[:60]
             hit = "✅" if got == expected else "❌"
             if got == expected:
                 ok += 1
             print(f"{hit} [{desc}]")
-            print(f"    câu : {phrase}")
-            print(f"    chọn: {got}   (kỳ vọng: {expected})")
-            print(f"    args: {args}\n")
-        print(f"== Đúng {ok}/{len(CASES)} ==")
+            print(f"    phrase  : {phrase}")
+            print(f"    picked  : {got}   (expected: {expected})")
+            print(f"    args    : {args}\n")
+        print(f"== Correct {ok}/{len(CASES)} ==")
 
 
 if __name__ == "__main__":

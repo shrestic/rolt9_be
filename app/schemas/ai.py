@@ -1,4 +1,4 @@
-"""Pydantic schemas cho AI v2 (settings BYO-key + usage token/cost)."""
+"""Pydantic schemas for AI v2 (BYO-key settings + token/cost usage)."""
 
 from decimal import Decimal
 
@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class AISettings(BaseModel):
-    """Cấu hình AI per-guild — input cho PUT.
+    """Per-guild AI config — input for PUT.
 
-    `api_key` ghi-một-chiều: None = giữ nguyên key cũ, "" = xóa key, "sk-..." = đặt mới.
+    `api_key` is write-only: None = keep the existing key, "" = clear the key, "sk-..." = set a new one.
     """
 
     enabled: bool = False
@@ -27,7 +27,7 @@ class AISettings(BaseModel):
 
 
 class AISettingsOut(BaseModel):
-    """Settings + usage tháng này — response GET/PUT. KHÔNG bao giờ trả key thật."""
+    """Settings + this month's usage — GET/PUT response. NEVER returns the real key."""
 
     enabled: bool
     provider: str
@@ -42,20 +42,20 @@ class AISettingsOut(BaseModel):
     companion_channel_id: str | None = None
     companion_cooldown_min: int
     has_key: bool
-    key_hint: str = ""  # 4 ký tự cuối của key, "" nếu chưa có
+    key_hint: str = ""  # last 4 characters of the key, "" if none yet
     tokens_used_this_month: int = 0
     cost_used_this_month: Decimal = Decimal("0")
 
 
 class KbEntryIn(BaseModel):
-    """Create payload cho một mục knowledge-base."""
+    """Create payload for a knowledge-base entry."""
 
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=2000)
 
 
 class KbEntryOut(BaseModel):
-    """Một mục knowledge-base trả cho dashboard."""
+    """A knowledge-base entry returned to the dashboard."""
 
     id: str
     title: str

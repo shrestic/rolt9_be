@@ -59,8 +59,8 @@ async def test_badges_lists_earned_and_locked(monkeypatch):
     inter = _interaction()
     await cog.badges.callback(cog, inter, None)
     msg = inter.followup.send.call_args.args[0]
-    assert "Tân binh" in msg  # earned
-    assert "Kỳ cựu" in msg  # locked
+    assert "Rookie" in msg  # earned
+    assert "Veteran" in msg  # locked
 
 
 @pytest.mark.asyncio
@@ -73,7 +73,7 @@ async def test_badges_disabled(monkeypatch):
     inter = _interaction()
     await cog.badges.callback(cog, inter, None)
     msg = inter.followup.send.call_args.args[0]
-    assert "tắt" in msg
+    assert "off" in msg
 
 
 @pytest.mark.asyncio

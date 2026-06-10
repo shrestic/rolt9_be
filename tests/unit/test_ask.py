@@ -36,14 +36,14 @@ async def _setup(db_session, *, enabled=True, with_kb=True):
     )
     await db_session.commit()
     if with_kb:
-        await KbRepository(db_session).create(gid, title="Giờ mở cửa", content="9h-21h hằng ngày.")
+        await KbRepository(db_session).create(gid, title="Opening hours", content="9am-9pm daily.")
         await db_session.commit()
     svc = AskService(
         gateway=AIGateway(
             guild_repo=GuildRepository(db_session),
             config_repo=AIConfigRepository(db_session),
             usage_repo=AIUsageRepository(db_session),
-            provider=FakeAIProvider(text="Mở 9h-21h."),
+            provider=FakeAIProvider(text="Open 9am-9pm."),
         ),
         guild_repo=GuildRepository(db_session),
         kb_repo=KbRepository(db_session),
@@ -66,8 +66,8 @@ async def test_kb_repo_crud(db_session):
 @pytest.mark.asyncio
 async def test_ask_answers_from_kb(db_session):
     _, svc = await _setup(db_session)
-    out = await svc.ask(guild_discord_id=GID, question="Mấy giờ mở?")
-    assert "9h-21h" in out
+    out = await svc.ask(guild_discord_id=GID, question="What time do you open?")
+    assert "9am-9pm" in out
 
 
 @pytest.mark.asyncio
@@ -110,19 +110,19 @@ def _interaction():
 @pytest.mark.asyncio
 async def test_ask_command_replies(monkeypatch):
     stub = MagicMock()
-    stub.ask = AsyncMock(return_value="Mở 9h-21h.")
+    stub.ask = AsyncMock(return_value="Open 9am-9pm.")
     _patch(monkeypatch, stub)
     cog = AskCog(MagicMock(), MagicMock())
     inter = _interaction()
-    await cog.ask.callback(cog, inter, "Mấy giờ mở?")
+    await cog.ask.callback(cog, inter, "What time do you open?")
     msg = inter.followup.send.call_args.args[0]
-    assert "9h-21h" in msg
+    assert "9am-9pm" in msg
 
 
 @pytest.mark.asyncio
 async def test_ask_command_error(monkeypatch):
     stub = MagicMock()
-    stub.ask = AsyncMock(side_effect=ValueError("Server chưa có kho tri thức nào"))
+    stub.ask = AsyncMock(side_effect=ValueError("This server has no knowledge base yet"))
     _patch(monkeypatch, stub)
     cog = AskCog(MagicMock(), MagicMock())
     inter = _interaction()

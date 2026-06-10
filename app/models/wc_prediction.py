@@ -1,4 +1,4 @@
-"""Bảng `wc_prediction` — dự đoán của 1 user cho 1 (trận, kiểu kèo) trong 1 guild."""
+"""The `wc_prediction` table — a user's prediction for a (match, bet type) in a guild."""
 
 import uuid
 from datetime import datetime

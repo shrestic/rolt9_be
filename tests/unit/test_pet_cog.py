@@ -47,7 +47,7 @@ def _status(**over):
         "happiness": 40,
         "xp": 20,
         "level": 1,
-        "stage_name": "Trứng",
+        "stage_name": "Egg",
         "stage_emoji": "🥚",
         "mood_emoji": "🙂",
         "enabled": True,
@@ -78,7 +78,7 @@ async def test_pet_status_disabled(monkeypatch):
     inter = _interaction()
     await cog.pet_status.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "chưa" in msg.lower()
+    assert "hasn't" in msg.lower()
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_pet_feed_reports(monkeypatch):
 @pytest.mark.asyncio
 async def test_pet_feed_error_is_friendly(monkeypatch):
     stub = MagicMock()
-    stub.feed = AsyncMock(side_effect=ValueError("Không đủ coin"))
+    stub.feed = AsyncMock(side_effect=ValueError("Not enough coins"))
     _patch(monkeypatch, stub)
     cog = PetCog(MagicMock(), MagicMock())
     inter = _interaction()
@@ -114,7 +114,7 @@ async def test_pet_play_reports_evolution(monkeypatch):
     stub = MagicMock()
     stub.play = AsyncMock(
         return_value=PetActionResult(
-            status=_status(happiness=70, level=5, stage_name="Non", stage_emoji="🐣"),
+            status=_status(happiness=70, level=5, stage_name="Hatchling", stage_emoji="🐣"),
             leveled_up=True,
             evolved=True,
             balance=-1,
@@ -125,4 +125,4 @@ async def test_pet_play_reports_evolution(monkeypatch):
     inter = _interaction()
     await cog.pet_play.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "tiến hóa" in msg.lower() or "Non" in msg
+    assert "evolved" in msg.lower() or "Hatchling" in msg

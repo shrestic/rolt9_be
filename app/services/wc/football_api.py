@@ -1,7 +1,8 @@
-"""Client football-data.org (free tier có competition World Cup). Key global qua env.
+"""football-data.org client (free tier includes the World Cup competition). Global key via env.
 
-Lỗi/giới hạn/thiếu key -> trả [] (KHÔNG raise), giống web_search. Map status FINISHED/IN_PLAY/
-SCHEDULED -> finished/in_play/scheduled; trả list dict khớp WCMatchRepository.upsert.
+Errors / rate limits / missing key -> return [] (do NOT raise), like web_search. Maps status
+FINISHED/IN_PLAY/SCHEDULED -> finished/in_play/scheduled; returns a list of dicts matching
+WCMatchRepository.upsert.
 """
 
 import logging
@@ -36,7 +37,7 @@ def _map(raw: dict) -> dict:
 
 
 async def fetch_wc_matches() -> list[dict]:
-    """Lấy toàn bộ trận World Cup (lịch + kết quả). Lỗi/thiếu key -> []."""
+    """Fetch all World Cup matches (schedule + results). Errors / missing key -> []."""
     if not settings.FOOTBALL_DATA_API_KEY:
         return []
     try:
@@ -47,7 +48,7 @@ async def fetch_wc_matches() -> list[dict]:
             )
             r.raise_for_status()
             data = r.json()
-    except Exception:  # noqa: BLE001 — lỗi API không được làm hỏng tick
+    except Exception:  # noqa: BLE001 — an API error must not break the tick
         log.warning("football_api: fetch_wc_matches failed")
         return []
     out = []
@@ -55,5 +56,5 @@ async def fetch_wc_matches() -> list[dict]:
         try:
             out.append(_map(raw))
         except (KeyError, ValueError):
-            continue  # bỏ trận parse hỏng, không chặn cả lô
+            continue  # skip a match that fails to parse, don't block the whole batch
     return out

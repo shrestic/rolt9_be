@@ -14,10 +14,10 @@ XP_PER_ACTION = 5
 
 # (min level, stage name, emoji) — the stage is the last entry whose min <= level.
 STAGES: list[tuple[int, str, str]] = [
-    (1, "Trứng", "🥚"),
-    (5, "Non", "🐣"),
-    (15, "Nhỡ", "🐤"),
-    (30, "Trưởng thành", "🦅"),
+    (1, "Egg", "🥚"),
+    (5, "Hatchling", "🐣"),
+    (15, "Juvenile", "🐤"),
+    (30, "Adult", "🦅"),
 ]
 
 

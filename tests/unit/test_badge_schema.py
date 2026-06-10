@@ -8,9 +8,9 @@ def test_badge_settings_defaults_disabled():
 def test_catalog_entry_shape():
     e = BadgeCatalogEntry(
         key="level_5",
-        name="Tân binh",
+        name="Rookie",
         emoji="🥉",
-        description="Đạt level 5",
+        description="Reach level 5",
         stat="level",
         threshold=5,
     )

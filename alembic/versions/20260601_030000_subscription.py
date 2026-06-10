@@ -1,4 +1,4 @@
-"""Subscription: đăng ký nhận tin định kỳ hằng ngày
+"""Subscription: subscribe to receive a daily digest
 
 Revision ID: f4a5b6c7d8e9
 Revises: e3f4a5b6c7d8

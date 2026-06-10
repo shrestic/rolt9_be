@@ -48,7 +48,7 @@ async def test_levelup_awards_and_announces_badge():
     discord_io.post_to_channel.assert_awaited_once()
     call = discord_io.post_to_channel.call_args
     content = call.kwargs.get("content") or (call.args[-1] if call.args else "")
-    assert "Kỳ cựu" in content
+    assert "Veteran" in content
 
 
 @pytest.mark.asyncio

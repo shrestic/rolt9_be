@@ -12,8 +12,8 @@ from app.services.ai.ai_gateway import AIGateway
 from app.services.welcome.template import render_template
 
 WELCOME_SYSTEM = (
-    "Bạn viết MỘT câu chào mừng thành viên mới của một server Discord bằng tiếng "
-    "Việt: ấm áp, thân thiện, ngắn gọn (1 câu), có thể thêm emoji. Không bịa thông tin."
+    "Write ONE welcome sentence for a new member of a Discord server in English: "
+    "warm, friendly, short (1 sentence), emoji allowed. Don't make up any information."
 )
 
 
@@ -52,10 +52,11 @@ class WelcomeService:
                 ai = await self.gateway.complete(
                     guild_discord_id=guild_discord_id,
                     system=WELCOME_SYSTEM,
-                    prompt=f"Chào mừng thành viên '{user_name}' vừa vào server '{server_name}'.",
-                    # Không set max_tokens -> kế thừa AI_MAX_TOKENS (200k): reasoning model (deepseek-v4)
-                    # có đủ room để suy luận xong rồi mới xuất câu chào (cap nhỏ -> reasoning nuốt sạch ->
-                    # content rỗng -> lỗi). Câu chào vẫn NGẮN vì WELCOME_SYSTEM ép "1 câu". Fail -> fallback template.
+                    prompt=f"Welcome member '{user_name}' who just joined server '{server_name}'.",
+                    # Don't set max_tokens -> inherit AI_MAX_TOKENS (200k): a reasoning model (deepseek-v4)
+                    # has enough room to finish reasoning before emitting the greeting (a small cap ->
+                    # reasoning eats it all -> empty content -> error). The greeting stays SHORT because
+                    # WELCOME_SYSTEM forces "1 sentence". On failure -> fall back to the template.
                 )
                 # Prefix the mention so the new member gets pinged even on the AI line.
                 text = f"{user_mention} {ai}"

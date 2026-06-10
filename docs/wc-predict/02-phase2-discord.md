@@ -1,53 +1,54 @@
-# WC Predict — Pha 2: Sync loop + Thẻ trận + /wc-setup (Implementation Plan)
+# WC Predict — Phase 2: Sync loop + Match cards + /wc-setup (Implementation Plan)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (hoặc
-> executing-plans) để chạy plan này task-by-task. Bước có checkbox `- [ ]`.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or
+> executing-plans) to run this plan task-by-task. Steps have a `- [ ]` checkbox.
 
-**Goal:** Bot tự kéo lịch World Cup theo nhịp, đăng thẻ trận có cờ + nút bấm + modal tỉ số + thả-cờ
-đoán nhanh vào kênh từng server bật, ghi/sửa dự đoán tới lúc bóng lăn, và tự chấm điểm khi trận
-kết thúc. Admin bật/cấu hình bằng `/wc-setup`.
+**Goal:** The bot auto-pulls the World Cup schedule on a tick, posts match cards with flags + buttons
++ a score modal + quick flag-prediction into the channel of each enabled server, writes/edits
+predictions until kickoff, and auto-scores when a match finishes. Admins enable/configure via
+`/wc-setup`.
 
-**Architecture:** Tách **logic thuần/service** (flags, render thẻ, sync+settle) ra để unit-test;
-phần **Discord glue** (cog loop, View/Modal/reaction, slash command) verify thủ công. Thẻ trận dùng
-**persistent view** (`discord.ui.DynamicItem`, discord.py 2.4) để nút sống qua restart; `custom_id`
-mã hoá `bet_type:pick:match_id`. Thêm bảng `wc_card` để biết thẻ nào đã đăng (chống đăng lại) + map
-message ↔ trận cho reaction.
+**Architecture:** Pull the **pure logic/service** (flags, card rendering, sync+settle) out for
+unit-testing; the **Discord glue** (cog loop, View/Modal/reaction, slash command) is verified
+manually. Match cards use a **persistent view** (`discord.ui.DynamicItem`, discord.py 2.4) so buttons
+survive restarts; the `custom_id` encodes `bet_type:pick:match_id`. Add a `wc_card` table to know
+which cards have been posted (prevent re-posting) + map message ↔ match for reactions.
 
 **Tech Stack:** discord.py 2.4 (`tasks.loop`, `app_commands`, `ui.View/Modal/DynamicItem`,
-`on_raw_reaction_add/remove`), SQLAlchemy 2 async, Alembic, pytest. Foundation Pha 1 đã có.
+`on_raw_reaction_add/remove`), SQLAlchemy 2 async, Alembic, pytest. The Phase 1 foundation is in place.
 
-**Phụ thuộc Pha 1:** `app.services.wc.scoring.score/POINTS`, `app.services.wc.football_api.fetch_wc_matches`,
+**Phase 1 dependencies:** `app.services.wc.scoring.score/POINTS`, `app.services.wc.football_api.fetch_wc_matches`,
 `WCMatchRepository`, `WCPredictionRepository`, `WCConfigRepository`, models `WCMatch/WCPrediction/GuildWCConfig`.
 
 ---
 
 ## File structure
 
-| File | Trách nhiệm | Test? |
+| File | Responsibility | Test? |
 |---|---|---|
-| `app/services/wc/flags.py` | Mã đội (tla/code) → emoji cờ | ✅ unit |
-| `app/services/wc/cards.py` | Render Embed thẻ trận + helper giờ-VN / nhãn kèo / khoá | ✅ unit (phần thuần) |
-| `app/models/wc_card.py` | Bảng `wc_card`: thẻ đã đăng (guild,match,channel,message) | — |
-| `app/repositories/wc_card.py` | Data access `wc_card` | ✅ unit |
-| `alembic/versions/<ts>_wc_card.py` | Migration bảng `wc_card` | — |
-| `app/services/wc/sync_service.py` | `sync_matches` + `settle_finished` (orchestration thuần-DB) | ✅ unit |
-| `app/bot/cogs/wc_predict.py` | View nút + Modal tỉ số + reaction quick-1X2 + ghi/sửa kèo + `/wc-setup` | manual |
-| `app/bot/cogs/wc_sync.py` | `tasks.loop`: sync → đăng thẻ → settle | manual |
-| `app/bot/client.py` | Đăng ký 2 cog + persistent dynamic items (sửa `setup_hook`) | manual |
+| `app/services/wc/flags.py` | Team code (tla/code) → flag emoji | ✅ unit |
+| `app/services/wc/cards.py` | Render the match-card Embed + Vietnam-time / bet-label / lock helpers | ✅ unit (pure parts) |
+| `app/models/wc_card.py` | `wc_card` table: posted cards (guild,match,channel,message) | — |
+| `app/repositories/wc_card.py` | `wc_card` data access | ✅ unit |
+| `alembic/versions/<ts>_wc_card.py` | `wc_card` table migration | — |
+| `app/services/wc/sync_service.py` | `sync_matches` + `settle_finished` (pure-DB orchestration) | ✅ unit |
+| `app/bot/cogs/wc_predict.py` | Button View + score Modal + quick-1X2 reactions + write/edit bets + `/wc-setup` | manual |
+| `app/bot/cogs/wc_sync.py` | `tasks.loop`: sync → post cards → settle | manual |
+| `app/bot/client.py` | Register the 2 cogs + persistent dynamic items (edit `setup_hook`) | manual |
 
-**Quy ước `pick`:** `1x2` → `home|draw|away`; `ou` → `over|under` (mốc = `match.ou_line`);
-`ah` → `favorite|underdog` (đội/mốc = `match.handicap_team`/`handicap_line`); `cs` → chuỗi `"H-A"`.
+**`pick` convention:** `1x2` → `home|draw|away`; `ou` → `over|under` (line = `match.ou_line`);
+`ah` → `favorite|underdog` (team/line = `match.handicap_team`/`handicap_line`); `cs` → the string `"H-A"`.
 
 ---
 
-### Task 1: Flags — mã đội → emoji cờ
+### Task 1: Flags — team code → flag emoji
 
 **Files:** Create `app/services/wc/flags.py`; Test `tests/unit/test_wc_flags.py`.
 
-football-data.org trả `tla` (mã FIFA 3 ký tự, vd `BRA`). Emoji cờ Unicode cần mã ISO-2
-(`BR`→🇧🇷). Ta map FIFA→cờ bằng dict cho các nước WC; thiếu → 🏳️.
+football-data.org returns `tla` (a 3-char FIFA code, e.g. `BRA`). Unicode flag emoji need the ISO-2
+code (`BR`→🇧🇷). We map FIFA→flag with a dict for the WC countries; missing → 🏳️.
 
-- [ ] **Step 1: Viết test thất bại** `tests/unit/test_wc_flags.py`:
+- [ ] **Step 1: Write a failing test** `tests/unit/test_wc_flags.py`:
 
 ```python
 from app.services.wc.flags import flag
@@ -65,18 +66,19 @@ def test_case_insensitive_and_unknown():
     assert flag(None) == "🏳️"
 ```
 
-- [ ] **Step 2: Chạy cho thất bại** — `.venv/bin/pytest tests/unit/test_wc_flags.py -q` → FAIL (ModuleNotFound).
+- [ ] **Step 2: Run it red** — `.venv/bin/pytest tests/unit/test_wc_flags.py -q` → FAIL (ModuleNotFound).
 
-- [ ] **Step 3: Viết `app/services/wc/flags.py`** (ISO-2 → cờ bằng regional indicators; map FIFA→ISO2):
+- [ ] **Step 3: Write `app/services/wc/flags.py`** (ISO-2 → flag via regional indicators; map FIFA→ISO2):
 
 ```python
-"""Mã đội (FIFA tla, vd 'BRA') -> emoji cờ. Thiếu mã -> cờ trắng 🏳️.
+"""Team code (FIFA tla, e.g. 'BRA') -> flag emoji. Missing code -> white flag 🏳️.
 
-football-data.org trả tla 3 ký tự; emoji cờ cần ISO-3166 alpha-2. Dict dưới phủ các đội WC
-phổ biến; bổ sung khi cần. flag() chịu được None/mã lạ (trả 🏳️) để không bao giờ làm vỡ thẻ.
+football-data.org returns a 3-char tla; flag emoji need ISO-3166 alpha-2. The dict below covers the
+common WC teams; extend as needed. flag() tolerates None/unknown codes (returns 🏳️) so it never
+breaks a card.
 """
 
-# FIFA tla -> ISO-2. Bổ sung dần khi gặp đội mới.
+# FIFA tla -> ISO-2. Extend gradually as new teams appear.
 _FIFA_TO_ISO2 = {
     "BRA": "BR", "ARG": "AR", "FRA": "FR", "ENG": "GB", "ESP": "ES", "GER": "DE",
     "POR": "PT", "NED": "NL", "BEL": "BE", "ITA": "IT", "CRO": "HR", "URU": "UY",
@@ -90,18 +92,18 @@ _FIFA_TO_ISO2 = {
 
 
 def flag(code: str | None) -> str:
-    """Trả emoji cờ cho mã đội (FIFA tla hoặc ISO-2). Không khớp -> 🏳️."""
+    """Return the flag emoji for a team code (FIFA tla or ISO-2). No match -> 🏳️."""
     if not code:
         return "🏳️"
     c = code.strip().upper()
     iso2 = _FIFA_TO_ISO2.get(c, c if len(c) == 2 else "")
     if len(iso2) != 2 or not iso2.isalpha():
         return "🏳️"
-    # Ghép 2 regional indicator: 'A' (0x41) -> 0x1F1E6
+    # Join 2 regional indicators: 'A' (0x41) -> 0x1F1E6
     return "".join(chr(0x1F1E6 + (ord(ch) - ord("A"))) for ch in iso2)
 ```
 
-- [ ] **Step 4: Chạy cho pass** — `.venv/bin/pytest tests/unit/test_wc_flags.py -q` → PASS.
+- [ ] **Step 4: Run it green** — `.venv/bin/pytest tests/unit/test_wc_flags.py -q` → PASS.
 
 - [ ] **Step 5: Lint + commit**
 
@@ -118,11 +120,11 @@ EOF
 
 ---
 
-### Task 2: Cards — render thẻ trận + helper
+### Task 2: Cards — render the match card + helpers
 
 **Files:** Create `app/services/wc/cards.py`; Test `tests/unit/test_wc_cards.py`.
 
-- [ ] **Step 1: Viết test thất bại** `tests/unit/test_wc_cards.py`:
+- [ ] **Step 1: Write a failing test** `tests/unit/test_wc_cards.py`:
 
 ```python
 from datetime import UTC, datetime, timedelta
@@ -143,7 +145,7 @@ def _m(**kw):
 
 
 def test_vn_time_is_utc_plus_7():
-    # 12:00 UTC -> 19:00 giờ VN
+    # 12:00 UTC -> 19:00 Vietnam time
     assert "19:00" in vn_time(datetime(2026, 6, 20, 12, 0, tzinfo=UTC))
 
 
@@ -159,20 +161,20 @@ def test_ou_label_shows_line():
 
 
 def test_handicap_label_names_favorite():
-    # home chấp 1.0 -> Brazil là cửa trên
+    # home gives 1.0 -> Brazil is the favorite
     assert "Brazil" in handicap_label(_m())
     assert "1" in handicap_label(_m())
 ```
 
-- [ ] **Step 2: Chạy cho thất bại** → FAIL.
+- [ ] **Step 2: Run it red** → FAIL.
 
-- [ ] **Step 3: Viết `app/services/wc/cards.py`** (helper thuần + builder Embed):
+- [ ] **Step 3: Write `app/services/wc/cards.py`** (pure helpers + Embed builder):
 
 ```python
-"""Render thẻ trận WC (Embed) + helper thuần (giờ VN, nhãn kèo, khoá tại kickoff).
+"""Render the WC match card (Embed) + pure helpers (Vietnam time, bet labels, lock at kickoff).
 
-Phần thuần (vn_time/is_locked/ou_label/handicap_label) tách riêng để unit-test; build_match_embed
-ghép chúng thành discord.Embed. KHÔNG gọi I/O.
+The pure parts (vn_time/is_locked/ou_label/handicap_label) are split out for unit-testing;
+build_match_embed combines them into a discord.Embed. NO I/O calls.
 """
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -186,25 +188,25 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 def vn_time(dt: datetime) -> str:
-    """Giờ kickoff theo VN, vd '19:00 20/06'."""
+    """Kickoff time in Vietnam time, e.g. '19:00 20/06'."""
     return dt.astimezone(VN_TZ).strftime("%H:%M %d/%m")
 
 
 def is_locked(match: WCMatch, now: datetime) -> bool:
-    """Khoá kèo khi đã tới/qua giờ bóng lăn."""
+    """Lock bets once kickoff is reached/passed."""
     return now >= match.kickoff_at
 
 
 def ou_label(match: WCMatch) -> str:
-    return f"Tài/Xỉu {match.ou_line:g}"
+    return f"Over/Under {match.ou_line:g}"
 
 
 def handicap_label(match: WCMatch) -> str:
-    """Nhãn kèo chấp, vd 'Brazil chấp 1' (đội cửa trên + mốc)."""
+    """Handicap label, e.g. 'Brazil -1' (favorite + line)."""
     if match.handicap_team not in ("home", "away") or match.handicap_line is None:
-        return "Kèo chấp (chưa có)"
+        return "Handicap (not set)"
     fav = match.home_team if match.handicap_team == "home" else match.away_team
-    return f"{fav} chấp {match.handicap_line:g}"
+    return f"{fav} -{match.handicap_line:g}"
 
 
 def title(match: WCMatch) -> str:
@@ -212,23 +214,23 @@ def title(match: WCMatch) -> str:
 
 
 def build_match_embed(match: WCMatch, *, locked: bool, hot_take: str | None = None) -> discord.Embed:
-    """Embed thẻ trận: tiêu đề có cờ, giờ VN, các kèo, trạng thái khoá. hot_take (Pha 4) tùy chọn."""
-    desc_lines = [f"🕐 **{vn_time(match.kickoff_at)}** (giờ VN)"]
+    """Match-card Embed: title with flags, Vietnam time, the bets, lock state. hot_take (Phase 4) optional."""
+    desc_lines = [f"🕐 **{vn_time(match.kickoff_at)}** (Vietnam time)"]
     if match.stage:
         desc_lines.append(f"🏟️ {match.stage}")
     if hot_take:
         desc_lines.append(f"\n💬 *{hot_take}*")
     embed = discord.Embed(title=title(match), description="\n".join(desc_lines), color=0x1FAA59)
-    embed.add_field(name="1X2", value=f"{match.home_team} / Hòa / {match.away_team}", inline=False)
-    embed.add_field(name="Tài/Xỉu", value=ou_label(match), inline=True)
-    embed.add_field(name="Chấp", value=handicap_label(match), inline=True)
+    embed.add_field(name="1X2", value=f"{match.home_team} / Draw / {match.away_team}", inline=False)
+    embed.add_field(name="Over/Under", value=ou_label(match), inline=True)
+    embed.add_field(name="Handicap", value=handicap_label(match), inline=True)
     embed.set_footer(
-        text="🔒 Đã khoá kèo" if locked else "Bấm nút để đoán • thả cờ = đoán nhanh 1X2 • khoá khi bóng lăn"
+        text="🔒 Bets locked" if locked else "Press a button to predict • flag reaction = quick 1X2 • locks at kickoff"
     )
     return embed
 ```
 
-- [ ] **Step 4: Chạy cho pass** → PASS.
+- [ ] **Step 4: Run it green** → PASS.
 
 - [ ] **Step 5: Lint + commit**
 
@@ -245,15 +247,15 @@ EOF
 
 ---
 
-### Task 3: Bảng `wc_card` + repo + migration
+### Task 3: `wc_card` table + repo + migration
 
-Theo dõi thẻ đã đăng theo (guild, match) để (a) không đăng lại, (b) map message_id → trận cho
-reaction, (c) cập nhật/khoá thẻ khi tới giờ.
+Track posted cards by (guild, match) to (a) avoid re-posting, (b) map message_id → match for
+reactions, (c) update/lock the card at kickoff.
 
 **Files:** Create `app/models/wc_card.py`, `app/repositories/wc_card.py`,
 `alembic/versions/<timestamp>_wc_card.py`; Modify `app/db/base.py`; Test `tests/unit/test_wc_card_repo.py`.
 
-- [ ] **Step 1: Viết test thất bại** `tests/unit/test_wc_card_repo.py`:
+- [ ] **Step 1: Write a failing test** `tests/unit/test_wc_card_repo.py`:
 
 ```python
 import uuid
@@ -285,16 +287,16 @@ async def test_record_and_lookup(db_session):
     assert await repo.exists(gid, 7) is True
     card = await repo.by_message(999)
     assert card is not None and card.match_id == 7 and card.guild_id == gid
-    assert await repo.mark_locked(gid, 7) is None  # không lỗi khi gọi
+    assert await repo.mark_locked(gid, 7) is None  # no error when called
     await db_session.commit()
 ```
 
-- [ ] **Step 2: Chạy cho thất bại** → FAIL.
+- [ ] **Step 2: Run it red** → FAIL.
 
 - [ ] **Step 3: Model `app/models/wc_card.py`**:
 
 ```python
-"""Bảng `wc_card` — thẻ trận đã đăng cho 1 (guild, match): để chống đăng lại + map reaction."""
+"""Table `wc_card` — the card posted for one (guild, match): to prevent re-posting + map reactions."""
 import uuid
 from datetime import datetime
 
@@ -325,7 +327,7 @@ class WCCard(Base):
 - [ ] **Step 4: Repo `app/repositories/wc_card.py`**:
 
 ```python
-"""Data access cho wc_card (thẻ trận đã đăng per guild/match)."""
+"""Data access for wc_card (posted cards per guild/match)."""
 import uuid
 
 from sqlalchemy import select
@@ -368,18 +370,18 @@ class WCCardRepository:
         await self.session.flush()
 ```
 
-- [ ] **Step 5: Đăng ký trong `app/db/base.py`** — thêm dòng (giữ thứ tự alphabet với các import wc):
+- [ ] **Step 5: Register in `app/db/base.py`** — add the line (keep alphabetical order with the other wc imports):
 
 ```python
 from app.models.wc_card import WCCard  # noqa: F401
 ```
 
-- [ ] **Step 6: Migration** — `down_revision` = head HIỆN TẠI (chạy `docker compose exec -T api alembic heads`
-  để lấy; lúc viết plan head Pha 1 là `c0ffee0wc001`, NHƯNG verify lại). File
+- [ ] **Step 6: Migration** — `down_revision` = the CURRENT head (run `docker compose exec -T api alembic heads`
+  to get it; at plan-writing time the Phase 1 head is `c0ffee0wc001`, BUT verify). File
   `alembic/versions/<timestamp>_wc_card.py`:
 
 ```python
-"""WC Predict Pha 2: bảng wc_card
+"""WC Predict Phase 2: wc_card table
 
 Revision ID: d1ce0card002
 Revises: c0ffee0wc001
@@ -421,7 +423,7 @@ def downgrade() -> None:
     op.drop_table("wc_card")
 ```
 
-- [ ] **Step 7: Chạy test + apply migration**
+- [ ] **Step 7: Run tests + apply the migration**
 
 ```bash
 .venv/bin/pytest tests/unit/test_wc_card_repo.py -q          # PASS
@@ -446,11 +448,12 @@ EOF
 
 ### Task 4: Sync service — `sync_matches` + `settle_finished`
 
-Orchestration thuần-DB (không Discord) để unit-test: kéo trận từ API → upsert; chấm trận đã xong.
+Pure-DB orchestration (no Discord) for unit-testing: pull matches from the API → upsert; score
+finished matches.
 
 **Files:** Create `app/services/wc/sync_service.py`; Test `tests/unit/test_wc_sync_service.py`.
 
-- [ ] **Step 1: Viết test thất bại** `tests/unit/test_wc_sync_service.py`:
+- [ ] **Step 1: Write a failing test** `tests/unit/test_wc_sync_service.py`:
 
 ```python
 import uuid
@@ -480,7 +483,7 @@ async def test_sync_matches_upserts(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_settle_finished_scores_predictions(db_session, monkeypatch):
-    # 1 guild, 1 trận finished 2-1, 2 dự đoán: 1x2 home (đúng=1đ), cs 0-0 (sai=0đ)
+    # 1 guild, 1 finished match 2-1, 2 predictions: 1x2 home (correct=1pt), cs 0-0 (wrong=0pt)
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=1, name="g", icon_url=None, is_active=True))
 
@@ -504,15 +507,15 @@ async def test_settle_finished_scores_predictions(db_session, monkeypatch):
     assert by_user[42] == 1 and by_user[43] == 0
 ```
 
-- [ ] **Step 2: Chạy cho thất bại** → FAIL.
+- [ ] **Step 2: Run it red** → FAIL.
 
-- [ ] **Step 3: Viết `app/services/wc/sync_service.py`**:
+- [ ] **Step 3: Write `app/services/wc/sync_service.py`**:
 
 ```python
-"""Orchestration WC thuần-DB (không Discord): đồng bộ trận + chấm điểm trận đã xong.
+"""Pure-DB WC orchestration (no Discord): sync matches + score finished matches.
 
-Tách khỏi cog để unit-test. Cog `wc_sync` chỉ gọi 2 hàm này trong session_scope rồi lo phần
-đăng/sửa thẻ Discord.
+Split out of the cog for unit-testing. The `wc_sync` cog just calls these 2 functions inside a
+session_scope, then handles the Discord card posting/editing.
 """
 import logging
 
@@ -527,7 +530,7 @@ log = logging.getLogger(__name__)
 
 
 async def sync_matches(session: AsyncSession) -> int:
-    """Kéo toàn bộ trận WC từ API, upsert vào wc_match. Trả số trận đã xử lý."""
+    """Pull all WC matches from the API, upsert into wc_match. Return the number processed."""
     matches = await fetch_wc_matches()
     repo = WCMatchRepository(session)
     for data in matches:
@@ -538,16 +541,16 @@ async def sync_matches(session: AsyncSession) -> int:
 
 
 async def settle_finished(session: AsyncSession) -> int:
-    """Chấm mọi trận finished chưa settled: tính điểm từng prediction (mọi guild) -> set_points.
+    """Score every finished, unsettled match: compute points per prediction (all guilds) -> set_points.
 
-    Trả số trận đã chấm. Trận chưa có tỉ số (home/away_score None) -> bỏ qua, để nhịp sau.
+    Return the number scored. Matches with no score yet (home/away_score None) -> skipped, for a later tick.
     """
     mrepo = WCMatchRepository(session)
     prepo = WCPredictionRepository(session)
     count = 0
     for match in await mrepo.finished_unsettled():
         if match.home_score is None or match.away_score is None:
-            continue  # finished nhưng API chưa kịp tỉ số -> chờ nhịp sau
+            continue  # finished but the API hasn't filled in the score -> wait for a later tick
         for pred in await prepo.for_match(match.id):
             pts = score(
                 pred.bet_type, pred.pick,
@@ -563,7 +566,7 @@ async def settle_finished(session: AsyncSession) -> int:
     return count
 ```
 
-- [ ] **Step 4: Chạy cho pass** → PASS.
+- [ ] **Step 4: Run it green** → PASS.
 
 - [ ] **Step 5: Lint + commit**
 
@@ -580,14 +583,15 @@ EOF
 
 ---
 
-### Task 5: Cog `wc_predict` — View nút + Modal tỉ số + reaction + ghi/sửa kèo + `/wc-setup`
+### Task 5: Cog `wc_predict` — button View + score Modal + reactions + write/edit bets + `/wc-setup`
 
-**Glue Discord — verify thủ công.** Persistent view qua `discord.ui.DynamicItem` (custom_id mã hoá
-`wc:{bet}:{pick}:{match_id}`) để nút sống sau restart. Modal nhập tỉ số. Reaction cờ = đoán nhanh 1X2.
+**Discord glue — verified manually.** Persistent view via `discord.ui.DynamicItem` (custom_id encodes
+`wc:{bet}:{pick}:{match_id}`) so buttons survive restarts. A modal to enter the score. Flag reactions =
+quick 1X2.
 
 **Files:** Create `app/bot/cogs/wc_predict.py`; Test (smoke) `tests/unit/test_wc_predict_helpers.py`.
 
-- [ ] **Step 1: Viết helper thuần + test** — tách parse/validate ra để test, phần Discord để glue.
+- [ ] **Step 1: Write pure helpers + tests** — pull parse/validate out for testing, leave the Discord part as glue.
 
 `tests/unit/test_wc_predict_helpers.py`:
 ```python
@@ -611,22 +615,22 @@ def test_custom_id_roundtrip():
     assert parse_custom_id(cid) == ("1x2", "home", 1001)
 ```
 
-- [ ] **Step 2: Chạy cho thất bại** → FAIL.
+- [ ] **Step 2: Run it red** → FAIL.
 
-- [ ] **Step 3: Viết `app/bot/cogs/wc_predict.py`.** Khung đầy đủ (bám pattern `agent.py` View +
-  `session_scope` + slash command admin check). Điểm chính:
-  - `parse_score`, `build_custom_id`, `parse_custom_id` (hàm thuần, có test).
-  - `WCButton(discord.ui.DynamicItem[...])` với `template` regex parse `bet/pick/match`; callback
-    ghi/sửa prediction (cs → mở Modal), check khoá tại kickoff.
-  - `WCScoreModal(discord.ui.Modal)` nhập tỉ số → upsert cs.
-  - `WCPredictCog`: listener `on_raw_reaction_add` / `on_raw_reaction_remove` (cờ home/away →
-    upsert/huỷ 1x2); nhóm lệnh `app_commands.Group("wc", guild_only=True)` chứa `setup`.
+- [ ] **Step 3: Write `app/bot/cogs/wc_predict.py`.** A full skeleton (following the `agent.py` View +
+  `session_scope` + slash command admin check pattern). Key points:
+  - `parse_score`, `build_custom_id`, `parse_custom_id` (pure functions, tested).
+  - `WCButton(discord.ui.DynamicItem[...])` with a `template` regex parsing `bet/pick/match`; the callback
+    writes/edits the prediction (cs → opens a Modal), checks the lock at kickoff.
+  - `WCScoreModal(discord.ui.Modal)` to enter the score → upsert cs.
+  - `WCPredictCog`: listener `on_raw_reaction_add` / `on_raw_reaction_remove` (home/away flag →
+    upsert/cancel 1x2); command group `app_commands.Group("wc", guild_only=True)` containing `setup`.
 
 ```python
-"""Cog WC Predict — nút/modal/reaction để người chơi đoán + /wc-setup (admin).
+"""WC Predict cog — buttons/modal/reactions for players to predict + /wc-setup (admin).
 
-Nút dùng DynamicItem (persistent) nên sống qua restart: custom_id = 'wc:{bet}:{pick}:{match_id}'.
-Mọi ghi kèo đều check khoá tại kickoff (so match.kickoff_at với now). Lỗi -> phản hồi ephemeral.
+Buttons use DynamicItem (persistent) so they survive restarts: custom_id = 'wc:{bet}:{pick}:{match_id}'.
+Every bet write checks the lock at kickoff (compares match.kickoff_at to now). Error -> ephemeral reply.
 """
 import logging
 import re
@@ -648,14 +652,14 @@ from app.services.wc.cards import is_locked
 
 log = logging.getLogger(__name__)
 
-_PICK_LABEL = {  # để báo lại cho người chơi
-    "home": "đội nhà", "draw": "hòa", "away": "đội khách",
-    "over": "Tài", "under": "Xỉu", "favorite": "cửa trên", "underdog": "cửa dưới",
+_PICK_LABEL = {  # to report back to the player
+    "home": "home", "draw": "draw", "away": "away",
+    "over": "Over", "under": "Under", "favorite": "favorite", "underdog": "underdog",
 }
 
 
 def parse_score(raw: str) -> tuple[int, int] | None:
-    """'2-1' / '3:0' -> (2, 1). Sai định dạng -> None. Chỉ nhận 0-99 mỗi vế."""
+    """'2-1' / '3:0' -> (2, 1). Bad format -> None. Only accepts 0-99 per side."""
     if not raw:
         return None
     m = re.fullmatch(r"\s*(\d{1,2})\s*[-:]\s*(\d{1,2})\s*", raw)
@@ -677,23 +681,23 @@ def parse_custom_id(cid: str) -> tuple[str, str, int] | None:
 
 async def _record_prediction(session, *, guild_discord_id: int, match_id: int, user_id: int,
                              bet: str, pick: str) -> str:
-    """Ghi/sửa 1 prediction sau khi check khoá. Trả câu phản hồi (đã đoán / đã khoá / lỗi)."""
+    """Write/edit one prediction after the lock check. Return the reply line (recorded / locked / error)."""
     guild = await GuildRepository(session).get_by_discord_id(guild_discord_id)
     if guild is None:
-        return "❌ Server chưa khởi tạo."
+        return "❌ Server not initialized."
     match = await WCMatchRepository(session).get(match_id)
     if match is None:
-        return "❌ Không tìm thấy trận."
+        return "❌ Match not found."
     if is_locked(match, datetime.now(UTC)):
-        return "🔒 Trận đã khoá kèo (bóng lăn rồi)."
+        return "🔒 Bets are locked (kickoff has started)."
     await WCPredictionRepository(session).upsert(guild.id, match_id, user_id, bet, pick)
     label = _PICK_LABEL.get(pick, pick)
-    return f"✅ Đã ghi kèo **{bet}**: {label}."
+    return f"✅ Recorded bet **{bet}**: {label}."
 
 
-# ---- Modal nhập tỉ số ----
-class WCScoreModal(discord.ui.Modal, title="🎯 Đoán tỉ số chính xác"):
-    score_in = discord.ui.TextInput(label="Tỉ số (nhà-khách)", placeholder="vd 2-1", max_length=5)
+# ---- Score-entry modal ----
+class WCScoreModal(discord.ui.Modal, title="🎯 Predict the exact score"):
+    score_in = discord.ui.TextInput(label="Score (home-away)", placeholder="e.g. 2-1", max_length=5)
 
     def __init__(self, match_id: int):
         super().__init__()
@@ -702,7 +706,7 @@ class WCScoreModal(discord.ui.Modal, title="🎯 Đoán tỉ số chính xác"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         parsed = parse_score(str(self.score_in.value))
         if parsed is None:
-            await interaction.response.send_message("❌ Tỉ số không hợp lệ (vd 2-1).", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid score (e.g. 2-1).", ephemeral=True)
             return
         pick = f"{parsed[0]}-{parsed[1]}"
         async with session_scope() as session:
@@ -710,10 +714,10 @@ class WCScoreModal(discord.ui.Modal, title="🎯 Đoán tỉ số chính xác"):
                 session, guild_discord_id=interaction.guild_id, match_id=self.match_id,
                 user_id=interaction.user.id, bet="cs", pick=pick,
             )
-        await interaction.response.send_message(f"{msg} (tỉ số {pick})", ephemeral=True)
+        await interaction.response.send_message(f"{msg} (score {pick})", ephemeral=True)
 
 
-# ---- Nút persistent (DynamicItem) ----
+# ---- Persistent buttons (DynamicItem) ----
 class WCButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"wc:(?P<bet>[a-z0-9]+):(?P<pick>[a-z_]+):(?P<match>\d+)",
@@ -730,7 +734,7 @@ class WCButton(
         return cls(bet, pick, mid, label="…")
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        if self.bet == "cs":  # mở modal nhập tỉ số
+        if self.bet == "cs":  # open the score-entry modal
             await interaction.response.send_modal(WCScoreModal(self.match_id))
             return
         async with session_scope() as session:
@@ -742,17 +746,17 @@ class WCButton(
 
 
 def build_card_view(match) -> discord.ui.View:
-    """View gắn vào thẻ trận: nút 1X2 + Tài/Xỉu + Chấp + Đoán tỉ số. timeout=None (persistent)."""
+    """The View attached to a match card: 1X2 + Over/Under + Handicap + Predict score buttons. timeout=None (persistent)."""
     view = discord.ui.View(timeout=None)
     mid = match.id
     view.add_item(WCButton("1x2", "home", mid, label=match.home_team[:40]))
-    view.add_item(WCButton("1x2", "draw", mid, label="Hòa", style=discord.ButtonStyle.secondary))
+    view.add_item(WCButton("1x2", "draw", mid, label="Draw", style=discord.ButtonStyle.secondary))
     view.add_item(WCButton("1x2", "away", mid, label=match.away_team[:40]))
-    view.add_item(WCButton("ou", "over", mid, label="Tài", style=discord.ButtonStyle.success))
-    view.add_item(WCButton("ou", "under", mid, label="Xỉu", style=discord.ButtonStyle.success))
-    view.add_item(WCButton("ah", "favorite", mid, label="Cửa trên", style=discord.ButtonStyle.secondary))
-    view.add_item(WCButton("ah", "underdog", mid, label="Cửa dưới", style=discord.ButtonStyle.secondary))
-    view.add_item(WCButton("cs", "modal", mid, label="🎯 Đoán tỉ số", style=discord.ButtonStyle.danger))
+    view.add_item(WCButton("ou", "over", mid, label="Over", style=discord.ButtonStyle.success))
+    view.add_item(WCButton("ou", "under", mid, label="Under", style=discord.ButtonStyle.success))
+    view.add_item(WCButton("ah", "favorite", mid, label="Favorite", style=discord.ButtonStyle.secondary))
+    view.add_item(WCButton("ah", "underdog", mid, label="Underdog", style=discord.ButtonStyle.secondary))
+    view.add_item(WCButton("cs", "modal", mid, label="🎯 Predict score", style=discord.ButtonStyle.danger))
     return view
 
 
@@ -763,7 +767,7 @@ class WCPredictCog(commands.Cog):
 
     # ---- Reaction quick-1X2 ----
     async def _flag_pick(self, session, card, emoji: str) -> str | None:
-        """Cờ home/away của thẻ -> 'home'/'away'. Không khớp -> None."""
+        """The card's home/away flag -> 'home'/'away'. No match -> None."""
         from app.services.wc.flags import flag
         match = await WCMatchRepository(session).get(card.match_id)
         if match is None:
@@ -804,7 +808,7 @@ class WCPredictCog(commands.Cog):
             pick = await self._flag_pick(session, card, str(payload.emoji))
             if pick is None:
                 return
-            # Gỡ cờ -> huỷ dự đoán 1x2 nếu đang đúng pick đó
+            # Removing the flag -> cancel the 1x2 prediction if it currently matches that pick
             guild = await GuildRepository(session).get_by_discord_id(payload.guild_id)
             if guild is None:
                 return
@@ -816,16 +820,16 @@ class WCPredictCog(commands.Cog):
             await session.flush()
 
     # ---- /wc-setup ----
-    wc = app_commands.Group(name="wc", description="World Cup dự đoán", guild_only=True)
+    wc = app_commands.Group(name="wc", description="World Cup predictions", guild_only=True)
 
-    @wc.command(name="setup", description="Bật/cấu hình WC Predict (cần Manage Server).")
-    @app_commands.describe(channel="Kênh đăng thẻ trận", enabled="Bật/tắt", shame_prefix="Tiền tố nick bêu")
+    @wc.command(name="setup", description="Enable/configure WC Predict (needs Manage Server).")
+    @app_commands.describe(channel="Channel to post match cards", enabled="On/off", shame_prefix="Shaming nick prefix")
     async def wc_setup(self, interaction: discord.Interaction,
                        channel: discord.TextChannel | None = None,
                        enabled: bool | None = None,
                        shame_prefix: str | None = None) -> None:
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ Cần quyền **Manage Server**.", ephemeral=True)
+            await interaction.response.send_message("❌ Needs **Manage Server** permission.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         data: dict = {}
@@ -838,20 +842,20 @@ class WCPredictCog(commands.Cog):
         async with session_scope() as session:
             guild = await GuildRepository(session).get_by_discord_id(interaction.guild_id)
             if guild is None:
-                await interaction.followup.send("❌ Server chưa khởi tạo.", ephemeral=True)
+                await interaction.followup.send("❌ Server not initialized.", ephemeral=True)
                 return
             cfg = await WCConfigRepository(session).upsert(guild.id, data)
-            ch = f"<#{cfg.channel_id}>" if cfg.channel_id else "(chưa đặt)"
-            state = "BẬT ✅" if cfg.enabled else "TẮT ⛔"
+            ch = f"<#{cfg.channel_id}>" if cfg.channel_id else "(not set)"
+            state = "ON ✅" if cfg.enabled else "OFF ⛔"
         await interaction.followup.send(
-            f"⚙️ WC Predict: {state} • kênh {ch} • prefix nick bêu `{cfg.shame_nick_prefix}`",
+            f"⚙️ WC Predict: {state} • channel {ch} • shaming nick prefix `{cfg.shame_nick_prefix}`",
             ephemeral=True,
         )
 ```
 
-- [ ] **Step 4: Chạy test helper** → PASS (`.venv/bin/pytest tests/unit/test_wc_predict_helpers.py -q`).
+- [ ] **Step 4: Run the helper tests** → PASS (`.venv/bin/pytest tests/unit/test_wc_predict_helpers.py -q`).
 
-- [ ] **Step 5: Lint + commit** (chưa đăng ký cog — làm ở Task 7)
+- [ ] **Step 5: Lint + commit** (cog not registered yet — done in Task 7)
 
 ```bash
 .venv/bin/ruff format app/bot/cogs/wc_predict.py tests/unit/test_wc_predict_helpers.py
@@ -866,21 +870,21 @@ EOF
 
 ---
 
-### Task 6: Cog `wc_sync` — loop sync → đăng thẻ → settle
+### Task 6: Cog `wc_sync` — loop sync → post cards → settle
 
-**Glue — verify thủ công.** Nhịp 2–5 phút: (1) `sync_matches`; (2) với mỗi guild bật, đăng thẻ
-trận sắp đá (trong cửa sổ trước kickoff, chưa đăng) + thả sẵn 2 cờ; (3) `settle_finished`; (4) khoá
-thẻ tới giờ (sửa footer + gỡ view).
+**Glue — verified manually.** A 2–5 minute tick: (1) `sync_matches`; (2) for each enabled guild, post
+cards for upcoming matches (within the pre-kickoff window, not yet posted) + pre-add the 2 flags; (3)
+`settle_finished`; (4) lock cards at kickoff (edit the footer + remove the view).
 
 **Files:** Create `app/bot/cogs/wc_sync.py`.
 
-- [ ] **Step 1: Viết `app/bot/cogs/wc_sync.py`** (bám `subscription.py`/`companion.py`):
+- [ ] **Step 1: Write `app/bot/cogs/wc_sync.py`** (following `subscription.py`/`companion.py`):
 
 ```python
-"""Cog WC Sync — loop: đồng bộ trận từ API, đăng thẻ trận sắp đá, chấm trận đã xong, khoá thẻ.
+"""WC Sync cog — loop: sync matches from the API, post upcoming match cards, score finished matches, lock cards.
 
-Pattern theo SubscriptionCog: session_scope mỗi nhịp, lỗi 1 nhịp không giết loop. Chỉ đăng thẻ cho
-guild đã /wc-setup (enabled + channel_id). Dùng wc_card chống đăng lại.
+Pattern follows SubscriptionCog: session_scope per tick, one failing tick doesn't kill the loop. Only
+posts cards for guilds that have run /wc-setup (enabled + channel_id). Uses wc_card to prevent re-posting.
 """
 import logging
 from datetime import UTC, datetime, timedelta
@@ -893,7 +897,7 @@ from app.discord_io.client import DiscordClient
 from app.repositories.wc_card import WCCardRepository
 from app.repositories.wc_config import WCConfigRepository
 from app.repositories.wc_match import WCMatchRepository
-from app.services.wc.cards import build_match_embed, flag_pair := None  # xem chú thích dưới
+from app.services.wc.cards import build_match_embed, flag_pair := None  # see note below
 from app.services.wc.flags import flag
 from app.services.wc.sync_service import settle_finished, sync_matches
 from app.bot.cogs.wc_predict import build_card_view
@@ -901,7 +905,7 @@ from app.bot.cogs.wc_predict import build_card_view
 log = logging.getLogger(__name__)
 
 SYNC_MINUTES = 3
-POST_WINDOW_HOURS = 12  # đăng thẻ khi trận còn <= 12h tới giờ
+POST_WINDOW_HOURS = 12  # post a card when the match is <= 12h to kickoff
 
 
 class WCSyncCog(commands.Cog):
@@ -936,8 +940,8 @@ class WCSyncCog(commands.Cog):
             configs = await WCConfigRepository(session).all_enabled()  # enabled + channel_id != None
             mrepo = WCMatchRepository(session)
             crepo = WCCardRepository(session)
-            # Trận scheduled trong cửa sổ (đơn giản: lấy finished_unsettled không hợp; ta cần query riêng)
-            upcoming = await mrepo.upcoming(now, horizon)  # THÊM method này, xem ghi chú
+            # scheduled matches in the window (note: finished_unsettled doesn't fit; we need a separate query)
+            upcoming = await mrepo.upcoming(now, horizon)  # ADD this method, see note
             for cfg in configs:
                 channel = self.bot.get_channel(cfg.channel_id)
                 if channel is None:
@@ -952,7 +956,7 @@ class WCSyncCog(commands.Cog):
                         )
                         await crepo.record(cfg.guild_id, match.id,
                                            channel_id=cfg.channel_id, message_id=msg.id)
-                        # thả sẵn 2 cờ để đoán nhanh
+                        # pre-add the 2 flags for quick prediction
                         for code in (match.home_code, match.away_code):
                             try:
                                 await msg.add_reaction(flag(code))
@@ -962,9 +966,9 @@ class WCSyncCog(commands.Cog):
                         log.warning("wc: post card failed guild=%s match=%s", cfg.guild_id, match.id)
 ```
 
-> **Ghi chú khi code Task 6:**
-> - Bỏ dòng `flag_pair := None` (placeholder import sai) — chỉ cần `from app.services.wc.flags import flag`.
-> - Thêm `WCMatchRepository.upcoming(self, start, end)` vào `app/repositories/wc_match.py`:
+> **Notes when coding Task 6:**
+> - Drop the `flag_pair := None` line (a bad placeholder import) — you only need `from app.services.wc.flags import flag`.
+> - Add `WCMatchRepository.upcoming(self, start, end)` to `app/repositories/wc_match.py`:
 >   ```python
 >   async def upcoming(self, start, end) -> list[WCMatch]:
 >       res = await self.session.execute(
@@ -975,13 +979,13 @@ class WCSyncCog(commands.Cog):
 >       )
 >       return list(res.scalars().all())
 >   ```
->   (Thêm 1 test nhỏ trong `tests/unit/test_wc_repos.py` cho `upcoming`.)
-> - **Khoá thẻ tới giờ:** thêm bước trong `_post_due_cards` hoặc 1 method riêng: với mỗi
->   `crepo.unlocked_cards()` mà `match.kickoff_at <= now` → fetch message
+>   (Add a small test in `tests/unit/test_wc_repos.py` for `upcoming`.)
+> - **Lock cards at kickoff:** add a step in `_post_due_cards` or a separate method: for each
+>   `crepo.unlocked_cards()` whose `match.kickoff_at <= now` → fetch the message
 >   (`channel.fetch_message(card.message_id)`), `await msg.edit(embed=build_match_embed(match,
 >   locked=True), view=None)`, `await crepo.mark_locked(card.guild_id, card.match_id)`.
 
-- [ ] **Step 2: Thêm `upcoming` + test, chạy `.venv/bin/pytest -q`** (suite phải xanh).
+- [ ] **Step 2: Add `upcoming` + test, run `.venv/bin/pytest -q`** (the suite must be green).
 
 - [ ] **Step 3: Lint + commit**
 
@@ -998,28 +1002,28 @@ EOF
 
 ---
 
-### Task 7: Đăng ký cog + persistent items trong `client.py`
+### Task 7: Register the cogs + persistent items in `client.py`
 
 **Files:** Modify `app/bot/client.py`.
 
-- [ ] **Step 1: Sửa `setup_hook`** trong `app/bot/client.py` — thêm import + đăng ký 2 cog + đăng ký
-  DynamicItem để nút persistent hoạt động sau restart. Thêm gần các `add_cog` khác:
+- [ ] **Step 1: Edit `setup_hook`** in `app/bot/client.py` — add the imports + register the 2 cogs +
+  register the DynamicItem so persistent buttons work after a restart. Add near the other `add_cog` calls:
 
 ```python
 from app.bot.cogs.wc_predict import WCButton, WCPredictCog
 from app.bot.cogs.wc_sync import WCSyncCog
-# ... trong setup_hook, trước self.tree.sync():
+# ... in setup_hook, before self.tree.sync():
 self.add_dynamic_items(WCButton)
 await self.add_cog(WCPredictCog(self, self.discord_io))
 await self.add_cog(WCSyncCog(self, self.discord_io))
 ```
 
-> `add_dynamic_items` đăng ký lớp nút động để Discord route lại click sau restart (discord.py 2.4).
-> Nếu phiên bản discord.py không có `add_dynamic_items`, dùng `self.add_view` với view persistent +
-> `WCButton.from_custom_id` — kiểm tra `discord.__version__` khi code.
+> `add_dynamic_items` registers the dynamic button class so Discord re-routes clicks after a restart (discord.py 2.4).
+> If your discord.py version lacks `add_dynamic_items`, use `self.add_view` with a persistent view +
+> `WCButton.from_custom_id` — check `discord.__version__` when coding.
 
-- [ ] **Step 2: Khởi động bot, `docker compose logs -f api`** xác nhận: "Cogs loaded", không lỗi
-  import, loop `wc_tick` chạy.
+- [ ] **Step 2: Start the bot, `docker compose logs -f api`** and confirm: "Cogs loaded", no import
+  errors, the `wc_tick` loop runs.
 
 - [ ] **Step 3: Commit**
 
@@ -1034,30 +1038,32 @@ EOF
 
 ---
 
-## Manual verification checklist (trên server thật)
+## Manual verification checklist (on a real server)
 
-Cần `FOOTBALL_DATA_API_KEY` trong env + có trận WC sắp đá (hoặc tạm seed 1 `wc_match` scheduled
-trong DB để test thẻ).
+Needs `FOOTBALL_DATA_API_KEY` in the env + an upcoming WC match (or temporarily seed one scheduled
+`wc_match` in the DB to test cards).
 
-- [ ] `/wc-setup channel:#kèo enabled:true` → báo BẬT + đúng kênh.
-- [ ] Trong ≤ `SYNC_MINUTES`+`POST_WINDOW`, thẻ trận hiện ở kênh: tiêu đề có **cờ 2 đội**, giờ VN
-  đúng (UTC+7), nút 1X2/Tài-Xỉu/Cửa-trên-dưới/🎯, và bot đã thả sẵn 2 cờ.
-- [ ] Bấm nút 1X2 → ephemeral "✅ Đã ghi kèo". Bấm lại pick khác → cập nhật (không tạo trùng — kiểm
-  DB `wc_prediction` chỉ 1 dòng/bet_type).
-- [ ] Bấm 🎯 → modal hiện → nhập `2-1` → "✅ ... (tỉ số 2-1)". Nhập `abc` → "❌ không hợp lệ".
-- [ ] Thả cờ đội nhà → tạo prediction 1x2 home (kiểm DB). Gỡ cờ → xoá prediction đó.
-- [ ] Sau kickoff: bấm nút → "🔒 Trận đã khoá kèo". Thẻ được sửa footer "🔒 Đã khoá" + mất nút.
-- [ ] Khi trận `finished` có tỉ số: trong ≤ `SYNC_MINUTES`, `wc_prediction.points` được điền đúng
-  (so với `scoring.score`), `wc_match.settled=true`, không chấm lại nhịp sau.
-- [ ] **Restart bot** → bấm nút trên thẻ cũ vẫn hoạt động (persistent view OK).
-- [ ] `/wc-setup enabled:false` → ngừng đăng thẻ mới.
+- [ ] `/wc-setup channel:#bets enabled:true` → reports ON + the correct channel.
+- [ ] Within ≤ `SYNC_MINUTES`+`POST_WINDOW`, a match card appears in the channel: the title has **both
+  teams' flags**, the Vietnam time is correct (UTC+7), the 1X2/Over-Under/Favorite-Underdog/🎯 buttons,
+  and the bot has pre-added the 2 flags.
+- [ ] Click a 1X2 button → ephemeral "✅ Recorded bet". Click a different pick → it updates (no duplicate
+  — check the DB `wc_prediction` has only 1 row/bet_type).
+- [ ] Click 🎯 → modal appears → enter `2-1` → "✅ ... (score 2-1)". Enter `abc` → "❌ invalid".
+- [ ] React with the home flag → creates a 1x2 home prediction (check the DB). Remove the flag → deletes that prediction.
+- [ ] After kickoff: click a button → "🔒 Bets are locked". The card is edited with footer "🔒 Locked" + loses its buttons.
+- [ ] When a match is `finished` with a score: within ≤ `SYNC_MINUTES`, `wc_prediction.points` is filled
+  correctly (matching `scoring.score`), `wc_match.settled=true`, and it's not re-scored on later ticks.
+- [ ] **Restart the bot** → clicking a button on an old card still works (persistent view OK).
+- [ ] `/wc-setup enabled:false` → stops posting new cards.
 
-## Self-review (rà trước khi bàn giao)
+## Self-review (sweep before handing off)
 
-- **Spec coverage Pha 2:** sync loop ✅; đăng thẻ cờ+nút ✅; modal tỉ số ✅; thả-cờ quick-1X2 ✅;
-  khoá tại kickoff ✅; settle tự động ✅; `/wc-setup` (bật/kênh/prefix) ✅. (BXH/phạt/AI = Pha 3-4.)
-- **Type consistency:** `pick` values khớp `_PICK_LABEL` + `scoring.score`; `build_custom_id`/
-  `parse_custom_id`/`WCButton.template` cùng format `wc:bet:pick:match`; `WCMatchRepository.upcoming`
-  trả `list[WCMatch]` khớp `_post_due_cards`.
-- **Edge:** trận finished chưa có tỉ số → settle bỏ qua; channel bị xoá → `get_channel` None → skip;
-  thẻ đã đăng → `crepo.exists` chặn trùng.
+- **Phase 2 spec coverage:** sync loop ✅; post cards with flags+buttons ✅; score modal ✅; flag
+  quick-1X2 ✅; lock at kickoff ✅; auto-settle ✅; `/wc-setup` (enable/channel/prefix) ✅.
+  (Leaderboard/punishment/AI = Phase 3-4.)
+- **Type consistency:** `pick` values match `_PICK_LABEL` + `scoring.score`; `build_custom_id`/
+  `parse_custom_id`/`WCButton.template` use the same `wc:bet:pick:match` format; `WCMatchRepository.upcoming`
+  returns `list[WCMatch]` matching `_post_due_cards`.
+- **Edge:** a finished match with no score yet → settle skips it; a deleted channel → `get_channel` None → skip;
+  an already-posted card → `crepo.exists` blocks the duplicate.

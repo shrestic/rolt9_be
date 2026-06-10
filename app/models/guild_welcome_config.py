@@ -15,8 +15,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
 
-DEFAULT_WELCOME = "Chào mừng {user} đến với {server}! 🎉 Bạn là thành viên thứ {count}."
-DEFAULT_LEAVE = "{user} đã rời khỏi **{server}**. 👋"
+DEFAULT_WELCOME = "Welcome {user} to {server}! 🎉 You are member number {count}."
+DEFAULT_LEAVE = "{user} has left **{server}**. 👋"
 
 
 class GuildWelcomeConfig(Base):

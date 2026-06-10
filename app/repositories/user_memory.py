@@ -1,6 +1,6 @@
-"""Data access cho `guild_user_memory` — facts dài hạn per-user-per-guild.
+"""Data access for `guild_user_memory` — long-term facts per-user-per-guild.
 
-No-404 pattern: get trả "" nếu chưa có. Flush; commit ở boundary.
+No-404 pattern: get returns "" if none yet. Flush; commit at boundary.
 """
 
 import uuid

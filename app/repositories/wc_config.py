@@ -1,4 +1,4 @@
-"""Data access cho guild_wc_config (per-guild bật/tắt + kênh + prefix nick bêu)."""
+"""Data access for guild_wc_config (per-guild on/off + channel + shame nickname prefix)."""
 
 import uuid
 

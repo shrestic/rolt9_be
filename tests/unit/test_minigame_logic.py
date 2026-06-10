@@ -4,8 +4,8 @@ from app.services.minigames.minigame_logic import (
     SLOTS_SYMBOLS,
     Outcome,
     play_coinflip,
+    play_over_under,
     play_slots,
-    play_taixiu,
 )
 
 
@@ -35,20 +35,20 @@ def test_coinflip_loss_pays_zero():
     assert out.payout == 0
 
 
-def test_taixiu_tai_boundary_11_wins_on_tai():
-    out = play_taixiu(_FixedRng(ints=[6, 4, 1]), 100, "tai")
+def test_over_under_tai_boundary_11_wins_on_tai():
+    out = play_over_under(_FixedRng(ints=[6, 4, 1]), 100, "over")
     assert out.won is True
     assert out.payout == 190
-    assert "11" in out.detail and "Tài" in out.detail
+    assert "11" in out.detail and "Over" in out.detail
 
 
-def test_taixiu_xiu_boundary_10_wins_on_xiu():
-    out = play_taixiu(_FixedRng(ints=[5, 4, 1]), 100, "xiu")
+def test_over_under_xiu_boundary_10_wins_on_xiu():
+    out = play_over_under(_FixedRng(ints=[5, 4, 1]), 100, "under")
     assert out.won is True
 
 
-def test_taixiu_wrong_guess_loses():
-    out = play_taixiu(_FixedRng(ints=[6, 6, 6]), 100, "xiu")
+def test_over_under_wrong_guess_loses():
+    out = play_over_under(_FixedRng(ints=[6, 6, 6]), 100, "under")
     assert out.won is False
     assert out.payout == 0
 

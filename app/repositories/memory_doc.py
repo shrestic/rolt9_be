@@ -1,7 +1,7 @@
-"""Data access cho `guild_memory_doc` — doc markdown trí nhớ per-guild (OpenClaw-style).
+"""Data access for `guild_memory_doc` — per-guild SERVER MEMORY markdown doc (OpenClaw-style).
 
-append_note thêm 1 dòng bullet, bỏ trùng, và cắt bớt dòng CŨ nhất khi vượt cap (FIFO)
-để doc luôn ≤ MEMORY_DOC_CAP (vì doc được nạp vào mọi prompt). Flush; commit ở boundary.
+append_note adds one bullet line, deduplicates, and trims the OLDEST line when over cap (FIFO)
+so the doc stays ≤ MEMORY_DOC_CAP (since the doc is loaded into every prompt). Flush; commit at boundary.
 """
 
 import uuid
@@ -15,7 +15,7 @@ MEMORY_DOC_CAP = 4000
 
 
 def _cap(doc: str) -> str:
-    """Giữ doc ≤ cap bằng cách bỏ dần dòng đầu (cũ nhất)."""
+    """Keep the doc ≤ cap by dropping leading (oldest) lines one by one."""
     while len(doc) > MEMORY_DOC_CAP and "\n" in doc:
         doc = doc.split("\n", 1)[1]
     return doc[-MEMORY_DOC_CAP:] if len(doc) > MEMORY_DOC_CAP else doc
@@ -54,15 +54,15 @@ class MemoryDocRepository:
         row = await self._row(guild_id)
         line = f"- {note}"
         if line in (row.doc or ""):
-            return  # đã có, bỏ trùng
+            return  # already present, skip duplicate
         row.doc = _cap(f"{row.doc}\n{line}".strip() if row.doc else line)
         await self.session.flush()
 
     async def remove_notes(self, guild_id: uuid.UUID, query: str) -> list[str]:
-        """Xoá các DÒNG ghi nhớ KHỚP `query` (substring, không phân biệt hoa thường).
+        """Delete memory LINES MATCHING `query` (substring, case-insensitive).
 
-        Trả danh sách nội dung dòng đã xoá (rỗng = không khớp gì) để báo lại cho người dùng
-        biết chính xác đã quên cái gì. Đây là counterpart 'quên' của append_note.
+        Returns the list of deleted line contents (empty = nothing matched) so we can report
+        back to the user exactly what was forgotten. This is the 'forget' counterpart of append_note.
         """
         q = (query or "").strip().lower()
         if not q:
@@ -80,14 +80,14 @@ class MemoryDocRepository:
             if new_doc:
                 row.doc = new_doc
             else:
-                # Xoá hết -> XOÁ LUÔN record, không để row rỗng trong DB.
+                # Everything deleted -> DELETE the record too, don't leave an empty row in the DB.
                 await self.session.delete(row)
             await self.session.flush()
         return removed
 
     async def clear(self, guild_id: uuid.UUID) -> None:
-        """Xoá SẠCH trí nhớ = XOÁ HẲN record khỏi DB (không để row doc rỗng). get_doc sẽ trả ''
-        khi không có row; append_note tự tạo lại row mới khi cần ghi."""
+        """Wipe SERVER MEMORY = REMOVE the record entirely from the DB (don't leave an empty doc row). get_doc returns ''
+        when there is no row; append_note recreates a new row when it needs to write."""
         r = await self.session.execute(
             select(GuildMemoryDoc).where(GuildMemoryDoc.guild_id == guild_id)
         )

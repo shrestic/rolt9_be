@@ -1,4 +1,4 @@
-"""`/summarize [count]` — AI tóm tắt N tin gần nhất của kênh.
+"""`/summarize [count]` — AI summarizes the N most recent messages in the channel.
 
 The cog fetches channel history (it has the live interaction.channel), builds a
 transcript, and hands it to SummarizerService (which calls the AIGateway). 15s/user
@@ -61,7 +61,7 @@ class SummarizerCog(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.CommandOnCooldown):
             secs = round(error.retry_after, 1)
-            msg = f"⏳ Tóm tắt gì lắm thế — đợi {secs}s nữa."
+            msg = f"⏳ So many summaries — wait {secs}s more."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
@@ -69,8 +69,8 @@ class SummarizerCog(commands.Cog):
             return
         raise error
 
-    @app_commands.command(name="summarize", description="Tóm tắt các tin gần đây (AI).")
-    @app_commands.describe(count="Số tin gần nhất cần tóm tắt (mặc định 30, tối đa 100)")
+    @app_commands.command(name="summarize", description="Summarize recent messages (AI).")
+    @app_commands.describe(count="Number of recent messages to summarize (default 30, max 100)")
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 15.0)
     async def summarize(self, interaction: discord.Interaction, count: int = DEFAULT_COUNT) -> None:
@@ -78,13 +78,15 @@ class SummarizerCog(commands.Cog):
         await interaction.response.defer()
         transcript = await _collect_transcript(interaction.channel, count)
         if not transcript:
-            await interaction.followup.send("Không có tin nhắn nào để tóm tắt.")
+            await interaction.followup.send("No messages to summarize.")
             return
         try:
             async with session_scope() as session:
                 summary = await _build_service(session).summarize(
                     guild_discord_id=interaction.guild_id, transcript=transcript
                 )
-            await interaction.followup.send(f"📝 **Tóm tắt {count} tin gần nhất:**\n{summary}")
+            await interaction.followup.send(
+                f"📝 **Summary of the last {count} messages:**\n{summary}"
+            )
         except ValueError as exc:
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)

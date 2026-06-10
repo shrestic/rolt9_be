@@ -1,27 +1,31 @@
-"""Subscription digest — logic thuần (test được) cho đăng ký nhận tin định kỳ.
+"""Subscription digest — pure (testable) logic for the daily digest subscription.
 
-`is_due` quyết định 'tới giờ đăng hôm nay chưa'; `build_digest_system` dựng prompt để AI
-tóm tắt kết quả web search thành bản tin gọn. Việc I/O (web search, gọi AI, gửi) ở cog.
+`is_due` decides 'is it time to post for today yet'; `build_digest_system` builds the
+prompt for the AI to summarize web search results into a tidy digest. The I/O (web
+search, calling the AI, sending) lives in the cog.
 """
 
 from datetime import datetime
 
-_DEFAULT_DIGEST_PERSONA = "Bạn là trợ lý tóm tắt tin tức ngắn gọn, rõ ràng bằng tiếng Việt."
+_DEFAULT_DIGEST_PERSONA = (
+    "You are an assistant that summarizes news briefly and clearly in English."
+)
 
 
 def is_due(sub, now_vn: datetime) -> bool:
-    """True nếu đăng ký này tới giờ đăng cho HÔM NAY mà chưa đăng.
-    Bắt theo nhịp: tới hoặc qua giờ HH:MM trong ngày + chưa chạy hôm nay (last_run_on != today)."""
+    """True if this subscription is due to post for TODAY and hasn't posted yet.
+    Triggers on the beat: at or past the HH:MM time of day + hasn't run today (last_run_on != today)."""
     if sub.last_run_on == now_vn.date():
-        return False  # hôm nay đăng rồi
+        return False  # already posted today
     return (now_vn.hour, now_vn.minute) >= (sub.hour, sub.minute)
 
 
 def build_digest_system(persona: str, topic: str) -> str:
-    """Prompt cho AI tóm tắt KẾT QUẢ web search về `topic` thành bản tin ngắn."""
+    """Prompt for the AI to summarize web search RESULTS about `topic` into a short digest."""
     base = persona or _DEFAULT_DIGEST_PERSONA
     return (
-        base + f"\n\nDưới đây là KẾT QUẢ TRA WEB về chủ đề '{topic}'. Hãy tóm tắt thành một bản "
-        "tin NGẮN GỌN bằng tiếng Việt: 1 câu mở đầu cho biết là tin gì, rồi 3-5 gạch đầu dòng nêu "
-        "điểm/số liệu chính. Nêu nguồn nếu đáng. KHÔNG bịa, KHÔNG dán link rác, không lan man."
+        base
+        + f"\n\nBelow are the WEB SEARCH RESULTS on the topic '{topic}'. Summarize them into a "
+        "SHORT digest in English: 1 opening sentence saying what the news is, then 3-5 bullet points with "
+        "the key points/figures. Cite sources if worthwhile. NO making stuff up, NO junk links, no rambling."
     )

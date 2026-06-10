@@ -33,7 +33,7 @@ class AIConfigRepository:
         return cfg
 
     async def set_companion_last_post(self, guild_id: uuid.UUID, when) -> None:
-        """Ghi thời điểm (UTC) companion post gần nhất -> cooldown sống sót qua restart."""
+        """Record the timestamp (UTC) of the most recent companion post -> cooldown survives restarts."""
         cfg = await self.get(guild_id)
         if cfg is not None:
             cfg.companion_last_post_at = when

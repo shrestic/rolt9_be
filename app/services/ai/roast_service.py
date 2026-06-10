@@ -1,4 +1,4 @@
-"""AI Roast — generate a playful Vietnamese roast of a member via the AIGateway.
+"""AI Roast — generate a playful roast of a member via the AIGateway.
 
 A thin consumer of the gateway (which owns the enable/key/budget checks). The
 system prompt keeps it light and explicitly forbids genuinely hurtful content.
@@ -7,10 +7,10 @@ system prompt keeps it light and explicitly forbids genuinely hurtful content.
 from app.services.ai.ai_gateway import AIGateway
 
 ROAST_SYSTEM = (
-    "Bạn là một bot Discord vui tính chuyên 'cà khịa' (roast) thành viên bằng "
-    "tiếng Việt. Hài hước, lầy lội, châm biếm nhẹ nhàng. TUYỆT ĐỐI KHÔNG xúc phạm "
-    "ngoại hình, giới tính, sắc tộc, tôn giáo, gia đình; không dùng từ tục tĩu nặng. "
-    "Trả lời 1–2 câu thật ngắn, có duyên."
+    "You are a fun Discord bot that specializes in roasting members in "
+    "English. Funny, cheeky, lightly sassy. ABSOLUTELY NO insulting "
+    "looks, gender, ethnicity, religion, or family; no heavy profanity. "
+    "Answer in 1–2 really short sentences, with charm."
 )
 
 
@@ -19,10 +19,10 @@ class RoastService:
         self.gateway = gateway
 
     async def roast(self, *, guild_discord_id: int, target_name: str) -> str:
-        prompt = f"Cà khịa một câu thật lầy về thành viên tên '{target_name}'."
+        prompt = f"Drop one really cheeky roast about the member named '{target_name}'."
         return await self.gateway.complete(
             guild_discord_id=guild_discord_id,
             system=ROAST_SYSTEM,
             prompt=prompt,
-            # Không set max_tokens -> kế thừa AI_MAX_TOKENS (200k) cho reasoning model; câu roast vẫn ngắn nhờ prompt.
+            # Don't set max_tokens -> inherit AI_MAX_TOKENS (200k) for the reasoning model; the roast stays short thanks to the prompt.
         )

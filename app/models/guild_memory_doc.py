@@ -1,8 +1,9 @@
-"""Bảng `guild_memory_doc` — trí nhớ markdown per-guild kiểu OpenClaw MEMORY.md.
+"""The `guild_memory_doc` table — per-guild markdown SERVER MEMORY, OpenClaw MEMORY.md style.
 
-Một doc/guild: luật server + ghi chú từng người (biệt danh/tính cách). Agent tự ghi
-(tool `remember`). Luôn được nạp vào prompt Claw Agent + Companion. Cap ~4000 ký tự
-(đầy thì bỏ dòng cũ nhất). Lightweight: chưa có search/vector — doc nhỏ nạp hết.
+One doc per guild: server rules + notes on each person (nickname/personality). The agent
+writes it itself (the `remember` tool). Always loaded into the Claw Agent + Companion
+prompt. Capped at ~4000 characters (when full, the oldest line is dropped). Lightweight:
+no search/vector yet — the small doc is loaded in full.
 """
 
 import uuid

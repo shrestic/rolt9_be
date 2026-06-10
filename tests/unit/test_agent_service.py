@@ -22,22 +22,22 @@ GID = 7777
 
 
 def test_build_system_includes_persona_and_facts():
-    s = build_system("Bạn là mèo máy.", "- tên Phong", "Phong")
-    assert "mèo máy" in s
+    s = build_system("You are a robot cat.", "- name Phong", "Phong")
+    assert "robot cat" in s
     assert "Phong" in s
-    assert "CÔNG CỤ" in s or "công cụ" in s  # nudge dùng tool
+    assert "tool" in s.lower()  # nudge to use a tool
 
 
 def test_build_system_includes_memory_doc_and_channel_context():
     s = build_system(
-        "Bạn là mèo máy.",
+        "You are a robot cat.",
         "",
         "Phong",
-        memory_doc="- gọi An là thằng loz",
+        memory_doc="- call An a jerk",
         channel_context="An: hello\nPhong: hi",
     )
-    assert "thằng loz" in s
-    assert "TRÍ NHỚ SERVER" in s
+    assert "jerk" in s
+    assert "SERVER MEMORY" in s
     assert "An: hello" in s
 
 
@@ -66,7 +66,7 @@ async def _svc(
             model="deepseek-chat",
             api_key_enc=encrypt_str("sk-test") if with_key else None,
             monthly_budget_usd=5,
-            persona="Bạn là trợ lý vui.",
+            persona="You are a fun assistant.",
         )
     )
     await db_session.commit()
@@ -74,7 +74,7 @@ async def _svc(
         guild_repo=GuildRepository(db_session),
         config_repo=AIConfigRepository(db_session),
         usage_repo=AIUsageRepository(db_session),
-        provider=provider or FakeAIProvider(text="chào", cost_usd=0.0),
+        provider=provider or FakeAIProvider(text="hi", cost_usd=0.0),
     )
     svc = AgentService(
         guild_repo=GuildRepository(db_session),
@@ -103,7 +103,7 @@ async def test_respond_returns_conversation_and_text(db_session):
     assert result is not None
     conversation_id, text, pending = result
     assert isinstance(conversation_id, uuid.UUID)
-    assert text == "chào"
+    assert text == "hi"
     assert pending == []
 
 
@@ -153,7 +153,7 @@ async def test_respond_none_on_wrong_channel(db_session):
         )
         is None
     )
-    # đúng kênh -> trả lời
+    # correct channel -> replies
     assert (
         await svc.respond(
             guild_discord_id=GID,
@@ -184,10 +184,10 @@ async def test_respond_raises_on_missing_key(db_session):
 @pytest.mark.asyncio
 async def test_respond_continues_conversation_via_reference(db_session):
     gid, svc = await _svc(db_session)
-    # Seed một lượt assistant cũ với discord_message_id=555 thuộc cuộc cũ.
+    # Seed an old assistant turn with discord_message_id=555 belonging to the old conversation.
     cid = uuid.uuid4()
     await AgentMessageRepository(db_session).add_turn(
-        gid, cid, "assistant", "câu cũ", discord_message_id=555
+        gid, cid, "assistant", "old line", discord_message_id=555
     )
     await db_session.commit()
     result = await svc.respond(
@@ -195,20 +195,20 @@ async def test_respond_continues_conversation_via_reference(db_session):
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="tiếp",
+        message_text="continue",
         reference_message_id=555,
     )
     assert result is not None
-    assert result[0] == cid  # nối tiếp đúng cuộc cũ
+    assert result[0] == cid  # continues the correct old conversation
 
 
 @pytest.mark.asyncio
 async def test_respond_continues_recent_conversation_without_reference(db_session):
-    # Không reply, nhưng vừa nói trong cùng (kênh, user) -> nối tiếp cuộc gần đây.
+    # No reply, but just spoke in the same (channel, user) -> continue the recent conversation.
     gid, svc = await _svc(db_session)
     cid = uuid.uuid4()
     await AgentMessageRepository(db_session).add_turn(
-        gid, cid, "assistant", "câu trước", channel_id=10, user_discord_id=1
+        gid, cid, "assistant", "previous line", channel_id=10, user_discord_id=1
     )
     await db_session.commit()
     result = await svc.respond(
@@ -216,24 +216,24 @@ async def test_respond_continues_recent_conversation_without_reference(db_sessio
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="tiếp",
+        message_text="continue",
         reference_message_id=None,
     )
     assert result is not None
-    assert result[0] == cid  # nối tiếp cuộc gần đây dù không reply
+    assert result[0] == cid  # continues the recent conversation even without a reply
 
 
 @pytest.mark.asyncio
 async def test_followup_without_reply_continues_same_conversation_end_to_end(db_session):
-    # Đi HẾT đường thật: respond #1 -> remember (persist) -> respond #2 KHÔNG reply.
-    # Lượt 2 phải nối đúng cuộc của lượt 1 nhờ window (kênh+user khớp), không tạo cuộc mới.
+    # Go the WHOLE real path: respond #1 -> remember (persist) -> respond #2 WITHOUT a reply.
+    # Turn 2 must continue turn 1's conversation thanks to the window (channel+user match), not create a new one.
     gid, svc = await _svc(db_session)
     first = await svc.respond(
         guild_discord_id=GID,
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="chào bot",
+        message_text="hi bot",
         reference_message_id=None,
     )
     assert first is not None
@@ -242,8 +242,8 @@ async def test_followup_without_reply_continues_same_conversation_end_to_end(db_
         guild_discord_id=GID,
         conversation_id=cid1,
         user_discord_id=1,
-        user_text="chào bot",
-        assistant_text="chào",
+        user_text="hi bot",
+        assistant_text="hi",
         bot_message_id=1001,
         channel_id=10,
     )
@@ -254,19 +254,19 @@ async def test_followup_without_reply_continues_same_conversation_end_to_end(db_
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="nói tiếp đi",
-        reference_message_id=None,  # KHÔNG reply
+        message_text="keep going",
+        reference_message_id=None,  # NO reply
     )
     assert second is not None
-    assert second[0] == cid1  # tự nối cuộc cũ, không mở cuộc mới
+    assert second[0] == cid1  # auto-continues the old conversation, doesn't open a new one
 
-    # Người khác trong cùng kênh -> KHÔNG bị nối nhầm vào cuộc của P.
+    # Someone else in the same channel -> must NOT be wrongly joined to P's conversation.
     other = await svc.respond(
         guild_discord_id=GID,
         channel_id=10,
         user_discord_id=2,
         user_name="Q",
-        message_text="ê bot",
+        message_text="hey bot",
         reference_message_id=None,
     )
     assert other is not None
@@ -275,7 +275,7 @@ async def test_followup_without_reply_continues_same_conversation_end_to_end(db_
 
 @pytest.mark.asyncio
 async def test_respond_new_conversation_when_prior_is_stale(db_session):
-    # Lượt cuối quá lâu (ngoài window) -> mở cuộc mới, không nối.
+    # Last turn too old (outside the window) -> open a new conversation, don't continue.
     from datetime import datetime, timedelta
 
     from app.models.agent_message import AgentMessage
@@ -288,7 +288,7 @@ async def test_respond_new_conversation_when_prior_is_stale(db_session):
             guild_id=gid,
             conversation_id=cid,
             role="assistant",
-            content="lâu rồi",
+            content="long ago",
             channel_id=10,
             user_discord_id=1,
             created_at=old,
@@ -300,23 +300,23 @@ async def test_respond_new_conversation_when_prior_is_stale(db_session):
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="ơ",
+        message_text="huh",
         reference_message_id=None,
     )
     assert result is not None
-    assert result[0] != cid  # cuộc cũ quá -> cuộc mới
+    assert result[0] != cid  # conversation too old -> new conversation
 
 
 @pytest.mark.asyncio
 async def test_remember_persists_and_extracts(db_session):
-    gid, svc = await _svc(db_session, provider=FakeAIProvider(text="- tên Phong", cost_usd=0.0))
+    gid, svc = await _svc(db_session, provider=FakeAIProvider(text="- name Phong", cost_usd=0.0))
     cid = uuid.uuid4()
     await svc.remember(
         guild_discord_id=GID,
         conversation_id=cid,
         user_discord_id=1,
-        user_text="tôi tên Phong",
-        assistant_text="chào Phong",
+        user_text="my name is Phong",
+        assistant_text="hi Phong",
         bot_message_id=777,
     )
     await db_session.commit()
@@ -336,7 +336,7 @@ async def test_respond_uses_tools_when_enabled(db_session):
                     {"id": "c1", "name": "server_info", "arguments": '{"kind":"member_count"}'}
                 ]
             },
-            {"text": "Server có vài người."},
+            {"text": "The server has a few people."},
         ],
         cost_usd=0.0,
     )
@@ -346,12 +346,12 @@ async def test_respond_uses_tools_when_enabled(db_session):
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="bao nhiêu người",
+        message_text="how many people",
         reference_message_id=None,
         server_snapshot={"member_count": 5, "roles": [], "channels": []},
     )
     assert result is not None
-    assert result[1] == "Server có vài người."
+    assert result[1] == "The server has a few people."
 
 
 @pytest.mark.asyncio
@@ -366,12 +366,12 @@ async def test_respond_simple_path_when_tools_off(db_session):
         reference_message_id=None,
         server_snapshot=None,
     )
-    assert result is not None and result[1] == "chào"
+    assert result is not None and result[1] == "hi"
 
 
 @pytest.mark.asyncio
 async def test_respond_stages_action_when_enabled(db_session):
-    # Model gọi toggle_plugin -> stage -> pending có 1 action.
+    # Model calls toggle_plugin -> stage -> pending has 1 action.
     prov = FakeAIProvider(
         turns=[
             {
@@ -383,7 +383,7 @@ async def test_respond_stages_action_when_enabled(db_session):
                     }
                 ]
             },
-            {"text": "Đã chuẩn bị bật welcome."},
+            {"text": "Prepared to enable welcome."},
         ],
         cost_usd=0.0,
     )
@@ -393,7 +393,7 @@ async def test_respond_stages_action_when_enabled(db_session):
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="bật welcome",
+        message_text="enable welcome",
         reference_message_id=None,
         commander_perms={"manage_guild": True},
     )
@@ -410,76 +410,76 @@ async def test_respond_no_actions_when_no_perm(db_session):
         channel_id=10,
         user_discord_id=1,
         user_name="P",
-        message_text="bật welcome",
+        message_text="enable welcome",
         reference_message_id=None,
-        commander_perms={},  # không quyền -> không có action tool -> pending rỗng
+        commander_perms={},  # no permission -> no action tool -> empty pending
     )
     assert result is not None and result[2] == []
 
 
 def test_build_system_includes_mention_map():
-    # mention_map đưa 'tên = <@id>' vào prompt để bot tag thật + ghi nhớ kèm id
-    s = build_system("Bạn là mèo.", "", "Phong", mention_map="Khôi = <@123>")
-    assert "<@123>" in s and "Khôi" in s and "tag" in s.lower()
+    # mention_map puts 'name = <@id>' into the prompt so the bot tags for real + remembers with the id
+    s = build_system("You are a cat.", "", "Phong", mention_map="Khoi = <@123>")
+    assert "<@123>" in s and "Khoi" in s and "tag" in s.lower()
 
 
 def test_build_system_includes_commander_id_for_self_reference():
-    # Có user_id -> prompt nêu '<@id>' người đang chat + dặn 'tao/tôi/mình' = <@id>, đừng bịa <@rolt9>.
-    s = build_system("Bạn là mèo.", "", "Phong", user_id=705682495592726558)
+    # With user_id -> prompt names '<@id>' of the person chatting + says 'I/me/my' = <@id>, don't make up <@rolt9>.
+    s = build_system("You are a cat.", "", "Phong", user_id=705682495592726558)
     assert "<@705682495592726558>" in s
-    assert "tao" in s.lower()  # nói rõ khi họ xưng tao/tôi/mình
-    assert "rolt9" in s.lower()  # dặn đừng dùng <@rolt9>
+    assert "i/me/my" in s.lower()  # spells it out when they say I/me/my
+    assert "rolt9" in s.lower()  # tells it not to use <@rolt9>
 
 
-# ---------- biệt danh tự đặt -> tag thật (<@id>) ----------
+# ---------- user-set nicknames -> tag for real (<@id>) ----------
 
 from app.services.ai.agent_service import apply_nick_mentions, extract_nick_mentions  # noqa: E402
 
 
 def test_extract_nick_mentions_from_memory():
     doc = (
-        '- <@945952778998665247> (Jacky Chun) có biệt danh "ngọc gà"\n'
-        "- <@661419725091373066> (khoingo76) có biệt danh 'loz Khôi'\n"
-        '- dòng không có id, có "abc" -> bỏ\n'
-        '- <@1> và <@2> cùng dòng, có "xyz" -> bỏ (nhiều id)'
+        '- <@945952778998665247> (Jacky Chun) has the nickname "golden chick"\n'
+        "- <@661419725091373066> (khoingo76) has the nickname 'jerk Khoi'\n"
+        '- line with no id, has "abc" -> skip\n'
+        '- <@1> and <@2> on the same line, has "xyz" -> skip (multiple ids)'
     )
     pairs = dict(extract_nick_mentions(doc))
-    assert pairs["ngọc gà"] == 945952778998665247
-    assert pairs["loz Khôi"] == 661419725091373066
-    assert "abc" not in pairs  # dòng không id
-    assert "xyz" not in pairs  # dòng nhiều id -> bỏ cho an toàn
+    assert pairs["golden chick"] == 945952778998665247
+    assert pairs["jerk Khoi"] == 661419725091373066
+    assert "abc" not in pairs  # line with no id
+    assert "xyz" not in pairs  # line with multiple ids -> skip to be safe
 
 
 def test_apply_nick_mentions_tags_plain_and_at_form():
-    doc = '- <@945952778998665247> có biệt danh "ngọc gà"'
-    # chữ trơn
-    out = apply_nick_mentions("chờ tí tao báo vàng cho ngọc gà đây", doc)
-    assert "<@945952778998665247>" in out and "ngọc gà" not in out
-    # dạng '@ngọc gà' (mention giả) cũng thành mention thật
-    out2 = apply_nick_mentions("Báo giá vàng cho @ngọc gà nha", doc)
-    assert "<@945952778998665247>" in out2 and "@ngọc gà" not in out2
+    doc = '- <@945952778998665247> has the nickname "golden chick"'
+    # plain text
+    out = apply_nick_mentions("hold on, I'll report the gold price for golden chick", doc)
+    assert "<@945952778998665247>" in out and "golden chick" not in out
+    # the '@golden chick' (fake mention) form also becomes a real mention
+    out2 = apply_nick_mentions("Report the gold price for @golden chick", doc)
+    assert "<@945952778998665247>" in out2 and "@golden chick" not in out2
 
 
 def test_apply_nick_mentions_tags_every_occurrence():
-    doc = '- <@5> có biệt danh "sếp tổng"'
-    out = apply_nick_mentions("sếp tổng đâu rồi, gọi sếp tổng vô đây", doc)
-    assert out.count("<@5>") == 2  # tag MỌI lần nhắc tới biệt danh
+    doc = '- <@5> has the nickname "big boss"'
+    out = apply_nick_mentions("where's big boss, get big boss in here", doc)
+    assert out.count("<@5>") == 2  # tag EVERY mention of the nickname
 
 
 def test_apply_nick_mentions_noop_without_doc():
-    assert apply_nick_mentions("ngọc gà ơi", "") == "ngọc gà ơi"
+    assert apply_nick_mentions("hey golden chick", "") == "hey golden chick"
 
 
 def test_apply_nick_mentions_tags_multiple_nicknames_of_same_person():
-    # 1 người có NHIỀU biệt danh ('ngọc gà' lẫn 'ngọc kem') -> cùng câu phải tag CẢ HAI,
-    # đừng vì đã tag 1 biệt danh mà bỏ biệt danh kia (bug guard-theo-uid đã sửa).
-    doc = '- <@945> (Jacky) có biệt danh "ngọc gà"\n- <@945> có biệt danh mới: "ngọc kem"'
-    out = apply_nick_mentions("rủ ngọc gà với ngọc kem chơi đi", doc)
-    assert out == "rủ <@945> với <@945> chơi đi"
+    # One person with MULTIPLE nicknames ('golden chick' and 'golden cream') -> the same sentence must tag BOTH,
+    # don't skip the other nickname just because one was already tagged (the guard-by-uid bug is fixed).
+    doc = '- <@945> (Jacky) has the nickname "golden chick"\n- <@945> has a new nickname: "golden cream"'
+    out = apply_nick_mentions("invite golden chick and golden cream to play", doc)
+    assert out == "invite <@945> and <@945> to play"
 
 
 def test_apply_nick_mentions_longest_nick_wins():
-    # Biệt danh chồng nhau -> ưu tiên cụm DÀI trước (khớp 'ngọc gà con' trước 'ngọc gà').
-    doc = '- <@1> có biệt danh "ngọc gà"\n- <@2> có biệt danh "ngọc gà con"'
-    out = apply_nick_mentions("gọi ngọc gà con vô", doc)
-    assert out == "gọi <@2> vô"
+    # Overlapping nicknames -> prefer the LONGER phrase first (match 'golden chick jr' before 'golden chick').
+    doc = '- <@1> has the nickname "golden chick"\n- <@2> has the nickname "golden chick jr"'
+    out = apply_nick_mentions("call golden chick jr in", doc)
+    assert out == "call <@2> in"

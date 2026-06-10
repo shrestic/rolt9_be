@@ -1,7 +1,7 @@
-"""Subscription cog — quét mỗi phút, tới giờ thì TRA TIN MỚI (web search) + AI tóm tắt + đăng.
+"""Subscription cog — scans every minute; when it's time, FETCHES THE LATEST NEWS (web search) + AI summarizes + posts.
 
-Loop mỏng; logic 'tới giờ chưa' ở `is_due`, prompt ở `build_digest_system` (đều test được).
-Mỗi đăng ký đăng 1 lần/ngày (mark_ran theo ngày VN). Web/AI lỗi -> bỏ qua hôm nay, mai thử lại.
+Thin loop; the 'is it time yet' logic lives in `is_due`, the prompt in `build_digest_system` (both testable).
+Each subscription posts once a day (mark_ran by VN date). On web/AI error -> skip today, try again tomorrow.
 """
 
 import logging
@@ -53,7 +53,7 @@ class SubscriptionCog(commands.Cog):
     async def subscription_tick(self) -> None:
         try:
             await self._fire_due(datetime.now(UTC))
-        except Exception:  # noqa: BLE001 — lỗi 1 nhịp không được làm chết loop
+        except Exception:  # noqa: BLE001 — a single tick error must not kill the loop
             log.exception("subscription: tick failed")
 
     @subscription_tick.before_loop
@@ -68,28 +68,32 @@ class SubscriptionCog(commands.Cog):
                 if not is_due(sub, now_vn):
                     continue
                 await self._run(sub, session)
-                await repo.mark_ran(sub.id, now_vn.date())  # luôn mark -> mỗi ngày 1 lần
+                await repo.mark_ran(sub.id, now_vn.date())  # always mark -> once per day
 
     async def _run(self, sub, session) -> None:
-        """Tới giờ: kiểu `message` -> chỉ PING câu nhắc (không web/AI); kiểu `topic` -> tra tin +
-        AI tóm tắt rồi đăng. Lỗi -> im lặng (mai thử lại)."""
+        """When it's time: `message` type -> just PING the reminder line (no web/AI); `topic` type -> fetch news +
+        AI summarizes then posts. On error -> stay silent (try again tomorrow)."""
         channel = self.bot.get_channel(sub.channel_id)
         if channel is None:
             return
-        # NHẮC CÁ NHÂN lặp lại: ping thẳng câu đó cho người đăng ký, KHÔNG tra web.
+        # Repeating PERSONAL reminder: ping that exact line to the subscriber, do NOT search the web.
         if getattr(sub, "message", None):
             try:
                 await channel.send(f"⏰ <@{sub.creator_id}> {sub.message}"[:2000])
             except (DiscordError, discord.DiscordException):
-                log.warning("subscription %s: gửi thất bại", sub.id)
+                log.warning("subscription %s: send failed", sub.id)
             return
         cfg = await AIConfigRepository(session).get(sub.guild_id)
         if cfg is None or not cfg.enabled:
             return
-        raw = await run_web_search(f"{sub.topic} tin tức mới nhất hôm nay")
+        raw = await run_web_search(f"{sub.topic} latest news today")
         low = raw.lower()
-        if "thất bại" in low or "không tìm thấy" in low or "chưa cấu hình" in low:
-            return  # tra web hỏng -> bỏ qua hôm nay
+        # NOTE: these substrings are the failure sentinels returned by run_web_search
+        # (in app/services/ai/tools/web_search.py) — "Web search failed.",
+        # "No results found.", "Web search not configured ...". Keep them in sync with that
+        # file; changing the wording there would silently break this check.
+        if "failed" in low or "no results" in low or "not configured" in low:
+            return  # web lookup failed -> skip today
         try:
             text = await _gateway(session).complete(
                 guild_discord_id=channel.guild.id,
@@ -97,10 +101,10 @@ class SubscriptionCog(commands.Cog):
                 prompt=raw,
             )
         except ValueError:
-            return  # AI off / thiếu key / hết budget -> im lặng
+            return  # AI off / missing key / out of budget -> stay silent
         if not text:
             return
         try:
             await channel.send(f"📰 {text}"[:2000])
         except (DiscordError, discord.DiscordException):
-            log.warning("subscription %s: gửi thất bại", sub.id)
+            log.warning("subscription %s: send failed", sub.id)

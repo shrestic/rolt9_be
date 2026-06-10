@@ -46,7 +46,7 @@ class AskCog(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.CommandOnCooldown):
             secs = round(error.retry_after, 1)
-            msg = f"⏳ Hỏi gì lắm thế — đợi {secs}s nữa."
+            msg = f"⏳ So many questions — wait {secs}s more."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
@@ -54,8 +54,8 @@ class AskCog(commands.Cog):
             return
         raise error
 
-    @app_commands.command(name="ask", description="Hỏi đáp dựa trên kho tri thức của server (AI).")
-    @app_commands.describe(question="Câu hỏi của bạn")
+    @app_commands.command(name="ask", description="Q&A based on the server's knowledge base (AI).")
+    @app_commands.describe(question="Your question")
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 10.0)
     async def ask(self, interaction: discord.Interaction, question: str) -> None:

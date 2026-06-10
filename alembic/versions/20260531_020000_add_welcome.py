@@ -16,8 +16,8 @@ down_revision: Union[str, None] = "f2a3b4c5d6e7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-_DEFAULT_WELCOME = "Chào mừng {user} đến với {server}! 🎉 Bạn là thành viên thứ {count}."
-_DEFAULT_LEAVE = "{user} đã rời khỏi **{server}**. 👋"
+_DEFAULT_WELCOME = "Welcome {user} to {server}! 🎉 You are member number {count}."
+_DEFAULT_LEAVE = "{user} has left **{server}**. 👋"
 
 
 def upgrade() -> None:

@@ -1,66 +1,66 @@
-# Welcome — Hướng dẫn & Workflow
+# Welcome — Guide & Workflow
 
-Tin nhắn **chào mừng** thành viên mới (`on_member_join`) và **tạm biệt** khi rời server
-(`on_member_remove`). Hỗ trợ template tĩnh (placeholder) + lời chào do **AI** sinh (tùy chọn).
-
----
-
-## 1. Tổng quan
-
-- Thành viên **join** → bot render template (hoặc nhờ AI) → đăng vào **kênh đã cấu hình**.
-- Thành viên **leave** → bot đăng template tạm biệt (tĩnh, không AI) vào cùng kênh.
-- Tất cả tắt theo mặc định; admin bật + chọn kênh ở dashboard.
+**Welcome** messages for new members (`on_member_join`) and **goodbye** messages when they leave
+(`on_member_remove`). Supports static templates (placeholders) + an **AI**-generated greeting (optional).
 
 ---
 
-## 2. Cho admin — Dashboard → server → Welcome
+## 1. Overview
 
-| Trường | Ý nghĩa | Mặc định |
+- A member **joins** → the bot renders a template (or asks the AI) → posts it to the **configured channel**.
+- A member **leaves** → the bot posts a goodbye template (static, no AI) to the same channel.
+- Everything is off by default; the admin enables it + picks a channel on the dashboard.
+
+---
+
+## 2. For admins — Dashboard → server → Welcome
+
+| Field | Meaning | Default |
 |---|---|---|
-| **Enable welcome** | Bật/tắt tin chào mừng khi có người vào | off |
-| **Channel** | Kênh đăng cả tin chào mừng lẫn tạm biệt | — (bắt buộc khi bật) |
-| **Welcome template** | Mẫu tin chào mừng (dùng placeholder bên dưới) | "Chào mừng {user} đến với {server}! 🎉 Bạn là thành viên thứ {count}." |
-| **AI-generated welcome** | Nhờ Claude viết lời chào (vẫn @mention member); lỗi/hết quota → tự fallback về template | off |
-| **Enable leave message** | Bật/tắt tin tạm biệt khi có người rời | off |
-| **Leave template** | Mẫu tin tạm biệt (tĩnh, không AI) | "{user} đã rời khỏi **{server}**. 👋" |
+| **Enable welcome** | Turn the welcome message on/off when someone joins | off |
+| **Channel** | The channel that posts both welcome and goodbye messages | — (required when enabled) |
+| **Welcome template** | The welcome message template (uses the placeholders below) | "Welcome {user} to {server}! 🎉 You are member number {count}." |
+| **AI-generated welcome** | Have Claude write the greeting (still @mentions the member); error/quota exhausted → auto-falls back to the template | off |
+| **Enable leave message** | Turn the goodbye message on/off when someone leaves | off |
+| **Leave template** | The goodbye message template (static, no AI) | "{user} has left **{server}**. 👋" |
 
-**Placeholder** (thay bằng `str.replace`, không phải `format` — nên ký tự `{}` thường trong text không gây lỗi):
+**Placeholders** (substituted with `str.replace`, not `format` — so a stray `{}` in the text won't cause errors):
 
-| Placeholder | Thay bằng |
+| Placeholder | Replaced with |
 |---|---|
-| `{user}` | Mention/tên thành viên |
-| `{server}` | Tên server |
-| `{count}` | Số thành viên hiện tại |
+| `{user}` | Member mention/name |
+| `{server}` | Server name |
+| `{count}` | Current member count |
 
-**Vận hành:**
-- Cần bật **privileged intent `Server Members`** ở Discord Developer Portal (bot đã khai `intents.members = True`).
-- AI welcome dùng chung `AIGateway` (xem [ai-workflow](ai-workflow.md)) — cần `ANTHROPIC_API_KEY` + còn quota tháng; thiếu → tự fallback template.
+**Operation:**
+- You must enable the **privileged intent `Server Members`** in the Discord Developer Portal (the bot already declares `intents.members = True`).
+- AI welcome shares the same `AIGateway` (see [ai-workflow](ai-workflow.md)) — needs `ANTHROPIC_API_KEY` + remaining monthly quota; if missing → auto-falls back to the template.
 
 ---
 
-## 3. Cơ chế bên trong (cho dev)
+## 3. Internals (for devs)
 
 ```
 on_member_join → WelcomeCog → WelcomeService.build_welcome(...)
-   ├─ config.enabled? có channel_id? (không → return None, bỏ qua)
+   ├─ config.enabled? has channel_id? (no → return None, skip)
    ├─ render_template(welcome_template, user/server/count)
-   ├─ nếu ai_welcome: gateway.complete(WELCOME_SYSTEM, prompt) → prefix mention
-   │     └─ ValueError (tắt/thiếu key/hết quota) → fallback text template
-   └─ return (channel_id, text) → cog post qua discord_io (nuốt DiscordError)
+   ├─ if ai_welcome: gateway.complete(WELCOME_SYSTEM, prompt) → prefix mention
+   │     └─ ValueError (off/missing key/quota exhausted) → fall back to text template
+   └─ return (channel_id, text) → cog posts via discord_io (swallows DiscordError)
 
-on_member_remove → WelcomeCog → WelcomeService.build_leave(...)  # tĩnh, không AI
+on_member_remove → WelcomeCog → WelcomeService.build_leave(...)  # static, no AI
 ```
 
-- **`render_template`** (`services/welcome/template.py`): thuần str.replace, không I/O — dễ test.
-- **`WelcomeService`** (`services/welcome/welcome_service.py`): phụ thuộc `guild_repo`, `config_repo`, `gateway`. `build_welcome`/`build_leave` trả `tuple[int, str] | None` (None = không đăng). AI lỗi → nuốt, fallback template (không bao giờ làm hỏng sự kiện join).
-- **`WelcomeCog`** (`bot/cogs/welcome.py`): listener mỏng; `_post` nuốt `DiscordError` để kênh sai/thiếu quyền không vỡ event.
-- **Config table**: `guild_welcome_config` (guild_id PK, enabled, channel_id BigInteger nullable, welcome_template, ai_welcome, leave_enabled, leave_template). Repo theo mẫu no-404: `get`/`get_or_create`/`upsert`. Migration `a3b4c5d6e7f8`.
-- **Test**: `FakeAIProvider` cho nhánh AI → không gọi mạng, tất định.
+- **`render_template`** (`services/welcome/template.py`): pure str.replace, no I/O — easy to test.
+- **`WelcomeService`** (`services/welcome/welcome_service.py`): depends on `guild_repo`, `config_repo`, `gateway`. `build_welcome`/`build_leave` return `tuple[int, str] | None` (None = don't post). An AI error → swallowed, falls back to the template (never breaks the join event).
+- **`WelcomeCog`** (`bot/cogs/welcome.py`): a thin listener; `_post` swallows `DiscordError` so a wrong channel/missing permission doesn't break the event.
+- **Config table**: `guild_welcome_config` (guild_id PK, enabled, channel_id BigInteger nullable, welcome_template, ai_welcome, leave_enabled, leave_template). Repo follows the no-404 pattern: `get`/`get_or_create`/`upsert`. Migration `a3b4c5d6e7f8`.
+- **Tests**: `FakeAIProvider` for the AI branch → no network calls, deterministic.
 
-REST: GET/PUT `/guilds/{id}/welcome/settings`, gate `require_managed_guild`. `channel_id` là **string snowflake** trên wire, coerce int↔str ở biên endpoint.
+REST: GET/PUT `/guilds/{id}/welcome/settings`, gated by `require_managed_guild`. `channel_id` is a **string snowflake** on the wire, coerced int↔str at the endpoint boundary.
 
 ---
 
-## 4. Giới hạn chấp nhận (v1)
+## 4. Accepted limits (v1)
 
-- Một kênh chung cho cả join lẫn leave (chưa tách); leave luôn tĩnh (không AI) để tiết kiệm token; không có ảnh/banner chào mừng (text-only); placeholder cố định (`{user}/{server}/{count}`).
+- One shared channel for both join and leave (not yet split); leave is always static (no AI) to save tokens; no welcome image/banner (text-only); fixed placeholders (`{user}/{server}/{count}`).

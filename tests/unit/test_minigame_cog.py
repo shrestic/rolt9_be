@@ -1,4 +1,4 @@
-"""Unit tests for MinigameCog — /game flip, taixiu, slots commands.
+"""Unit tests for MinigameCog — /game flip, over_under, slots commands.
 
 Tests use monkeypatch to replace `session_scope` and `_build_service` in the
 minigame module so no real DB or Discord connection is needed.
@@ -46,7 +46,7 @@ def _interaction(user_id=1):
 async def test_flip_win_reports(monkeypatch):
     stub = MagicMock()
     stub.play_coinflip = AsyncMock(
-        return_value=GameResult(won=True, payout=190, net=90, balance=1090, detail="Ngửa")
+        return_value=GameResult(won=True, payout=190, net=90, balance=1090, detail="Heads")
     )
     _patch(monkeypatch, stub)
     cog = MinigameCog(MagicMock(), MagicMock())
@@ -59,7 +59,7 @@ async def test_flip_win_reports(monkeypatch):
 @pytest.mark.asyncio
 async def test_flip_error_friendly(monkeypatch):
     stub = MagicMock()
-    stub.play_coinflip = AsyncMock(side_effect=ValueError("Không đủ coin"))
+    stub.play_coinflip = AsyncMock(side_effect=ValueError("Not enough coins"))
     _patch(monkeypatch, stub)
     cog = MinigameCog(MagicMock(), MagicMock())
     inter = _interaction()
@@ -83,19 +83,19 @@ async def test_slots_reports(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_taixiu_reports(monkeypatch):
+async def test_over_under_reports(monkeypatch):
     stub = MagicMock()
-    stub.play_taixiu = AsyncMock(
+    stub.play_over_under = AsyncMock(
         return_value=GameResult(
-            won=False, payout=0, net=-100, balance=900, detail="🎲 6+6+6=18 (Tài)"
+            won=False, payout=0, net=-100, balance=900, detail="🎲 6+6+6=18 (Over)"
         )
     )
     _patch(monkeypatch, stub)
     cog = MinigameCog(MagicMock(), MagicMock())
     inter = _interaction()
-    await cog.game_taixiu.callback(cog, inter, 100, "xiu")
+    await cog.game_over_under.callback(cog, inter, 100, "under")
     msg = inter.followup.send.call_args.args[0]
-    assert "Thua" in msg
+    assert "lost" in msg
 
 
 @pytest.mark.asyncio

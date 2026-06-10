@@ -1,6 +1,6 @@
-"""Probe loop: chạy FULL vòng tool-calling (≤4 bước) nhưng execute GIẢ — không đụng
-Discord thật. Ghi lại CHUỖI tool model gọi qua các bước, để xem cuối cùng nó có gọi
-đúng tool hành động không (kể cả khi nó gọi server_info trước rồi mới hành động)."""
+"""Probe loop: runs the FULL tool-calling loop (<=4 steps) but with a FAKE execute -- does
+not touch real Discord. Records the SEQUENCE of tools the model calls across steps, to see
+whether it ultimately calls the right action tool (even if it calls server_info first)."""
 
 import asyncio
 import sys
@@ -19,34 +19,34 @@ GUILD_DISCORD_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 148024731081349941
 MAX_STEPS = 4
 
 CASES = [
-    ("tạo role", "tạo cho tao role tên VIP màu đỏ đi", "create_role"),
-    ("gán role", "gán role VIP cho @Đạt với", "assign_role"),
-    ("gỡ role", "gỡ cái role Mod của @Đạt ra", "remove_role"),
-    ("xóa role", "xóa luôn role VIP khỏi server đi", "delete_role"),
-    ("bật plugin", "bật cái plugin tính level lên cho tao", "toggle_plugin"),
-    ("tắt plugin", "tắt welcome đi đừng chào nữa", "toggle_plugin"),
-    ("bật currency", "mở hệ thống tiền tệ currency lên", "toggle_plugin"),
-    ("kick", "kick thằng @spammer ra khỏi server giùm", "kick"),
-    ("ban", "ban @toxic vĩnh viễn cho tao", "ban"),
-    ("ban (lịch sự)", "@bot ơi ban giúp mình bạn @toxic nhé", "ban"),
-    ("unban", "gỡ ban cho thằng BadGuy123 đi, nó hối lỗi rồi", "unban"),
-    ("timeout/mute", "mute mồm thằng @ồn ào 15 phút", "timeout"),
-    ("untimeout/unmute", "gỡ mute cho @Đạt đi nó im rồi", "untimeout"),
-    ("server info", "server mình có bao nhiêu thành viên rồi nhỉ", "server_info"),
-    ("remember", "từ nay gọi @An là thằng loz nha bot", "remember"),
+    ("create role", "make me a role called VIP in red", "create_role"),
+    ("assign role", "slap the VIP role on @Dat would ya", "assign_role"),
+    ("remove role", "take the Mod role off @Dat", "remove_role"),
+    ("delete role", "just nuke the VIP role from the server", "delete_role"),
+    ("enable plugin", "turn on the leveling plugin for me", "toggle_plugin"),
+    ("disable plugin", "kill the welcome thing, stop greeting people", "toggle_plugin"),
+    ("enable currency", "fire up the currency economy system", "toggle_plugin"),
+    ("kick", "kick @spammer outta the server for me", "kick"),
+    ("ban", "ban @toxic for good", "ban"),
+    ("ban (polite)", "hey @bot could you please ban @toxic", "ban"),
+    ("unban", "unban BadGuy123, he's sorry now", "unban"),
+    ("timeout/mute", "mute @noisy for 15 mins", "timeout"),
+    ("untimeout/unmute", "unmute @Dat, he's quiet now", "untimeout"),
+    ("server info", "how many members does our server have now", "server_info"),
+    ("remember", "from now on call @An a dumbass, got it bot", "remember"),
 ]
 
 
 def fake_execute(name: str, _args: dict) -> str:
-    """Trả kết quả giả hợp lý để loop tiếp tục, KHÔNG đụng Discord."""
+    """Return a plausible fake result so the loop continues, WITHOUT touching Discord."""
     if name == "server_info":
-        return "Roles: VIP, Mod, Member. Thành viên: 42. Kênh: general, chat."
+        return "Roles: VIP, Mod, Member. Members: 42. Channels: general, chat."
     if name == "remember":
-        return "Đã ghi nhớ."
+        return "Noted."
     if name == "current_time":
         return "2026-06-01 10:00 UTC"
-    # action tools -> coi như đã stage thành công
-    return f"Đã chuẩn bị hành động {name}. Chờ admin xác nhận/thực thi."
+    # action tools -> treat as staged successfully
+    return f"Staged action {name}. Waiting for admin confirmation/execution."
 
 
 async def main():
@@ -64,7 +64,7 @@ async def main():
 
         ok = 0
         for desc, phrase, expected in CASES:
-            system = build_system(cfg.persona or "", "", "Đạt", memory_doc, "")
+            system = build_system(cfg.persona or "", "", "Dat", memory_doc, "")
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": phrase},
@@ -86,12 +86,12 @@ async def main():
             hit = "✅" if expected in seq else "❌"
             if expected in seq:
                 ok += 1
-            print(f"{hit} [{desc}] câu: {phrase}")
-            print(f"    chuỗi tool: {seq or '(không gọi tool nào)'}   (cần: {expected})")
+            print(f"{hit} [{desc}] phrase: {phrase}")
+            print(f"    tool sequence: {seq or '(no tool called)'}   (need: {expected})")
             if not seq:
-                print(f"    bot nói   : {final_text}")
+                print(f"    bot said     : {final_text}")
             print()
-        print(f"== Gọi đúng tool (trong ≤{MAX_STEPS} bước): {ok}/{len(CASES)} ==")
+        print(f"== Right tool called (within <={MAX_STEPS} steps): {ok}/{len(CASES)} ==")
 
 
 if __name__ == "__main__":

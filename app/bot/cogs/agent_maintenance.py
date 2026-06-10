@@ -1,6 +1,6 @@
-"""Cog dọn rác agent_message — sweep nền hằng ngày, giữ 90 ngày gần nhất.
+"""agent_message cleanup cog — daily background sweep, keeps the last 90 days.
 
-Loop mỏng (chỉ lịch + lifecycle); logic ở `purge_old_agent_messages` (test được).
+Thin loop (schedule + lifecycle only); the logic lives in `purge_old_agent_messages` (testable).
 """
 
 import logging
@@ -12,7 +12,7 @@ from app.services.ai.agent_maintenance import purge_old_agent_messages
 
 log = logging.getLogger(__name__)
 
-CLEANUP_HOURS = 24  # quét mỗi ngày — ngưỡng giữ tính theo ngày nên không cần dày hơn
+CLEANUP_HOURS = 24  # sweep daily — the retention threshold is in days so no need to run more often
 
 
 class AgentMaintenanceCog(commands.Cog):
@@ -27,10 +27,10 @@ class AgentMaintenanceCog(commands.Cog):
     async def cleanup_sweep(self) -> None:
         try:
             await purge_old_agent_messages(now=datetime.now(UTC))
-        except Exception:  # noqa: BLE001 — 1 lần dọn lỗi không được làm chết loop
+        except Exception:  # noqa: BLE001 — one failed sweep must not kill the loop
             log.exception("agent_message cleanup sweep failed")
 
     @cleanup_sweep.before_loop
     async def _before(self) -> None:
-        # Chờ gateway + DB engine sẵn sàng rồi mới quét.
+        # Wait for the gateway + DB engine to be ready before sweeping.
         await self.bot.wait_until_ready()

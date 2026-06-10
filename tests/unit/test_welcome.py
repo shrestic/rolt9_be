@@ -41,8 +41,8 @@ def test_render_template_ignores_unknown_braces():
 async def _svc(db_session, *, ai_available=True, **welcome_kw):
     gid = uuid.uuid4()
     db_session.add(Guild(id=gid, discord_id=GID, name="X", icon_url=None, is_active=True))
-    # v2: "AI khả dụng" nghĩa là config có đủ key/provider/model. ai_available=False
-    # => không có key => gateway raise => welcome service fallback về template.
+    # v2: "AI available" means the config has a full key/provider/model. ai_available=False
+    # => no key => gateway raises => welcome service falls back to the template.
     db_session.add(
         GuildAIConfig(
             guild_id=gid,
@@ -66,7 +66,7 @@ async def _svc(db_session, *, ai_available=True, **welcome_kw):
             guild_repo=GuildRepository(db_session),
             config_repo=AIConfigRepository(db_session),
             usage_repo=AIUsageRepository(db_session),
-            provider=_Prov(text="Chào bạn mới! 🎉"),
+            provider=_Prov(text="Welcome, newcomer! 🎉"),
         ),
     )
     return svc
@@ -75,12 +75,12 @@ async def _svc(db_session, *, ai_available=True, **welcome_kw):
 @pytest.mark.asyncio
 async def test_welcome_template(db_session):
     svc = await _svc(
-        db_session, enabled=True, channel_id=999, welcome_template="Hi {user} thứ {count}"
+        db_session, enabled=True, channel_id=999, welcome_template="Hi {user} number {count}"
     )
     res = await svc.build_welcome(
         guild_discord_id=GID, user_mention="@An", user_name="An", server_name="X", member_count=7
     )
-    assert res == (999, "Hi @An thứ 7")
+    assert res == (999, "Hi @An number 7")
 
 
 @pytest.mark.asyncio
@@ -92,7 +92,7 @@ async def test_welcome_ai(db_session):
         guild_discord_id=GID, user_mention="@An", user_name="An", server_name="X", member_count=7
     )
     assert res[0] == 999
-    assert "Chào bạn mới" in res[1]
+    assert "Welcome, newcomer" in res[1]
     assert res[1].startswith("@An ")
 
 

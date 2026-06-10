@@ -1,4 +1,4 @@
-"""Bảng `wc_shame` — lưu nick GỐC của người bị phạt đổi-nick để trả lại sang vòng mới."""
+"""The `wc_shame` table — stores the ORIGINAL nickname of a nick-change-penalized user to restore it in the next round."""
 
 import uuid
 from datetime import datetime

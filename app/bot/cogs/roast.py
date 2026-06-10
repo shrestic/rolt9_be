@@ -1,4 +1,4 @@
-"""`/roast @member` — AI cà khịa. Thin layer over RoastService + AIGateway.
+"""`/roast @member` — AI savage roast. Thin layer over RoastService + AIGateway.
 
 10s/user cooldown to bound AI cost; bot targets rejected. Service ValueErrors
 (AI off, no key, over budget) become a friendly ❌ message.
@@ -42,7 +42,7 @@ class RoastCog(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.CommandOnCooldown):
             secs = round(error.retry_after, 1)
-            msg = f"⏳ Cà khịa gì lắm thế — đợi {secs}s nữa."
+            msg = f"⏳ So much roasting — wait {secs}s more."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
@@ -50,12 +50,12 @@ class RoastCog(commands.Cog):
             return
         raise error
 
-    @app_commands.command(name="roast", description="Cà khịa một thành viên (AI).")
+    @app_commands.command(name="roast", description="Roast a member (AI).")
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 10.0)
     async def roast(self, interaction: discord.Interaction, member: discord.Member) -> None:
         if member.bot:
-            await interaction.response.send_message("❌ Bot thì cà khịa gì nữa.", ephemeral=True)
+            await interaction.response.send_message("❌ Roasting a bot? Nah.", ephemeral=True)
             return
         await interaction.response.defer()
         try:

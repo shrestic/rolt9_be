@@ -24,12 +24,12 @@ async def test_get_default_empty(db_session):
 async def test_upsert_then_get(db_session):
     gid = await _guild(db_session)
     repo = UserMemoryRepository(db_session)
-    await repo.upsert_facts(gid, 42, "- thích mèo\n- tên Phong")
+    await repo.upsert_facts(gid, 42, "- likes cats\n- name is Phong")
     await db_session.commit()
-    assert "thích mèo" in await repo.get_facts(gid, 42)
-    await repo.upsert_facts(gid, 42, "- đổi mới")
+    assert "likes cats" in await repo.get_facts(gid, 42)
+    await repo.upsert_facts(gid, 42, "- updated")
     await db_session.commit()
-    assert await repo.get_facts(gid, 42) == "- đổi mới"
+    assert await repo.get_facts(gid, 42) == "- updated"
 
 
 @pytest.mark.asyncio

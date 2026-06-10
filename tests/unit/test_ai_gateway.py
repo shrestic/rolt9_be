@@ -137,7 +137,7 @@ async def test_complete_raw_returns_tool_calls_and_records_usage(db_session):
     gid, gw = await _setup(db_session, ai_provider=prov)
     res = await gw.complete_raw(
         guild_discord_id=GID,
-        messages=[{"role": "user", "content": "giờ?"}],
+        messages=[{"role": "user", "content": "time?"}],
         tools=[{"type": "function"}],
         now=NOW,
     )

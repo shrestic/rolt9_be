@@ -1,8 +1,8 @@
-"""Companion: thêm `companion_last_post_at` để cooldown sống sót qua restart
+"""Companion: add `companion_last_post_at` so the cooldown survives a restart
 
-Cooldown companion trước giữ trong RAM (self.cooldown) -> mỗi lần restart/deploy là quên
--> bot post lại ngay dù admin set 45'. Lưu thời điểm post cuối (UTC) vào DB để gate so
-theo đồng hồ thực, bền qua restart. Nullable -> row cũ = chưa post lần nào.
+The companion cooldown was previously kept in RAM (self.cooldown) -> every restart/deploy forgot it
+-> the bot posted again immediately even though the admin set 45min. Store the last post time (UTC) in the DB
+so the gate compares against the real clock and persists across restarts. Nullable -> old row = never posted yet.
 
 Revision ID: bb22cc33dd44
 Revises: aa11bb22cc33

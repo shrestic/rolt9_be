@@ -9,7 +9,7 @@ def test_defaults():
     assert s.provider == ""
     assert s.model == ""
     assert s.monthly_budget_usd == Decimal("5")
-    assert s.api_key is None  # write-only, None = giữ nguyên
+    assert s.api_key is None  # write-only, None = leave unchanged
 
 
 def test_out_shape_hides_key():
@@ -32,4 +32,4 @@ def test_out_shape_hides_key():
     assert o.has_key is True
     assert o.key_hint == "sk-x"
     assert o.cost_used_this_month == Decimal("0.34")
-    assert not hasattr(o, "api_key")  # không bao giờ lộ key
+    assert not hasattr(o, "api_key")  # never expose the key

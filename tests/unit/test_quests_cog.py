@@ -76,4 +76,4 @@ async def test_quests_claim_nothing(monkeypatch):
     inter = _interaction()
     await cog.quests_claim.callback(cog, inter)
     msg = inter.followup.send.call_args.args[0]
-    assert "Chưa" in msg or "chưa" in msg
+    assert "No quests" in msg or "no quests" in msg.lower()

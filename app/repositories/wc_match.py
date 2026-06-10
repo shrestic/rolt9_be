@@ -1,4 +1,4 @@
-"""Data access cho wc_match. upsert theo API match id; flush-only, commit ở boundary."""
+"""Data access for wc_match. upsert by API match id; flush-only, commit at boundary."""
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +28,7 @@ class WCMatchRepository:
         self.session = session
 
     async def upsert(self, data: dict) -> WCMatch:
-        """Tạo/cập nhật trận theo `data['id']` (API id). Chỉ set field có trong data."""
+        """Create/update a match by `data['id']` (API id). Only set fields present in data."""
         row = await self.session.get(WCMatch, data["id"])
         if row is None:
             row = WCMatch(id=data["id"])

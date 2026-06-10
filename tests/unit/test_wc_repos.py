@@ -37,7 +37,7 @@ async def test_match_upsert_and_due_to_settle(db_session):
         }
     )
     await repo.upsert(
-        {  # cập nhật lại cùng id -> không tạo trùng
+        {  # re-upsert the same id -> no duplicate created
             "id": 1,
             "home_team": "BRA",
             "home_code": "BR",
@@ -74,7 +74,7 @@ async def test_prediction_upsert_replaces_same_key(db_session):
     await db_session.commit()
     prepo = WCPredictionRepository(db_session)
     await prepo.upsert(gid, 5, 42, "1x2", "home")
-    await prepo.upsert(gid, 5, 42, "1x2", "away")  # cùng key -> đổi pick, không tạo mới
+    await prepo.upsert(gid, 5, 42, "1x2", "away")  # same key -> changes the pick, no new row
     await db_session.commit()
     mine = await prepo.for_user_match(gid, 5, 42)
     assert len(mine) == 1 and mine[0].pick == "away"

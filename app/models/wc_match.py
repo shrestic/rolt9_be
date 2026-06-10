@@ -1,4 +1,4 @@
-"""Bảng `wc_match` — trận World Cup sync từ API, DÙNG CHUNG mọi guild."""
+"""The `wc_match` table — World Cup matches synced from the API, SHARED across all guilds."""
 
 from datetime import datetime
 

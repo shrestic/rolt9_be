@@ -1,9 +1,9 @@
-"""HTTP endpoints cho AI settings (BYO-key v2) + usage token/USD + catalog.
+"""HTTP endpoints for AI settings (BYO-key v2) + token/USD usage + catalog.
 
-Mounted dưới `/api/v1/guilds/{guild_id}/ai/...`, gate `require_managed_guild`.
-GET/PUT KHÔNG BAO GIỜ trả key thật — chỉ `has_key` + `key_hint` (4 ký tự cuối).
-`api_key` trong PUT ghi-một-chiều: None=giữ, ""=xóa, "sk-..."=đặt mới.
-Catalog (`/ai/catalog`, không cần guild_id) feed dropdown cho FE.
+Mounted under `/api/v1/guilds/{guild_id}/ai/...`, gated by `require_managed_guild`.
+GET/PUT NEVER return the real key — only `has_key` + `key_hint` (last 4 characters).
+`api_key` in PUT is write-only: None=keep, ""=clear, "sk-..."=set new.
+Catalog (`/ai/catalog`, no guild_id needed) feeds the FE dropdown.
 UoW: repo flush, request boundary commit.
 """
 
@@ -28,7 +28,7 @@ from app.services.ai.ai_gateway import month_key
 from app.services.ai.catalog import AI_CATALOG, is_valid
 
 router = APIRouter()
-# Router riêng cho catalog (không có guild_id) — mount với prefix "/ai" ở api.py.
+# Separate router for the catalog (no guild_id) — mounted with prefix "/ai" in api.py.
 catalog_router = APIRouter()
 
 
@@ -37,7 +37,7 @@ def _kb_out(e) -> KbEntryOut:
 
 
 def _key_hint(api_key_enc: bytes | None) -> str:
-    """4 ký tự cuối của key (để admin nhận ra key nào), "" nếu chưa có/giải mã lỗi."""
+    """Last 4 characters of the key (so the admin can tell which key it is), "" if none/decrypt fails."""
     if api_key_enc is None:
         return ""
     try:
@@ -87,18 +87,18 @@ async def update_settings(
     repo: AIConfigRepository = Depends(get_ai_config_repository),
     usage_repo: AIUsageRepository = Depends(get_ai_usage_repository),
 ):
-    # Validate provider/model qua catalog khi có chọn (cho phép để trống = chưa cấu hình).
+    # Validate provider/model via the catalog when one is chosen (allow empty = not configured yet).
     if (payload.provider or payload.model) and not is_valid(payload.provider, payload.model):
-        raise HTTPException(status_code=422, detail="Provider/model không hỗ trợ.")
-    # Build dict cập nhật, loại api_key ra (xử lý riêng vì ghi-một-chiều).
+        raise HTTPException(status_code=422, detail="Provider/model not supported.")
+    # Build the update dict, leaving out api_key (handled separately since it's write-only).
     data = payload.model_dump(exclude={"api_key"})
-    # Snowflake string → int (hoặc None) ở biên DB.
+    # Snowflake string → int (or None) at the DB boundary.
     data["agent_channel_id"] = int(payload.agent_channel_id) if payload.agent_channel_id else None
     data["companion_channel_id"] = (
         int(payload.companion_channel_id) if payload.companion_channel_id else None
     )
     if payload.api_key is not None:
-        # "" => xóa key (NULL); chuỗi khác => mã hóa & lưu.
+        # "" => clear key (NULL); any other string => encrypt & store.
         data["api_key_enc"] = encrypt_str(payload.api_key) if payload.api_key else None
     cfg = await repo.upsert(guild.id, data)
     return await _out(cfg, guild.id, usage_repo)
@@ -106,7 +106,7 @@ async def update_settings(
 
 @catalog_router.get("/catalog")
 async def get_catalog():
-    """Whitelist provider/model cho FE (không cần guild_id, không cần gate guild)."""
+    """Whitelisted provider/model for the FE (no guild_id needed, no guild gate needed)."""
     return AI_CATALOG
 
 

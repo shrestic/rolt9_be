@@ -1,4 +1,4 @@
-"""Bảng `guild_wc_config` — bật/tắt + kênh + prefix nick bêu cho WC Predict (per-guild)."""
+"""The `guild_wc_config` table — enable/disable + channel + shame nickname prefix for WC Predict (per-guild)."""
 
 import uuid
 from datetime import datetime
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
 
-DEFAULT_SHAME_PREFIX = "🤡 Non Tay — "
+DEFAULT_SHAME_PREFIX = "🤡 Amateur — "
 
 
 class GuildWCConfig(Base):

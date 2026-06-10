@@ -159,7 +159,7 @@ class PetService:
         ok = await self.wallet_repo.add_balance(guild.id, user_id, -pet.feed_cost)
         if not ok:
             balance = await self._balance(guild.id, user_id)
-            raise ValueError(f"Không đủ coin — cần {pet.feed_cost:,}, bạn có {balance:,}.")
+            raise ValueError(f"Not enough coins — need {pet.feed_cost:,}, you have {balance:,}.")
 
         # Apply the feed: cap at MAX_STAT so hunger never exceeds 100.
         hunger = min(MAX_STAT, hunger + pet.feed_amount)
@@ -193,7 +193,7 @@ class PetService:
             guild.id, user_id, now=now, cutoff=now - PLAY_COOLDOWN
         )
         if not allowed:
-            raise ValueError("Bạn vừa chơi với pet rồi — đợi chút nhé.")
+            raise ValueError("You just played with the pet — give it a moment.")
 
         pet = await self.pet_repo.get_or_create(guild.id)
         old_level = pet_level(pet.xp)
@@ -229,10 +229,10 @@ class PetService:
         """Resolve guild and assert the pet feature is enabled; raise ValueError otherwise."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("This server isn't registered with the bot.")
         pet = await self.pet_repo.get(guild.id)
         if pet is None or not pet.enabled:
-            raise ValueError("Pet chưa được bật trên server này.")
+            raise ValueError("The pet isn't enabled on this server.")
         return guild
 
     def _settle(self, pet, now: datetime) -> tuple[int, int]:

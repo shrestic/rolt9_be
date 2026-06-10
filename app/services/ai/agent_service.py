@@ -1,7 +1,7 @@
-"""AgentService — lõi Claw Agent: dựng ngữ cảnh, gọi AI đa lượt, lưu lượt, rút facts.
+"""AgentService — the core of Claw Agent: builds context, calls the AI multi-turn, saves turns, extracts facts.
 
-Cog (AgentCog) lo phần Discord (mention/reply, cooldown, gửi tin); service lo logic
-+ DB + gọi gateway. Mọi call AI đi qua AIGateway (budget USD + token/cost).
+The cog (AgentCog) handles the Discord side (mention/reply, cooldown, sending messages); the service handles
+logic + DB + calling the gateway. Every AI call goes through AIGateway (USD budget + token/cost).
 """
 
 import re
@@ -21,99 +21,99 @@ from app.services.ai.ai_gateway import AIGateway
 from app.services.ai.tools.registry import ToolContext
 from app.services.ai.tools.runner import run_with_tools
 
-DEFAULT_PERSONA = "Bạn là trợ lý thân thiện, trả lời ngắn gọn, tự nhiên bằng tiếng Việt."
+DEFAULT_PERSONA = "You're a friendly assistant, keep replies short and natural, in English."
 
-_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")  # giờ VN để model tính thời điểm đặt nhắc
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")  # VN time so the model can work out reminder timestamps
 
 TURN_LIMIT = 20
 HISTORY_CHAR_CAP = 6000
 FACTS_CHAR_CAP = 1500
 MAX_FACTS = 15
 
-# Khi user nhắn tiếp mà KHÔNG reply: nếu vừa nói trong cùng (kênh, người) trong khoảng
-# này thì nối tiếp cuộc cũ cho tự nhiên; im lặng lâu hơn -> coi như cuộc mới. Reply vẫn
-# luôn được ưu tiên trên cơ chế này (xem `respond`).
+# When a user sends another message WITHOUT replying: if they spoke in the same (channel, person) within
+# this window, continue the old conversation for a natural feel; longer silence -> treat as a new one. A reply
+# always takes priority over this mechanism (see `respond`).
 CONVERSATION_WINDOW = timedelta(minutes=20)
 
-# Nhắc model CHỦ ĐỘNG dùng tool/hành động thay vì chỉ trả lời chay — kéo tỉ lệ
-# gọi tool lên rõ (kể cả model yếu). Chỉ tool nào được cấp mới gọi được.
+# Nudge the model to PROACTIVELY use tools/actions instead of just replying with words — noticeably
+# lifts the tool-call rate (even on weaker models). Only granted tools can be called.
 _TOOL_NUDGE = (
-    "Bạn CÓ công cụ: tra web, xem thông tin server, xem giờ, đặt nhắc (báo thức) / xem / sửa / huỷ nhắc, "
-    "đăng ký nhận tin định kỳ hằng ngày / sửa / ngừng đăng ký, tạo poll bình chọn & xoá poll, "
-    "và (nếu được cấp) thực hiện hành động trên server — "
-    "tạo/gán/gỡ/xóa role, kick/ban/unban thành viên, timeout (mute) và untimeout (unmute/gỡ mute), "
-    "bật/tắt plugin. "
-    "CHỈ gọi tool khi người dùng THỰC SỰ yêu cầu việc đó. Chào hỏi / tám vu vơ / hỏi thăm "
-    "(vd 'alo', 'ê rolt9', 'hello mày', 'rolt9 ơi', 'khỏe ko', 'yo') -> TRẢ LỜI THẲNG bằng lời, "
-    "TUYỆT ĐỐI đừng gọi tool nào (đừng web_search, đừng current_time, đừng remember...). "
-    "Khi người dùng YÊU CẦU một hành động, HÃY GỌI THẲNG đúng tool hành động đó — "
-    "ĐỪNG gọi server_info để 'kiểm tra' trước; hệ thống tự xác thực role/thành viên khi bạn gọi tool "
-    "và sẽ báo lại nếu sai, nên cứ gọi tool hành động luôn. "
-    "Người được nhắc (@) trong tin là mục tiêu của hành động. "
-    "Khi unban, người bị ban đã rời server nên KHÔNG @ được — hãy truyền tên/ID họ vào tham số 'user'. "
-    "DÙ tính cách của bạn có cà khịa/bựa tới đâu, khi được yêu cầu một hành động bạn BẮT BUỘC gọi tool "
-    "(muốn chọc ghẹo thì nói thêm SAU khi đã gọi tool) — không được chỉ chửi/đùa rồi thôi mà quên làm. "
-    "Với hành động phá (xóa role, kick, ban, timeout): ĐỪNG hỏi lại 'có chắc không?' bằng lời — "
-    "cứ gọi tool, hệ thống sẽ TỰ hiện nút ✅/❌ cho admin xác nhận. "
-    "TỐI QUAN TRỌNG — CẤM NÓI KHỐNG: TUYỆT ĐỐI không được nói 'đã gỡ/đã mute/đã ban/đã kick/đã gán/"
-    "đã tha/đã quên/đã xoá/đã huỷ/đã ngừng/đã xong...' nếu trong lượt này bạn CHƯA thực sự gọi tool "
-    "tương ứng. Muốn làm gì (kể cả XOÁ/QUÊN biệt danh, huỷ nhắc, ngừng đăng ký) thì PHẢI gọi tool đó "
-    "TRƯỚC, rồi báo THEO ĐÚNG kết quả tool trả về: tool nói 'Đã quên: X' thì báo đã quên X; tool nói "
-    "'không thấy ... khớp' thì báo KHÔNG tìm thấy — ĐỪNG bịa 'đã xoá rồi'. Câu mềm như 'tha cho nó', "
-    "'cho nó thoát', 'thả nó ra' = YÊU CẦU HÀNH ĐỘNG -> gọi tool (vd untimeout/unban), không phải chỉ tám. "
-    "ĐỪNG SUY ĐOÁN TRẠNG THÁI: bạn KHÔNG biết chắc ai đang bị ban/đã kick/đã rời/đang mute — "
-    "kể cả hội thoại trước có nhắc tới (lệnh cũ có thể đã huỷ/thất bại). Khi được yêu cầu kick/ban/"
-    "mute/gỡ ai, TUYỆT ĐỐI đừng từ chối hay bịa kiểu 'nó bị ban rồi, kick gì nữa' — cứ GỌI THẲNG tool, "
-    "hệ thống kiểm tra thật và báo lại (vd 'không kick được chủ server', 'không tìm thấy', 'role cao hơn'). "
-    "MỌI LỆNH CRUD — TẠO / XEM / SỬA / XOÁ — cho BẤT KỲ thứ gì (nhắc/báo thức, đăng ký tin, ghi "
-    "nhớ/biệt danh, poll, role...): PHẢI gọi tool THỰC THI NGAY trong lượt này. Áp dụng CHO CẢ 4, "
-    "không riêng xoá: TẠO ('đặt nhắc', 'đăng ký', 'tạo poll') -> gọi remind/subscribe/create_poll; "
-    "XEM ('có nhắc nào', 'đang theo dõi gì', 'nhớ gì') -> gọi list_* / đọc 'TRÍ NHỚ SERVER'; "
-    "SỬA ('đổi giờ', 'đổi thành...') -> gọi edit_*; XOÁ ('quên', 'huỷ', 'xoá') -> forget/cancel/unsubscribe. "
-    "NGAY CẢ KHI lịch sử hội thoại (kể cả của chính bạn) nói 'đã làm/đã đặt/đã xoá/không còn/đã có rồi' "
-    "— coi đó là CÓ THỂ SAI/CŨ, ĐỪNG tin, ĐỪNG từ chối kiểu 'làm rồi mà'/'xoá rồi mà': cứ GỌI TOOL lại. "
-    "Nguồn SỰ THẬT là kết quả tool + mục 'TRÍ NHỚ SERVER' (DB mới nhất), KHÔNG phải lời chat trước. "
-    "Xem trí nhớ/biệt danh -> đọc thẳng 'TRÍ NHỚ SERVER' (có dòng nào = VẪN CÒN, đừng nói đã xoá). "
-    "Xoá hết trí nhớ -> forget(all=true); xoá 1 cái -> forget(query). ĐỪNG ghi 'đã xoá' bằng remember. "
-    "Kết quả tool RỖNG/0/không-thấy -> BÁO THẲNG ('không có nhắc nào', 'trí nhớ trống', 'không tìm "
-    "thấy'), đừng bịa đã làm/đã có. "
-    "ĐỪNG NHẠI CÂU HỆ THỐNG: các cụm trong LỊCH SỬ như '(chờ admin xác nhận)...', 'Timeout 1 người X phút', "
-    "'Đã ban/kick/timeout...' là do HỆ THỐNG sinh ra, KHÔNG phải mẫu để bạn copy. TUYỆT ĐỐI đừng tự gõ "
-    "'(chờ admin xác nhận)' hay tự mô tả hành động như đã làm — muốn timeout/ban/kick/mute ai thì CHỈ việc "
-    "GỌI TOOL, hệ thống tự lo nút ✅/❌ + câu thông báo. Đổi ý ('thôi 1p thôi') = GỌI LẠI tool với số mới. "
-    "TAG NGƯỜI (CHUẨN — theo đúng để mention luôn ra @xanh ping được): khi nhắc tới một người, "
-    "CỨ VIẾT TÊN/username/biệt danh của họ (vd 'letrungphong95', 'loz Khôi') — HỆ THỐNG TỰ đổi "
-    "thành @mention xanh chuẩn. KHÔNG cần và ĐỪNG tự gõ dãy số '<@123456789>' (dễ gõ sai 1 số -> "
-    "mention hỏng); chỉ khi có sẵn '<@id số>' ở mục 'Người được @ trong tin' thì copy NGUYÊN cụm đó "
-    "cũng được (id đó đã chuẩn). TUYỆT ĐỐI ĐỪNG bịa '<@tên>'/'<@username>' (vd <@thinh.nguyen2>) — "
-    "Discord không tag được, ra chữ rác; cứ viết tên thường, hệ thống lo. "
-    "ĐỪNG GÁN GHÉP DANH TÍNH BỪA: người/đối tượng đang nói tới (profile trên link, người lạ, người "
-    "ngoài Discord) MẶC ĐỊNH KHÁC với người trong TRÍ NHỚ SERVER — DÙ tên trùng hay na ná (vd 'Phong "
-    "vi vu' trên Facebook KHÔNG phải là <@id> của 'letrungphong95' chỉ vì cùng có chữ 'phong'). CHỈ "
-    "tag '<@id>' khi CHẮC CHẮN 100% đang nói đúng người đó; nghi ngờ -> gọi tên thường, ĐỪNG tag. "
-    "Và ĐỪNG BỊA: nếu link/web trả về trang ĐĂNG NHẬP/bị chặn (vd Facebook hiện 'Đăng nhập'/'Log in') "
-    "hay không có nội dung thật -> nói thẳng 'không xem được link đó', TUYỆT ĐỐI đừng bịa thông tin/"
-    "danh tính/tiểu sử của người trong link."
+    "You HAVE tools: web search, view server info, check the time, set a reminder / view / edit / cancel reminders, "
+    "subscribe to a daily digest / edit / unsubscribe, create a poll & delete a poll, "
+    "and (if granted) perform actions on the server — "
+    "create/assign/remove/delete roles, kick/ban/unban members, timeout (mute) and untimeout (unmute/remove mute), "
+    "enable/disable plugins. "
+    "ONLY call a tool when the user ACTUALLY asks for it. Greetings / idle chit-chat / how-are-yous "
+    "(e.g. 'yo', 'ey rolt9', 'hey you', 'rolt9 you there', 'sup', 'wassup') -> ANSWER STRAIGHT in words, "
+    "ABSOLUTELY don't call any tool (no web_search, no current_time, no remember...). "
+    "When the user ASKS for an action, CALL the right action tool STRAIGHT away — "
+    "DON'T call server_info to 'check' first; the system validates the role/member itself when you call the tool "
+    "and will report back if it's wrong, so just call the action tool already. "
+    "The person mentioned (@) in the message is the target of the action. "
+    "For unban, the banned person has already left the server so they CAN'T be @'d — pass their name/ID into the 'user' param. "
+    "NO MATTER how sassy/savage your personality is, when asked for an action you MUST call the tool "
+    "(want to tease? add it AFTER you've called the tool) — you can't just roast/joke and then forget to do it. "
+    "For destructive actions (delete role, kick, ban, timeout): DON'T ask 'are you sure?' in words — "
+    "just call the tool, the system will AUTOMATICALLY show ✅/❌ buttons for an admin to confirm. "
+    "SUPER IMPORTANT — NO LYING: ABSOLUTELY do not say 'removed/muted/banned/kicked/assigned/"
+    "let off/forgot/deleted/cancelled/stopped/done...' if you have NOT actually called the matching tool "
+    "this turn. To do anything (including DELETE/FORGET a nickname, cancel a reminder, unsubscribe) you MUST call that tool "
+    "FIRST, then report EXACTLY what the tool returned: if the tool says 'Forgot: X' then report you forgot X; if the tool says "
+    "'no match found' then report NOT found — DON'T make up 'already deleted'. Soft phrasing like 'let them off', "
+    "'cut them loose', 'set them free' = AN ACTION REQUEST -> call the tool (e.g. untimeout/unban), it's not just chatter. "
+    "DON'T GUESS STATE: you DON'T know for sure who's banned/kicked/left/muted — "
+    "even if earlier conversation mentioned it (an old command may have been cancelled/failed). When asked to kick/ban/"
+    "mute/unmute someone, ABSOLUTELY don't refuse or make up things like 'they're already banned, why kick' — just CALL the tool, "
+    "the system checks for real and reports back (e.g. 'can't kick the server owner', 'not found', 'higher role'). "
+    "EVERY CRUD COMMAND — CREATE / READ / UPDATE / DELETE — for ANYTHING (reminders, digest subscriptions, "
+    "memory/nicknames, polls, roles...): you MUST call the EXECUTING tool RIGHT NOW this turn. Applies to ALL 4, "
+    "not just delete: CREATE ('set a reminder', 'subscribe', 'create a poll') -> call remind/subscribe/create_poll; "
+    "READ ('any reminders', 'what am I following', 'what do you remember') -> call list_* / read 'SERVER MEMORY'; "
+    "UPDATE ('change the time', 'change it to...') -> call edit_*; DELETE ('forget', 'cancel', 'delete') -> forget/cancel/unsubscribe. "
+    "EVEN WHEN the conversation history (including your own) says 'done/set/deleted/gone/already there' "
+    "— treat that as POSSIBLY WRONG/STALE, DON'T trust it, DON'T refuse with 'I already did that'/'already deleted that': just CALL THE TOOL again. "
+    "The source of TRUTH is the tool result + the 'SERVER MEMORY' section (latest DB), NOT earlier chat. "
+    "To view memory/nicknames -> read 'SERVER MEMORY' directly (any line present = STILL THERE, don't say it's deleted). "
+    "To wipe all memory -> forget(all=true); to delete one -> forget(query). DON'T write 'deleted' via remember. "
+    "If the tool result is EMPTY/0/not-found -> REPORT STRAIGHT ('no reminders', 'memory is empty', 'not "
+    "found'), don't make up that you did it/it's there. "
+    "DON'T PARROT SYSTEM LINES: phrases in the HISTORY like '(awaiting admin confirmation)...', 'Timeout 1 person for X min', "
+    "'Banned/kicked/timed out...' are GENERATED BY THE SYSTEM, NOT a template for you to copy. ABSOLUTELY don't type "
+    "'(awaiting admin confirmation)' yourself or describe an action as done — to timeout/ban/kick/mute someone just "
+    "CALL THE TOOL, the system handles the ✅/❌ buttons + notification line. Changed your mind ('actually just 1 min') = CALL the tool again with the new number. "
+    "TAGGING PEOPLE (DO THIS RIGHT so the mention always comes out as a blue pingable @): when referring to a person, "
+    "JUST WRITE THEIR NAME/username/nickname (e.g. 'john.doe', 'big mike') — the SYSTEM AUTOMATICALLY turns it "
+    "into a proper blue @mention. You DON'T need to and SHOULDN'T type out the number string '<@123456789>' (one wrong digit -> "
+    "broken mention); only when an '<@id number>' is already provided in the 'People @'d in the message' section can you copy that exact "
+    "string (that id is already correct). ABSOLUTELY DON'T make up '<@name>'/'<@username>' (e.g. <@john.doe>) —"
+    "Discord can't tag it, it comes out as junk text; just write the plain name, the system handles it. "
+    "DON'T ASSIGN IDENTITIES CARELESSLY: the person/subject being discussed (a profile on a link, a stranger, someone "
+    "outside Discord) is BY DEFAULT DIFFERENT from the person in SERVER MEMORY — EVEN if the name matches or is similar (e.g. 'John "
+    "Wanderer' on Facebook is NOT the <@id> of 'john.doe' just because they both have 'john'). ONLY "
+    "tag '<@id>' when you're 100% CERTAIN it's the right person; if in doubt -> use the plain name, DON'T tag. "
+    "And DON'T MAKE THINGS UP: if a link/web returns a LOGIN/blocked page (e.g. Facebook showing 'Log in') "
+    "or has no real content -> just say 'can't view that link', ABSOLUTELY don't fabricate the info/"
+    "identity/bio of the person in the link."
 )
 
-# Quy tắc độ dài — đặt CUỐI system prompt (vị trí model bám nhất) và nói rõ ưu tiên
-# hơn cá tính, nếu không persona bựa sẽ lấn át làm bot trả lời lan man, nhảm.
+# Length rules — placed at the END of the system prompt (where the model sticks closest) and stated as taking
+# priority over personality, otherwise the savage persona takes over and the bot rambles on, becomes nonsense.
 _STYLE_GUIDE = (
-    "QUY TẮC TRẢ LỜI (quan trọng hơn cá tính, BẮT BUỘC tuân theo):\n"
-    "- Mặc định trả lời 1 câu, cụt lủn, đúng trọng tâm — như nhắn tin chứ không phải viết văn.\n"
-    "- KHI VỪA LÀM XONG việc qua công cụ (đặt nhắc, tạo poll, gán/gỡ role, kick/ban, bật/tắt...): "
-    "CHỈ xác nhận NGẮN 1 câu, vd 'Ok 7h tối tao nhắc mày', 'Poll xong, vào vote đi'. Muốn cà khịa thì "
-    "gói GỌN trong đúng câu đó — CẤM thêm vế sau kể lể, suy diễn, lên lớp, đá đưa chuyện khác.\n"
-    "- CẤM mở bài/dẫn dắt lan man, CẤM lặp ý, CẤM 'kể lể' dài dòng vô ích. Thà cụt còn hơn nhảm.\n"
-    "- Chỉ viết dài hơn khi người ta THẬT SỰ hỏi điều cần giải thích chi tiết (hướng dẫn, lý do)."
+    "REPLY RULES (more important than personality, you MUST follow these):\n"
+    "- By default reply in 1 sentence, short and to the point — like texting, not writing an essay.\n"
+    "- WHEN you JUST FINISHED something via a tool (set a reminder, created a poll, assigned/removed a role, kick/ban, enabled/disabled...): "
+    "give ONLY a SHORT 1-sentence confirmation, e.g. 'Ok I'll ping you at 7pm', 'Poll's up, go vote'. Want to be sassy? "
+    "Pack it TIGHTLY into that one sentence — DON'T add a follow-up clause that rambles, speculates, lectures, or drifts to something else.\n"
+    "- DON'T open with a long wind-up, DON'T repeat yourself, DON'T 'go on' uselessly. Better short than nonsense.\n"
+    "- Only write longer when someone GENUINELY asks for something that needs a detailed explanation (instructions, reasons)."
 )
 
 _EXTRACT_SYSTEM = (
-    "Bạn là bộ lọc trí nhớ. Dưới đây là facts đã biết về user + một lượt trao đổi mới. "
-    "Trả về danh sách facts BỀN VỮNG, đáng nhớ về user (tên, sở thích, vai trò, điều họ "
-    "muốn bạn nhớ), gộp với cũ, bỏ trùng, tối đa 15 dòng, mỗi dòng 1 fact ngắn. KHÔNG bịa. "
-    "Nếu không có gì mới đáng nhớ, trả lại nguyên facts cũ. Chỉ in danh sách, mỗi fact một "
-    "dòng, không thêm chữ nào khác."
+    "You're a memory filter. Below are the facts already known about the user + one new exchange. "
+    "Return a list of DURABLE, memorable facts about the user (name, interests, role, things they "
+    "want you to remember), merged with the old ones, deduplicated, max 15 lines, one short fact per line. DON'T make things up. "
+    "If there's nothing new worth remembering, return the old facts unchanged. Print only the list, one fact per "
+    "line, no other text."
 )
 
 
@@ -127,55 +127,55 @@ def build_system(
     mention_map: str = "",
     user_id: int | None = None,
 ) -> str:
-    """Ghép persona + trí nhớ server (memory_doc) + facts về user + ngữ cảnh kênh
-    thành system prompt. memory_doc là lore chung toàn server (biệt danh, luật, …) áp
-    cho MỌI lượt; channel_context là vài tin nhắn gần đây trong kênh để bot bám sát hội thoại.
-    now_text = giờ VN hiện tại để model tính thời điểm khi đặt nhắc (tool remind).
-    mention_map = ánh xạ 'tên -> <@id>' của người được @ trong tin, để model TAG thật + ghi nhớ kèm id.
-    user_id = Discord id NGƯỜI ĐANG NÓI CHUYỆN -> để model tag đúng khi họ xưng 'tao/tôi/mình'
-    (đừng bịa <@rolt9> = tên bot để chỉ chính họ)."""
+    """Assemble persona + server memory (memory_doc) + facts about the user + channel context
+    into the system prompt. memory_doc is the server-wide lore (nicknames, rules, …) applied
+    to EVERY turn; channel_context is a few recent messages in the channel so the bot stays on top of the conversation.
+    now_text = current VN time so the model can work out timestamps when setting a reminder (the remind tool).
+    mention_map = a 'name -> <@id>' map of people @'d in the message, so the model can TAG for real + remember with the id.
+    user_id = the Discord id of the PERSON BEING TALKED TO -> so the model tags them correctly when they say 'I/me/my'
+    (don't make up <@rolt9> = the bot's name to refer to them)."""
     base = persona or DEFAULT_PERSONA
     if user_id is not None:
         who = (
-            f"\nBạn đang nói chuyện với <@{user_id}> (tên: '{user_name}'). Khi họ xưng "
-            f"'tao/tôi/mình/tớ', đó CHÍNH LÀ <@{user_id}> — muốn nhắc/ghi nhớ về họ thì dùng "
-            f"'<@{user_id}>', TUYỆT ĐỐI ĐỪNG dùng '<@rolt9>' (đó là tên BOT, không phải người này)."
+            f"\nYou're talking to <@{user_id}> (name: '{user_name}'). When they say "
+            f"'I/me/my/myself', that IS <@{user_id}> — to remind/remember about them use "
+            f"'<@{user_id}>', ABSOLUTELY DON'T use '<@rolt9>' (that's the BOT's name, not this person)."
         )
     else:
-        who = f"\nBạn đang nói chuyện với '{user_name}'."
+        who = f"\nYou're talking to '{user_name}'."
     parts = [base, _TOOL_NUDGE, who]
     if now_text:
-        parts.append(f"\nBây giờ (giờ VN): {now_text}.")
+        parts.append(f"\nRight now (VN time): {now_text}.")
     if mention_map.strip():
-        # Tên -> <@id>: để khi GHI NHỚ hoặc NHẮC TỚI một người, model tag thật bằng <@id>
-        # (vd nhớ '<@123> biệt danh loz Khôi'), sau này gọi đúng người chứ không phải chữ trơn.
+        # name -> <@id>: so when REMEMBERING or REFERRING TO a person, the model tags for real with <@id>
+        # (e.g. remember '<@123> nickname big mike'), and later calls the right person, not plain text.
         parts.append(
-            f"\nNgười được @ trong tin (DÙNG NGUYÊN cụm <@id> này để tag/ghi nhớ họ): {mention_map.strip()}"
+            f"\nPeople @'d in the message (USE this exact <@id> string to tag/remember them): {mention_map.strip()}"
         )
     if memory_doc.strip():
-        # Lore toàn server — luôn tuân theo (vd: "từ nay gọi An là X").
-        # Nếu trong này có dạng <@số>, khi nhắc tới người đó hãy DÙNG <@số> để tag thật.
-        parts.append(f"\nTRÍ NHỚ SERVER (luôn áp dụng):\n{memory_doc.strip()}")
+        # Server-wide lore — always obey (e.g. "from now on call An X").
+        # If this contains an <@number> form, when referring to that person USE <@number> to tag for real.
+        parts.append(f"\nSERVER MEMORY (always apply):\n{memory_doc.strip()}")
     if facts.strip():
-        parts.append(f"\nNhững điều bạn nhớ về người này:\n{facts.strip()}")
+        parts.append(f"\nWhat you remember about this person:\n{facts.strip()}")
     if channel_context.strip():
-        # Tin gần đây trong kênh để bám sát cuộc trò chuyện đang diễn ra.
-        parts.append(f"\nVài tin nhắn gần đây trong kênh:\n{channel_context.strip()}")
-    # Quy tắc độ dài để CUỐI cùng -> model bám sát nhất, chống lan man.
+        # Recent channel messages so it stays on top of the ongoing conversation.
+        parts.append(f"\nA few recent messages in the channel:\n{channel_context.strip()}")
+    # Length rules go LAST -> the model sticks to them closest, prevents rambling.
     parts.append(f"\n{_STYLE_GUIDE}")
     return "\n".join(parts)
 
 
-# Cụm trong ngoặc kép (mọi kiểu nháy) — biệt danh người dùng tự đặt thường được lưu dạng này.
+# A quoted phrase (any quote style) — user-set nicknames are usually stored like this.
 _NICK_QUOTE_RE = re.compile(r"[\"'“”‘’«»]([^\"'“”‘’«»\n]{2,40})[\"'“”‘’«»]")
 
 
 def extract_nick_mentions(memory_doc: str) -> list[tuple[str, int]]:
-    """Rút (biệt danh -> user id) từ TRÍ NHỚ SERVER để sau này tag thật.
+    """Extract (nickname -> user id) pairs from SERVER MEMORY so we can tag for real later.
 
-    Quy ước an toàn: chỉ nhận DÒNG có ĐÚNG 1 '<@id>' — khi đó mọi cụm trong ngoặc kép trên
-    dòng đó coi là biệt danh của người ấy (vd '<@945> (Jacky) có biệt danh "ngọc gà"').
-    Dòng có nhiều id / không id -> bỏ (tránh map nhầm người).
+    Safe convention: only accept a LINE with EXACTLY 1 '<@id>' — then every quoted phrase on
+    that line is treated as that person's nickname (e.g. '<@945> (Jacky) has the nickname "big mike"').
+    Lines with multiple ids / no id -> skipped (to avoid mapping the wrong person).
     """
     out: list[tuple[str, int]] = []
     for line in (memory_doc or "").splitlines():
@@ -191,17 +191,17 @@ def extract_nick_mentions(memory_doc: str) -> list[tuple[str, int]]:
 
 
 def apply_nick_mentions(text: str, memory_doc: str) -> str:
-    """Đổi biệt danh tự đặt (vd 'ngọc gà', '@ngọc gà') trong câu trả lời thành '<@id>' để LUÔN
-    tag thật người đó — kể cả khi model chỉ viết biệt danh trơn. Ưu tiên biệt danh DÀI trước."""
+    """Turn user-set nicknames (e.g. 'big mike', '@big mike') in the reply into '<@id>' so the right person
+    is ALWAYS tagged for real — even when the model only wrote the plain nickname. Prefer LONGER nicknames first."""
     if not text or not memory_doc:
         return text
-    # KHÔNG bỏ qua theo uid: 1 người có thể có NHIỀU biệt danh ('ngọc gà' lẫn 'ngọc kem') cùng
-    # xuất hiện -> phải tag HẾT, đừng skip chỉ vì đã tag 1 biệt danh khác của họ. Ưu tiên biệt
-    # danh DÀI trước để khớp đúng cụm dài nhất; mỗi biệt danh đổi MỌI lần xuất hiện.
+    # DON'T skip by uid: one person can have MULTIPLE nicknames ('big mike' and 'lil mike') appearing
+    # together -> we must tag ALL of them, don't skip just because we already tagged another nickname of theirs.
+    # Prefer LONGER nicknames first to match the longest phrase; each nickname replaces EVERY occurrence.
     for nick, uid in sorted(
         extract_nick_mentions(memory_doc), key=lambda x: len(x[0]), reverse=True
     ):
-        # '@ngọc gà' hoặc 'ngọc gà' (chữ trơn) ở ranh giới từ -> '<@id>'.
+        # '@big mike' or 'big mike' (plain text) at a word boundary -> '<@id>'.
         text = re.sub(rf"(?<!\w)@?{re.escape(nick)}(?!\w)", f"<@{uid}>", text, flags=re.IGNORECASE)
     return text
 
@@ -231,7 +231,7 @@ class AgentService:
     async def _guild_pk(self, guild_discord_id: int) -> uuid.UUID:
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("Server isn't registered with the bot yet.")
         return guild.id
 
     async def respond(
@@ -251,8 +251,8 @@ class AgentService:
         channel_context: str = "",
         mention_map: str = "",
     ) -> tuple[uuid.UUID, str, list] | None:
-        """Gating + chọn conversation + gọi AI. Trả (conversation_id, text, pending_actions),
-        hoặc None nếu agent không nên trả lời. Lỗi cấu hình AI raise ValueError để cog báo ❌."""
+        """Gating + pick a conversation + call the AI. Returns (conversation_id, text, pending_actions),
+        or None if the agent shouldn't reply. An AI config error raises ValueError so the cog reports ❌."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
             return None
@@ -262,11 +262,11 @@ class AgentService:
         if cfg.agent_channel_id and channel_id != cfg.agent_channel_id:
             return None
 
-        # Chọn cuộc theo 3 tầng ưu tiên:
-        #   1) User REPLY vào tin bot -> nối đúng cuộc đó (rõ ràng nhất).
-        #   2) Không reply, nhưng vừa nói trong cùng (kênh, người) gần đây -> nối cuộc
-        #      gần nhất (tự nhiên, đỡ bắt user phải reply).
-        #   3) Còn lại -> cuộc mới.
+        # Pick a conversation by 3 priority tiers:
+        #   1) User REPLIED to a bot message -> continue that exact conversation (clearest signal).
+        #   2) No reply, but they spoke in the same (channel, person) recently -> continue the
+        #      most recent conversation (natural, doesn't force the user to reply).
+        #   3) Otherwise -> a new conversation.
         conversation_id = None
         if reference_message_id is not None:
             conversation_id = await self.agent_msg_repo.conversation_of(reference_message_id)
@@ -286,7 +286,7 @@ class AgentService:
         history = await self.agent_msg_repo.recent_turns(
             conversation_id, limit=TURN_LIMIT, char_cap=HISTORY_CHAR_CAP
         )
-        # Giờ VN hiện tại để model tính thời điểm khi đặt nhắc ("ngày mai 5h30" -> tuyệt đối).
+        # Current VN time so the model can work out the timestamp when setting a reminder ("tomorrow 5:30" -> absolute).
         now_text = datetime.now(_VN_TZ).strftime("%Y-%m-%d %H:%M (%A)")
         system = build_system(
             cfg.persona,
@@ -310,17 +310,17 @@ class AgentService:
             commander_id=commander_id,
             commander_perms=perms,
             guild_discord_id=guild_discord_id,
-            # Tool `remember` LUÔN có — ghi vào trí nhớ server qua repo này.
+            # The `remember` tool is ALWAYS available — writes to server memory via this repo.
             memory_repo_doc=self.memory_doc_repo,
             guild_pk=guild.id,
-            # Tool `remind` — ghi báo thức; channel_id = kênh sẽ nhắc khi tới giờ.
+            # The `remind` tool — writes reminders; channel_id = the channel to ping in when the time comes.
             reminder_repo=self.reminder_repo,
             channel_id=channel_id,
-            # Tool `subscribe`/`unsubscribe`/`list_subscriptions` — đăng ký tin định kỳ.
+            # The `subscribe`/`unsubscribe`/`list_subscriptions` tools — daily digest subscriptions.
             subscription_repo=self.subscription_repo,
         )
 
-        # Luôn đi qua tool-loop: tool `remember` luôn sẵn sàng nên không còn nhánh "chat chay".
+        # Always go through the tool-loop: the `remember` tool is always available, so there's no more "plain chat" branch.
         text = await run_with_tools(
             gateway=self.gateway,
             guild_discord_id=guild_discord_id,
@@ -331,7 +331,7 @@ class AgentService:
             has_search=cfg.tools_enabled and bool(settings.TAVILY_API_KEY),
             include_actions=include_actions,
         )
-        # Biệt danh tự đặt ('ngọc gà'…) trong câu -> '<@id>' để LUÔN tag thật người đó.
+        # User-set nicknames ('big mike'…) in the reply -> '<@id>' so the right person is ALWAYS tagged for real.
         text = apply_nick_mentions(text, memory_doc)
         return conversation_id, text, ctx.pending
 
@@ -346,7 +346,7 @@ class AgentService:
         bot_message_id: int,
         channel_id: int | None = None,
     ) -> None:
-        """Sau khi đã gửi reply: lưu 2 lượt + async rút facts. Lỗi rút facts không chặn."""
+        """After the reply has been sent: save both turns + asynchronously extract facts. A fact-extraction error doesn't block."""
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
             return
@@ -374,8 +374,8 @@ class AgentService:
         channel_id: int | None = None,
         user_discord_id: int | None = None,
     ) -> None:
-        # Gắn (kênh, người) vào CẢ 2 lượt -> sau này `latest_conversation` tra ra được
-        # cuộc này khi user nhắn tiếp mà không reply.
+        # Attach (channel, person) to BOTH turns -> later `latest_conversation` can find this
+        # conversation when the user sends another message without replying.
         await self.agent_msg_repo.add_turn(
             guild_id,
             conversation_id,
@@ -402,14 +402,14 @@ class AgentService:
         assistant_text: str,
         old_facts: str,
     ) -> None:
-        """Rút facts mới (qua gateway) rồi upsert. Lỗi/rỗng -> bỏ qua (không raise)."""
+        """Extract new facts (via the gateway) then upsert. On error/empty -> skip (don't raise)."""
         gid = await self._guild_pk(guild_discord_id)
-        prompt = f"FACTS CŨ:\n{old_facts}\n\n---\nUSER: {user_text}\nBOT: {assistant_text}"
+        prompt = f"OLD FACTS:\n{old_facts}\n\n---\nUSER: {user_text}\nBOT: {assistant_text}"
         try:
             out = await self.gateway.complete(
                 guild_discord_id=guild_discord_id, system=_EXTRACT_SYSTEM, prompt=prompt
             )
-        except Exception:  # noqa: BLE001 — rút facts là phụ, không được làm hỏng luồng
+        except Exception:  # noqa: BLE001 — fact extraction is secondary, must not break the flow
             return
         lines = [ln.strip() for ln in out.splitlines() if ln.strip()][:MAX_FACTS]
         facts = "\n".join(lines)[:FACTS_CHAR_CAP]

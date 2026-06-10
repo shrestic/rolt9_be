@@ -17,8 +17,8 @@ from app.repositories.user_wallet import WalletRepository
 from app.services.minigames.minigame_logic import (
     Outcome,
     play_coinflip,
+    play_over_under,
     play_slots,
-    play_taixiu,
 )
 
 
@@ -31,7 +31,7 @@ class GameResult:
         payout:  Coins credited back on a win (0 on a loss).
         net:     Net coin change = payout - bet.  Negative means the player lost.
         balance: The player's wallet balance after the round settles.
-        detail:  Human-facing roll description, e.g. "Ngửa", "🎲 6+4+1=11 (Tài)".
+        detail:  Human-facing roll description, e.g. "Heads", "🎲 6+4+1=11 (Over)".
     """
 
     won: bool
@@ -86,16 +86,16 @@ class MinigameService:
         # 1. Resolve guild — raises if not registered.
         guild = await self.guild_repo.get_by_discord_id(guild_discord_id)
         if guild is None:
-            raise ValueError("Server chưa đăng ký với bot.")
+            raise ValueError("This server isn't registered with the bot.")
 
         # 2. Check config / enabled flag.
         cfg = await self.config_repo.get(guild.id)
         if cfg is None or not cfg.enabled:
-            raise ValueError("Mini-games chưa được bật trên server này.")
+            raise ValueError("Mini-games aren't enabled on this server.")
 
         # 3. Validate bet range.
         if bet < cfg.min_bet or bet > cfg.max_bet:
-            raise ValueError(f"Cược phải trong khoảng {cfg.min_bet:,}–{cfg.max_bet:,}.")
+            raise ValueError(f"Bet must be between {cfg.min_bet:,} and {cfg.max_bet:,}.")
 
         # 4. Atomically debit the bet.  WalletRepository returns False when the
         #    player's balance is too low — the balance never goes negative.
@@ -104,7 +104,7 @@ class MinigameService:
             # Fetch balance for a helpful error message.
             wallet = await self.wallet_repo.get(guild.id, user_id)
             have = wallet.balance if wallet else 0
-            raise ValueError(f"Không đủ coin — cược {bet:,}, bạn có {have:,}.")
+            raise ValueError(f"Not enough coins — bet {bet:,}, you have {have:,}.")
 
         # 5. Run the pure game function.
         outcome = game()
@@ -141,15 +141,15 @@ class MinigameService:
             game=lambda: play_coinflip(self._rng, bet, choice),
         )
 
-    async def play_taixiu(
+    async def play_over_under(
         self, *, guild_discord_id: int, user_id: int, bet: int, choice: str
     ) -> GameResult:
-        """Tài xỉu (3 dice).  `choice` must be "tai" (≥11) or "xiu" (≤10); win pays ×1.9."""
+        """Over/under (3 dice).  `choice` must be "over" (≥11) or "under" (≤10); win pays ×1.9."""
         return await self._play(
             guild_discord_id=guild_discord_id,
             user_id=user_id,
             bet=bet,
-            game=lambda: play_taixiu(self._rng, bet, choice),
+            game=lambda: play_over_under(self._rng, bet, choice),
         )
 
     async def play_slots(self, *, guild_discord_id: int, user_id: int, bet: int) -> GameResult:

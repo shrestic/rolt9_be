@@ -36,23 +36,23 @@ async def _add(session, gid, *, content, created_at):
 async def test_delete_older_than_drops_only_old(db_session):
     gid = await _guild(db_session)
     now = datetime.now(UTC)
-    await _add(db_session, gid, content="cũ", created_at=now - timedelta(days=100))
-    await _add(db_session, gid, content="mới", created_at=now - timedelta(days=1))
+    await _add(db_session, gid, content="old", created_at=now - timedelta(days=100))
+    await _add(db_session, gid, content="new", created_at=now - timedelta(days=1))
 
     deleted = await AgentMessageRepository(db_session).delete_older_than(now - timedelta(days=90))
     await db_session.commit()
 
     assert deleted == 1
     rows = (await db_session.execute(select(AgentMessage.content))).scalars().all()
-    assert list(rows) == ["mới"]  # chỉ giữ cái trong 90 ngày
+    assert list(rows) == ["new"]  # keep only the ones within 90 days
 
 
 @pytest.mark.asyncio
 async def test_purge_old_agent_messages_default_90_days(db_session, monkeypatch):
     gid = await _guild(db_session)
     now = datetime.now(UTC)
-    await _add(db_session, gid, content="cũ", created_at=now - timedelta(days=120))
-    await _add(db_session, gid, content="mới", created_at=now - timedelta(days=10))
+    await _add(db_session, gid, content="old", created_at=now - timedelta(days=120))
+    await _add(db_session, gid, content="new", created_at=now - timedelta(days=10))
 
     @contextlib.asynccontextmanager
     async def fake_scope():
@@ -60,5 +60,5 @@ async def test_purge_old_agent_messages_default_90_days(db_session, monkeypatch)
 
     monkeypatch.setattr(maint_mod, "session_scope", fake_scope)
 
-    deleted = await purge_old_agent_messages(now=now)  # mặc định giữ 90 ngày
+    deleted = await purge_old_agent_messages(now=now)  # default keep 90 days
     assert deleted == 1

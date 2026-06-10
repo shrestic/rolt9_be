@@ -99,7 +99,7 @@ async def handle_message(
             names = ", ".join(f"{b.emoji} {b.name}" for b in new_badges)
             await discord_io.post_to_channel(
                 int(message.channel.id),
-                content=f"🏅 {message.author.mention} vừa mở khóa: {names}!",
+                content=f"🏅 {message.author.mention} just unlocked: {names}!",
             )
 
 

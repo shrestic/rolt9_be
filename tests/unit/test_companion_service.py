@@ -31,11 +31,11 @@ def test_build_snapshot_game_alone():
     members = [_member("An", games=["LoL"]), _member("Bot", games=["LoL"], bot=True)]
     out = build_snapshot(members, [], [], bot_id=999)
     assert out is not None
-    assert "MỘT MÌNH" in out and "An" in out and "Bot" not in out
+    assert "ALONE" in out and "An" in out and "Bot" not in out
 
 
 def test_build_snapshot_includes_mention_for_ping():
-    # Snapshot phải kèm '<@id>' để model @ping được đúng người
+    # Snapshot must include '<@id>' so the model can @ping the right person
     an = _member("An", games=["Valorant"])
     out = build_snapshot([an], [], [], bot_id=999)
     assert f"<@{an.id}>" in out
@@ -48,7 +48,7 @@ def test_build_snapshot_group_game():
         _member("Cuong", ["Valorant"]),
     ]
     out = build_snapshot(members, [], [], 999)
-    assert "3 người" in out and "Valorant" in out
+    assert "3 people" in out and "Valorant" in out
 
 
 def test_build_snapshot_voice_and_chat():
@@ -57,66 +57,66 @@ def test_build_snapshot_voice_and_chat():
         SimpleNamespace(author=SimpleNamespace(display_name="Binh", bot=False), content="hello")
     ]
     out = build_snapshot([], [vc], msgs, 999)
-    assert "một mình" in out.lower() and "Binh" in out
+    assert "alone" in out.lower() and "Binh" in out
 
 
 def test_build_snapshot_empty_none():
     assert build_snapshot([], [], [], 999) is None
 
 
-# ---------- real-time: phát hiện vừa bật game ----------
+# ---------- real-time: detect a just-started game ----------
 
 
 def _listening(name):
-    """Member đang nghe nhạc (vd Spotify) — activity type listening."""
+    """Member listening to music (e.g. Spotify) — activity type listening."""
     act = SimpleNamespace(type=discord.ActivityType.listening, name=name)
     uid = hash(name + "L") % 9999
     return SimpleNamespace(
-        id=uid, display_name="Mèo", bot=False, activities=[act], mention=f"<@{uid}>"
+        id=uid, display_name="Cat", bot=False, activities=[act], mention=f"<@{uid}>"
     )
 
 
 def test_newly_started_activities_detects_new_game():
-    before = _member("An")  # chưa làm gì
-    after = _member("An", games=["Valorant"])  # vừa bật Valorant
-    assert newly_started_activities(before, after) == ["chơi Valorant"]
+    before = _member("An")  # doing nothing
+    after = _member("An", games=["Valorant"])  # just started Valorant
+    assert newly_started_activities(before, after) == ["playing Valorant"]
 
 
 def test_newly_started_activities_ignores_already_active():
-    # đang chơi Valorant từ trước, presence update vì lý do khác -> KHÔNG coi là mới
+    # already playing Valorant, presence update for another reason -> NOT counted as new
     before = _member("An", games=["Valorant"])
     after = _member("An", games=["Valorant"])
     assert newly_started_activities(before, after) == []
 
 
 def test_newly_started_activities_detects_non_game():
-    # KHÔNG chỉ game: vừa mở Spotify cũng bắt được
-    before = _member("An")  # chưa làm gì
-    after = _listening("Spotify")  # vừa mở Spotify
-    assert "nghe Spotify" in newly_started_activities(before, after)
+    # NOT just games: opening Spotify is caught too
+    before = _member("An")  # doing nothing
+    after = _listening("Spotify")  # just opened Spotify
+    assert "listening to Spotify" in newly_started_activities(before, after)
 
 
 def test_build_snapshot_includes_non_game_activity():
     out = build_snapshot([_listening("Spotify")], [], [], bot_id=999)
-    assert out is not None and "nghe Spotify" in out
+    assert out is not None and "listening to Spotify" in out
 
 
 def test_build_event_snapshot_has_event_mention_and_context():
     an = _member("An", games=["Valorant"])
-    binh = _member("Binh", games=["Valorant"])  # người khác cũng đang chơi -> bối cảnh
-    out = build_event_snapshot(an, ["chơi Valorant"], [an, binh], [], bot_id=999)
-    assert "VỪA MỚI" in out and "Valorant" in out
-    assert f"<@{an.id}>" in out  # có mention để @ping người vừa bật game
+    binh = _member("Binh", games=["Valorant"])  # someone else playing too -> context
+    out = build_event_snapshot(an, ["playing Valorant"], [an, binh], [], bot_id=999)
+    assert "JUST NOW" in out and "Valorant" in out
+    assert f"<@{an.id}>" in out  # has a mention to @ping the person who just started the game
 
 
 def test_build_companion_system_persona():
-    s = build_companion_system("Bạn là mèo máy")
-    assert "mèo máy" in s and "SKIP" in s
+    s = build_companion_system("You are a robot cat")
+    assert "robot cat" in s and "SKIP" in s
 
 
 def test_build_companion_system_includes_memory_doc():
-    s = build_companion_system("Bạn là mèo máy", "- gọi An là thằng loz")
-    assert "thằng loz" in s and "TRÍ NHỚ SERVER" in s
+    s = build_companion_system("You are a robot cat", "- call An a jerk")
+    assert "jerk" in s and "SERVER MEMORY" in s
 
 
 async def _svc(db_session, provider, *, discord_id=4242, enabled=True):
@@ -142,13 +142,13 @@ async def _svc(db_session, provider, *, discord_id=4242, enabled=True):
 @pytest.mark.asyncio
 async def test_decide_skip(db_session):
     svc = await _svc(db_session, FakeAIProvider(text="SKIP", cost_usd=0.0))
-    assert await svc.decide(guild_discord_id=4242, snapshot="tình hình", persona="") is None
+    assert await svc.decide(guild_discord_id=4242, snapshot="the situation", persona="") is None
 
 
 @pytest.mark.asyncio
 async def test_decide_says_something(db_session):
-    svc = await _svc(db_session, FakeAIProvider(text="Ê An chơi một mình kìa 👀", cost_usd=0.0))
-    out = await svc.decide(guild_discord_id=4242, snapshot="An chơi LoL", persona="")
+    svc = await _svc(db_session, FakeAIProvider(text="Yo An's playing solo huh 👀", cost_usd=0.0))
+    out = await svc.decide(guild_discord_id=4242, snapshot="An playing LoL", persona="")
     assert "An" in out
 
 

@@ -9,9 +9,9 @@ unit-testable with a FakeAIProvider.
 from app.services.ai.ai_gateway import AIGateway
 
 SUMMARY_SYSTEM = (
-    "Bạn là trợ lý tóm tắt hội thoại Discord bằng tiếng Việt. Tóm tắt ngắn gọn, "
-    "rõ ràng các ý chính / chủ đề / quyết định trong đoạn chat dưới dạng 3–6 gạch "
-    "đầu dòng. Bỏ qua chuyện tầm phào không quan trọng. Không bịa thông tin."
+    "You are an assistant that summarizes Discord conversations in English. Summarize "
+    "the main points / topics / decisions in the chat clearly and briefly as 3–6 bullet "
+    "points. Skip the unimportant small talk. Don't make up information."
 )
 
 
@@ -20,10 +20,10 @@ class SummarizerService:
         self.gateway = gateway
 
     async def summarize(self, *, guild_discord_id: int, transcript: str) -> str:
-        prompt = f"Tóm tắt đoạn chat sau:\n\n{transcript}"
+        prompt = f"Summarize the following chat:\n\n{transcript}"
         return await self.gateway.complete(
             guild_discord_id=guild_discord_id,
             system=SUMMARY_SYSTEM,
             prompt=prompt,
-            # Không set max_tokens -> kế thừa AI_MAX_TOKENS (200k) cho reasoning model; độ dài bản tóm tắt do prompt bound.
+            # Don't set max_tokens -> inherit AI_MAX_TOKENS (200k) for the reasoning model; summary length is bounded by the prompt.
         )

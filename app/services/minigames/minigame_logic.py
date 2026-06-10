@@ -12,7 +12,7 @@ import random
 from dataclasses import dataclass
 
 COINFLIP_MULT = 1.9
-TAIXIU_MULT = 1.9
+OVER_UNDER_MULT = 1.9
 SLOTS_JACKPOT_MULT = 10
 SLOTS_PAIR_MULT = 1.6
 SLOTS_SYMBOLS = ["🍒", "🔔", "🍋", "⭐", "💎", "7️⃣"]
@@ -22,30 +22,31 @@ SLOTS_SYMBOLS = ["🍒", "🔔", "🍋", "⭐", "💎", "7️⃣"]
 class Outcome:
     won: bool
     payout: int  # coins credited on a win; 0 on a loss
-    detail: str  # human-facing roll, e.g. "Ngửa", "🎲 6+4+1=11 (Tài)", "🍒🍒🔔"
+    detail: str  # human-facing roll, e.g. "Heads", "🎲 6+4+1=11 (Over)", "🍒🍒🔔"
 
 
 def play_coinflip(rng: random.Random, bet: int, choice: str) -> Outcome:
     """Coin flip. `choice` ∈ {"heads","tails"}; 50/50; a win pays bet × 1.9."""
     flip = rng.choice(["heads", "tails"])
-    label = "Ngửa" if flip == "heads" else "Sấp"
+    label = "Heads" if flip == "heads" else "Tails"
     if flip == choice:
         return Outcome(True, round(bet * COINFLIP_MULT), label)
     return Outcome(False, 0, label)
 
 
-def play_taixiu(rng: random.Random, bet: int, choice: str) -> Outcome:
-    """Tài xỉu. Sum of 3 d6; xỉu = 3–10, tài = 11–18 (P=0.5 each). Win pays ×1.9.
+def play_over_under(rng: random.Random, bet: int, choice: str) -> Outcome:
+    """Over/under dice. Sum of 3 d6; under = 3–10, over = 11–18 (P=0.5 each).
+    Win pays ×1.9.
 
-    `choice` ∈ {"tai","xiu"}.
+    `choice` ∈ {"over","under"}.
     """
     dice = [rng.randint(1, 6) for _ in range(3)]
     total = sum(dice)
-    result = "tai" if total >= 11 else "xiu"
-    name = "Tài" if result == "tai" else "Xỉu"
+    result = "over" if total >= 11 else "under"
+    name = "Over" if result == "over" else "Under"
     detail = f"🎲 {dice[0]}+{dice[1]}+{dice[2]}={total} ({name})"
     if result == choice:
-        return Outcome(True, round(bet * TAIXIU_MULT), detail)
+        return Outcome(True, round(bet * OVER_UNDER_MULT), detail)
     return Outcome(False, 0, detail)
 
 
